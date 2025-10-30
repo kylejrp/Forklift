@@ -90,10 +90,10 @@ namespace Forklift.Testing
                 var legal = board.GenerateLegal().ToList();
                 if (legal.Count != 20)
                 {
-                    bool stm = board.WhiteToMove;          // should be false here (Black to move)
-                    bool blackInCheck = board.InCheck(false);
+                    var stm = board.SideToMove;
+                    bool blackInCheck = board.InCheck(Color.Black);
 
-                    var k64Black = board.FindKingSq64(false);
+                    var k64Black = board.FindKingSq64(Color.Black);
                     var kAlg = Squares.ToAlgebraic((Square0x88)k64Black).Value;
 
                     // High-level breakdown from your Board.AttackerBreakdown
@@ -112,7 +112,7 @@ namespace Forklift.Testing
 
                     var msg =
 $@"After {ToUci(m)}:
-  WhiteToMove                = {stm}   (expected: False)
+  WhiteToMove                = {stm}   (expected: Black)
   Black InCheck              = {blackInCheck}
   Legal replies              = {legal.Count} (expected: 20)
 
@@ -135,7 +135,7 @@ $@"After {ToUci(m)}:
 
                     // Pinpointed assertions so the failure prints the block above
                     Assert.False(blackInCheck, "Black reported in check after a normal white first move.\n" + msg);
-                    Assert.False(stm, "Side-to-move did not flip after MakeMove.\n" + msg);
+                    Assert.Equal(Color.Black, stm);
                     Assert.True(legal.Count == 20, "Unexpected reply count.\n" + msg);
                 }
 

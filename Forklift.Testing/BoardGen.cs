@@ -109,15 +109,14 @@ namespace Forklift.Testing
 
         private static bool IsOwnKingInCheck(Board b)
         {
-            bool justMovedWhite = !b.WhiteToMove; // after MakeMove, side flipped
-            var kingSq64 = b.FindKingSq64(justMovedWhite);
-            return b.IsSquareAttacked(kingSq64, byWhite: !justMovedWhite);
+            var kingSq64 = b.FindKingSq64(color: b.SideToMove);
+            return b.IsSquareAttacked(kingSq64, bySide: b.SideToMove.Flip());
         }
 
         private static bool HasAnyLegalMove(Board b)
         {
             var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(b, moves, b.WhiteToMove);
+            MoveGeneration.GeneratePseudoLegal(b, moves, b.SideToMove);
             foreach (var mv in moves)
             {
                 var u = b.MakeMove(mv);
@@ -131,7 +130,7 @@ namespace Forklift.Testing
         private static bool TryPickRandomLegalMove(Board b, Random rng, out Board.Move move)
         {
             var pseudo = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(b, pseudo, b.WhiteToMove);
+            MoveGeneration.GeneratePseudoLegal(b, pseudo, b.SideToMove);
             if (pseudo.Count == 0) { move = default; return false; }
 
             int start = rng.Next(pseudo.Count);

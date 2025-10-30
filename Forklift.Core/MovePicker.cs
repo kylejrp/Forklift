@@ -16,7 +16,7 @@ namespace Forklift.Core
         public static Board.Move FirstPseudoLegal(Board board)
         {
             var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(board, moves, board.WhiteToMove);
+            MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
             if (moves.Count == 0)
                 throw new InvalidOperationException("No pseudo-legal moves available.");
             return moves[0];
@@ -29,7 +29,7 @@ namespace Forklift.Core
         public static Board.Move FirstLegal(Board board)
         {
             var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(board, moves, board.WhiteToMove);
+            MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
 
             foreach (var mv in moves)
             {
@@ -38,8 +38,8 @@ namespace Forklift.Core
                 // After MakeMove, board.WhiteToMove has flipped.
                 // The side now to move is the opponent; check if OUR king is in check.
                 bool ourKingInCheck = board.IsSquareAttacked(
-                    t64: board.FindKingSq64(white: !board.WhiteToMove),
-                    byWhite: board.WhiteToMove);
+                    t64: board.FindKingSq64(board.SideToMove.Flip()),
+                    bySide: board.SideToMove);
 
                 board.UnmakeMove(mv, undo);
 

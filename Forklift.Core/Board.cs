@@ -1,6 +1,7 @@
 ﻿using System;
-using System.Numerics;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Numerics;
 
 namespace Forklift.Core;
 
@@ -33,9 +34,28 @@ public sealed class Board
     public ulong OccAll { get; private set; }
 
     // State
-    public bool WhiteToMove { get; private set; } = true;
-    public CastlingRightsFlags CastlingRights { get; private set; } = CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen | CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen;
-    public int? EnPassantFile { get; private set; } // 0..7 or null
+    public Color SideToMove
+    {
+        get => _sideToMove;
+        private set
+        {
+            if (_sideToMove == value) return;
+            ZKey ^= Tables.Zobrist.SideToMove;
+            _sideToMove = value;
+        }
+    }
+    private Color _sideToMove = Color.White;
+
+    public void SetSideToMove(Color sideToMove)
+    {
+        SideToMove = sideToMove;
+    }
+
+    public CastlingRightsFlags CastlingRights { get; private set; } =
+        CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen |
+        CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen;
+
+    public FileIndex? EnPassantFile { get; private set; } // a..h => 0..7 or null
     public int HalfmoveClock { get; private set; }
     public int FullmoveNumber { get; private set; } = 1;
 
@@ -72,7 +92,7 @@ public sealed class Board
         Array.Fill(mailbox, (sbyte)Piece.Empty);
         Array.Fill(pieceBB, 0UL);
         OccWhite = OccBlack = OccAll = 0;
-        WhiteToMove = true;
+        SideToMove = Color.White;
         CastlingRights = CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen | CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen;
         EnPassantFile = null;
         HalfmoveClock = 0;
@@ -166,10 +186,10 @@ public sealed class Board
 
     public readonly record struct Undo(
         Piece Captured,
-        int? EnPassantFilePrev,
+        FileIndex? EnPassantFilePrev,
         CastlingRightsFlags CastlingPrev,
         int HalfmovePrev,
-        bool WhiteToMovePrev,
+        Color SideToMovePrev,
         ulong ZKeyPrev,
         // new: for EP/castling reversals
         Square0x88? EnPassantCapturedSq88,
@@ -181,24 +201,23 @@ public sealed class Board
     {
         // Save undo (we'll fill the new special fields below)
         var undo = new Undo(
-            Captured: (m.Kind == MoveKind.EnPassant ? (Piece)(WhiteToMove ? Piece.BlackPawn : Piece.WhitePawn) : (Piece)mailbox[m.To88]),
+            Captured: (m.Kind == MoveKind.EnPassant ? (Piece)(SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn) : (Piece)mailbox[m.To88]),
             EnPassantFilePrev: EnPassantFile,
             CastlingPrev: CastlingRights,
             HalfmovePrev: HalfmoveClock,
-            WhiteToMovePrev: WhiteToMove,
+            SideToMovePrev: SideToMove,
             ZKeyPrev: ZKey,
             EnPassantCapturedSq88: null,
             CastleRookFrom88: null,
             CastleRookTo88: null);
 
         // --- Clear old EP key
-        if (EnPassantFile is int oldEPFile) ZKey ^= Tables.Zobrist.EnPassant[oldEPFile];
-        EnPassantFile = null;
+        SetEnPassantFile(null);
 
         // --- Halfmove + fullmove
         bool isPawnMove = (m.Mover == Piece.WhitePawn || m.Mover == Piece.BlackPawn);
         HalfmoveClock = (isPawnMove || undo.Captured != Piece.Empty) ? 0 : (HalfmoveClock + 1);
-        if (!WhiteToMove) FullmoveNumber++;
+        if (!SideToMove.IsWhite()) FullmoveNumber++;
 
         // --- Update castling rights if king/rook move or rook captured on home square
         var newCR = CastlingRights;
@@ -326,14 +345,12 @@ public sealed class Board
         // --- New EP target if a pawn moved two squares
         if (isPawnMove && (m.To88 - m.From88 == +32 || m.To88 - m.From88 == -32))
         {
-            int file = m.From88 & 0x0F;
-            EnPassantFile = file;
-            ZKey ^= Tables.Zobrist.EnPassant[file];
+            var file = (FileIndex)(m.From88.Value & 0x0F);
+            SetEnPassantFile(file);
         }
 
         // --- Side to move
-        WhiteToMove = !WhiteToMove;
-        ZKey ^= Tables.Zobrist.SideToMove;
+        SideToMove = SideToMove.Flip();
 
         // Repetition bookkeeping
         _hashStack.Push(ZKey);
@@ -357,7 +374,7 @@ public sealed class Board
         }
 
         // Restore side and ZKey (this also covers EP and castling zobrist, so do it early)
-        WhiteToMove = u.WhiteToMovePrev;
+        _sideToMove = u.SideToMovePrev;
         ZKey = u.ZKeyPrev;
 
         // Clear destination / rook squares as needed and put things back
@@ -422,13 +439,13 @@ public sealed class Board
     public IEnumerable<Move> GenerateLegal()
     {
         var pseudo = new List<Move>(64);
-        MoveGeneration.GeneratePseudoLegal(this, pseudo, WhiteToMove);
+        MoveGeneration.GeneratePseudoLegal(this, pseudo, SideToMove);
 
         foreach (var mv in pseudo)
         {
             var u = MakeMove(mv);
-            // after MakeMove, side to move flipped; the side that just moved is !WhiteToMove
-            bool ownKingInCheck = InCheck(!WhiteToMove);
+            // after MakeMove, side to move flipped
+            bool ownKingInCheck = InCheck(SideToMove.Flip());
             UnmakeMove(mv, u);
             if (!ownKingInCheck)
                 yield return mv;
@@ -442,7 +459,7 @@ public sealed class Board
     public IEnumerable<Move> GeneratePseudoLegal()
     {
         var moves = new List<Move>(64);
-        MoveGeneration.GeneratePseudoLegal(this, moves, WhiteToMove);
+        MoveGeneration.GeneratePseudoLegal(this, moves, SideToMove);
         return moves;
     }
 
@@ -477,9 +494,10 @@ public sealed class Board
     private ulong RookAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, RookDirections);
     private ulong BishopAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, BishopDirections);
 
-    public bool IsSquareAttacked(Square0x64 t64, bool byWhite)
+    public bool IsSquareAttacked(Square0x64 t64, Color bySide)
     {
         var T = Tables; // local alias
+        var byWhite = bySide.IsWhite();
 
         // Knights
         ulong knights = byWhite ? pieceBB[PieceUtil.Index(Piece.WhiteKnight)] : pieceBB[PieceUtil.Index(Piece.BlackKnight)];
@@ -550,7 +568,7 @@ public sealed class Board
         OccWhite = OccBlack = OccAll = 0UL;
 
         // Scalar state
-        WhiteToMove = true;
+        SideToMove = Color.White;
         EnPassantFile = null;
         HalfmoveClock = 0;
         FullmoveNumber = 1;
@@ -590,7 +608,7 @@ public sealed class Board
         Place(Squares.ToAlgebraic(new Square0x88(Sq(6, 7))), Piece.BlackKnight); Place(Squares.ToAlgebraic(new Square0x88(Sq(7, 7))), Piece.BlackRook);
 
         // Side & rights
-        WhiteToMove = true;
+        SideToMove = Color.White;
         EnPassantFile = null;
         HalfmoveClock = 0;
         FullmoveNumber = 1;
@@ -611,33 +629,25 @@ public sealed class Board
             int s64 = (Square0x64)sq88;
             key ^= Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
         }
-        if (!WhiteToMove) key ^= Tables.Zobrist.SideToMove;
-        if (EnPassantFile is int epf) key ^= Tables.Zobrist.EnPassant[epf];
+        if (!SideToMove.IsWhite()) key ^= Tables.Zobrist.SideToMove;
+        if (EnPassantFile is FileIndex epf) key ^= Tables.Zobrist.EnPassant[epf.Value];
         key ^= Tables.Zobrist.Castling[(int)CastlingRights & 0xF];
         ZKey = key;
     }
 
-    public void SetSideToMove(bool whiteToMove)
+    public void SetEnPassantFile(FileIndex? file)
     {
-        if (WhiteToMove == whiteToMove) return;
-        // Zobrist side-to-move is a single toggle bit
-        ZKey ^= Tables.Zobrist.SideToMove;
-        WhiteToMove = whiteToMove;
-    }
-
-    public void SetEnPassantFile(int? file)
-    {
-        // Zobrist typically encodes the *file* (a..h -> 0..7) or "no EP" as no key
         if (EnPassantFile == file) return;
 
-        if (EnPassantFile is int oldFile)
-            ZKey ^= Tables.Zobrist.EnPassant[oldFile];
+        if (EnPassantFile is FileIndex oldFile)
+            ZKey ^= Tables.Zobrist.EnPassant[oldFile.Value];
 
         EnPassantFile = file;
 
-        if (file is int newFile)
-            ZKey ^= Tables.Zobrist.EnPassant[newFile];
+        if (file is FileIndex newFile)
+            ZKey ^= Tables.Zobrist.EnPassant[newFile.Value];
     }
+
 
     // If your Zobrist has a single entry per full rights mask:
     public void SetCastlingRights(CastlingRightsFlags newRightsMask)
@@ -663,13 +673,14 @@ public sealed class Board
     public ulong GetOccupancy(bool white) => white ? OccWhite : OccBlack;
     public ulong GetAllOccupancy() => OccAll;
 
-    public bool InCheck(bool white)
+    public bool InCheck(Color side)
     {
-        // Find king square for the requested side
-        ulong kingBB = GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
-        if (kingBB == 0) return false; // ill-formed position
+        ulong kingBB = GetPieceBitboard(side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing);
+        if (kingBB == 0) return false;
         var kingSq64 = (Square0x64)BitOperations.TrailingZeroCount(kingBB);
-        return IsSquareAttacked(kingSq64, byWhite: !white);
+
+        var attacker = side.IsWhite() ? Color.Black : Color.White;
+        return IsSquareAttacked(kingSq64, attacker);
     }
 
 
@@ -677,9 +688,9 @@ public sealed class Board
     /// <summary>
     /// Finds the king square (0x64) for the specified color using the board's bitboards.
     /// </summary>
-    public Square0x64 FindKingSq64(bool white)
+    public Square0x64 FindKingSq64(Color color)
     {
-        ulong bb = GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
+        ulong bb = GetPieceBitboard(color == Color.White ? Piece.WhiteKing : Piece.BlackKing);
         if (bb == 0)
             throw new InvalidOperationException("King bitboard is empty.");
 
@@ -695,29 +706,27 @@ public sealed class Board
         return (Square0x88)BitOperations.TrailingZeroCount(bb);
     }
 
-    public bool EnPassantAvailableFor(bool sideToMove)
+    public bool EnPassantAvailableFor(Color sideToMove)
     {
-        // EP can only be taken on the very next ply after a double push by the opponent.
-        if (EnPassantFile is not int file) return false;
-        if (sideToMove != WhiteToMove) return false;
+        // EP only valid on the immediate reply by the current side to move
+        if (EnPassantFile is not FileIndex file) return false;
+        if (sideToMove != SideToMove) return false;
 
-        // Compute the EP target square in 0x88.
-        // If White is to move, target is on rank 6 (index 5): passed-over square after Black's double push.
-        // If Black is to move, target is on rank 3 (index 2): passed-over square after White's double push.
-        int epRank = sideToMove ? 5 : 2;
-        int ep88 = (epRank << 4) | file;
+        // EP target: square passed over. For White-to-move, it lies on 6th rank (index 5).
+        // For Black-to-move, it lies on 3rd rank (index 2).
+        int epRank = sideToMove.IsWhite() ? 5 : 2;
+        int ep88 = (epRank << 4) | file.Value;
 
-        // Target square must be empty by definition.
+        // Target must be empty by definition.
         if (mailbox[ep88] != (sbyte)Piece.Empty) return false;
 
-        // The captured pawn must exist on the square *behind* the target.
-        int capSq88 = sideToMove ? (ep88 - 16) : (ep88 + 16);
+        // The pawn that moved two squares must be behind the target.
+        int capSq88 = sideToMove.IsWhite() ? (ep88 - 16) : (ep88 + 16);
         if ((capSq88 & 0x88) != 0) return false;
 
-        var expectedCaptured = sideToMove ? Piece.BlackPawn : Piece.WhitePawn;
+        var expectedCaptured = sideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn;
         if ((Piece)mailbox[capSq88] != expectedCaptured) return false;
 
-        // All EP preconditions hold for this side-to-move.
         return true;
     }
 }

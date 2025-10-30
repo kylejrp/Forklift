@@ -18,26 +18,27 @@ namespace Forklift.Core
         /// <param name="board">The chessboard.</param>
         /// <param name="moves">The list to populate with generated moves.</param>
         /// <param name="isWhiteTurn">Indicates whether it is white's turn.</param>
-        public static void GeneratePseudoLegal(Board board, List<Board.Move> moves, bool isWhiteTurn)
+        public static void GeneratePseudoLegal(Board board, List<Board.Move> moves, Color sideToMove)
         {
             moves.Clear();
 
-            GeneratePawnMoves(board, moves, isWhiteTurn);
-            GenerateKnightMoves(board, moves, isWhiteTurn);
-            GenerateSliderMoves(board, moves, isWhiteTurn, isWhiteTurn ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
-            GenerateSliderMoves(board, moves, isWhiteTurn, isWhiteTurn ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
+            GeneratePawnMoves(board, moves, sideToMove);
+            GenerateKnightMoves(board, moves, sideToMove);
+            GenerateSliderMoves(board, moves, sideToMove, sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
+            GenerateSliderMoves(board, moves, sideToMove, sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
             // Queens = rook + bishop rays
-            GenerateSliderMoves(board, moves, isWhiteTurn, isWhiteTurn ? Piece.WhiteQueen : Piece.BlackQueen, RookDirs);
-            GenerateSliderMoves(board, moves, isWhiteTurn, isWhiteTurn ? Piece.WhiteQueen : Piece.BlackQueen, BishopDirs);
-            GenerateKingMoves(board, moves, isWhiteTurn);
-            GenerateCastling(board, moves, isWhiteTurn);
-            GenerateEnPassant(board, moves, isWhiteTurn);
+            GenerateSliderMoves(board, moves, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, RookDirs);
+            GenerateSliderMoves(board, moves, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, BishopDirs);
+            GenerateKingMoves(board, moves, sideToMove);
+            GenerateCastling(board, moves, sideToMove);
+            GenerateEnPassant(board, moves, sideToMove);
         }
 
         // --- Pawns (pushes, captures, promotions; no EP here) -----------------------------
 
-        private static void GeneratePawnMoves(Board board, List<Board.Move> moves, bool white)
+        private static void GeneratePawnMoves(Board board, List<Board.Move> moves, Color sideToMove)
         {
+            var white = sideToMove.IsWhite();
             ulong pawns = board.GetPieceBitboard(white ? Piece.WhitePawn : Piece.BlackPawn);
 
             while (pawns != 0)
@@ -59,7 +60,7 @@ namespace Forklift.Core
                         if ((white && rank == 6) || (!white && rank == 1))
                         {
                             // Promotion pushes (to last rank)
-                            foreach (var promo in PromoPieces(white))
+                            foreach (var promo in PromoPieces(sideToMove))
                                 moves.Add(new Board.Move(from88, safeOne, white ? Piece.WhitePawn : Piece.BlackPawn, Piece.Empty, promo,
                                     MoveKind.Promotion));
                         }
@@ -98,7 +99,7 @@ namespace Forklift.Core
                     if ((white && rank == 6) || (!white && rank == 1))
                     {
                         // Promotion capture
-                        foreach (var promo in PromoPieces(white))
+                        foreach (var promo in PromoPieces(sideToMove))
                             moves.Add(new Board.Move(from88, safeTo88, white ? Piece.WhitePawn : Piece.BlackPawn, target, promo,
                                 MoveKind.PromotionCapture));
                     }
@@ -110,19 +111,20 @@ namespace Forklift.Core
             }
         }
 
-        private static Piece[] PromoPieces(bool white) => white
+        private static Piece[] PromoPieces(Color sideToMove) => sideToMove.IsWhite()
             ? new[] { Piece.WhiteQueen, Piece.WhiteRook, Piece.WhiteBishop, Piece.WhiteKnight }
             : new[] { Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight };
 
         // --- Knights ----------------------------------------------------------------------
 
-        private static void GenerateKnightMoves(Board board, List<Board.Move> moves, bool white)
+        private static void GenerateKnightMoves(Board board, List<Board.Move> moves, Color sideToMove)
         {
+            var white = sideToMove.IsWhite();
             // 0x88 knight deltas
             // (+/-2, +/-1) and (+/-1, +/-2) in 0x88 coordinates
             ReadOnlySpan<int> deltas = stackalloc int[] { +33, +31, +18, +14, -14, -18, -31, -33 };
 
-            Piece mover = white ? Piece.WhiteKnight : Piece.BlackKnight;
+            Piece mover = sideToMove.IsWhite() ? Piece.WhiteKnight : Piece.BlackKnight;
 
             ulong bb = board.GetPieceBitboard(mover);
             while (bb != 0)
@@ -152,8 +154,9 @@ namespace Forklift.Core
 
         // --- Sliders ----------------------------------------------------------------------
 
-        private static void GenerateSliderMoves(Board board, List<Board.Move> moves, bool white, Piece piece, int[] dirs)
+        private static void GenerateSliderMoves(Board board, List<Board.Move> moves, Color sideToMove, Piece piece, int[] dirs)
         {
+            var white = sideToMove.IsWhite();
             ulong ownOcc = white ? board.OccWhite : board.OccBlack;
             ulong bb = board.GetPieceBitboard(piece);
             while (bb != 0)
@@ -191,8 +194,9 @@ namespace Forklift.Core
 
         // --- King (no castling here; see GenerateCastling) --------------------------------
 
-        private static void GenerateKingMoves(Board board, List<Board.Move> moves, bool white)
+        private static void GenerateKingMoves(Board board, List<Board.Move> moves, Color sideToMove)
         {
+            var white = sideToMove.IsWhite();
             // 8 king-neighbour deltas in 0x88
             ReadOnlySpan<int> deltas = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
 
@@ -224,8 +228,9 @@ namespace Forklift.Core
 
         // --- Castling (fully legal: empty path + no attacked transit squares) -------------
 
-        private static void GenerateCastling(Board board, List<Board.Move> moves, bool white)
+        private static void GenerateCastling(Board board, List<Board.Move> moves, Color sideToMove)
         {
+            var white = sideToMove.IsWhite();
             // Must have a king and not be in check
             ulong kingBB = board.GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
             if (kingBB == 0) return;
@@ -233,7 +238,7 @@ namespace Forklift.Core
             var k64 = (Square0x64)BitOperations.TrailingZeroCount(kingBB);
             var k88 = (Square0x88)k64;
 
-            if (board.InCheck(white)) return;
+            if (board.InCheck(sideToMove)) return;
 
             // White: e1=4, path squares: f1=5, g1=6 (KS); d1=3, c1=2, b1=1 (QS)
             // Black: e8=116, f8=117, g8=118; d8=115, c8=114, b8=113
@@ -248,9 +253,9 @@ namespace Forklift.Core
                     if (board.At((Square0x88)f1) == Piece.Empty && board.At((Square0x88)g1) == Piece.Empty)
                     {
                         // Squares e1,f1,g1 may not be attacked by black
-                        if (!board.IsSquareAttacked(k64, byWhite: false) &&
-                            !board.IsSquareAttacked(f1, byWhite: false) &&
-                            !board.IsSquareAttacked(g1, byWhite: false))
+                        if (!board.IsSquareAttacked(k64, bySide: Color.Black) &&
+                            !board.IsSquareAttacked(f1, bySide: Color.Black) &&
+                            !board.IsSquareAttacked(g1, bySide: Color.Black))
                         {
                             moves.Add(new Board.Move(k88, (Square0x88)g1, Piece.WhiteKing, Piece.Empty, Piece.Empty, MoveKind.CastleKing));
                         }
@@ -263,9 +268,9 @@ namespace Forklift.Core
                     var c1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("c1"));
                     if (board.At((Square0x88)d1) == Piece.Empty && board.At((Square0x88)c1) == Piece.Empty)
                     {
-                        if (!board.IsSquareAttacked(k64, byWhite: false) &&
-                            !board.IsSquareAttacked(d1, byWhite: false) &&
-                            !board.IsSquareAttacked(c1, byWhite: false))
+                        if (!board.IsSquareAttacked(k64, bySide: Color.Black) &&
+                            !board.IsSquareAttacked(d1, bySide: Color.Black) &&
+                            !board.IsSquareAttacked(c1, bySide: Color.Black))
                         {
                             moves.Add(new Board.Move(k88, (Square0x88)c1, Piece.WhiteKing, Piece.Empty, Piece.Empty, MoveKind.CastleQueen));
                         }
@@ -281,9 +286,9 @@ namespace Forklift.Core
                     var g8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("g8"));
                     if (board.At((Square0x88)f8) == Piece.Empty && board.At((Square0x88)g8) == Piece.Empty)
                     {
-                        if (!board.IsSquareAttacked(k64, byWhite: true) &&
-                            !board.IsSquareAttacked(f8, byWhite: true) &&
-                            !board.IsSquareAttacked(g8, byWhite: true))
+                        if (!board.IsSquareAttacked(k64, bySide: Color.White) &&
+                            !board.IsSquareAttacked(f8, bySide: Color.White) &&
+                            !board.IsSquareAttacked(g8, bySide: Color.White))
                         {
                             moves.Add(new Board.Move(k88, (Square0x88)g8, Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleKing));
                         }
@@ -296,9 +301,9 @@ namespace Forklift.Core
                     var c8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("c8"));
                     if (board.At((Square0x88)d8) == Piece.Empty && board.At((Square0x88)c8) == Piece.Empty)
                     {
-                        if (!board.IsSquareAttacked(k64, byWhite: true) &&
-                            !board.IsSquareAttacked(d8, byWhite: true) &&
-                            !board.IsSquareAttacked(c8, byWhite: true))
+                        if (!board.IsSquareAttacked(k64, bySide: Color.White) &&
+                            !board.IsSquareAttacked(d8, bySide: Color.White) &&
+                            !board.IsSquareAttacked(c8, bySide: Color.White))
                         {
                             moves.Add(new Board.Move(k88, (Square0x88)c8, Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleQueen));
                         }
@@ -309,12 +314,13 @@ namespace Forklift.Core
 
         // --- En Passant (from Board.EnPassantFile) ---------------------------------------
 
-        private static void GenerateEnPassant(Board board, List<Board.Move> moves, bool white)
+        private static void GenerateEnPassant(Board board, List<Board.Move> moves, Color sideToMove)
         {
-            if (board.EnPassantFile is not int file) return;
+            var white = sideToMove.IsWhite();
+            if (board.EnPassantFile is not FileIndex file) return;
 
             // EP must be available only on the ply immediately following a double push by the opponent.
-            if (!board.EnPassantAvailableFor(white)) return;
+            if (!board.EnPassantAvailableFor(sideToMove)) return;
 
             // EP target is the square *passed over* by the double push:
             // White captures on rank 5 (index 4), black on rank 2 (index 1)

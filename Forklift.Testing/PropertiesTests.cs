@@ -1,4 +1,5 @@
-﻿using FsCheck;
+﻿using Forklift.Core;
+using FsCheck;
 using FsCheck.Xunit;
 
 namespace Forklift.Testing
@@ -19,7 +20,7 @@ namespace Forklift.Testing
             foreach (var mv in b.GenerateLegal())
             {
                 var u = b.MakeMove(mv);
-                bool ok = !b.InCheck(!b.WhiteToMove);
+                bool ok = !b.InCheck(b.SideToMove.Flip());
                 b.UnmakeMove(mv, u);
                 if (!ok) return false;
             }

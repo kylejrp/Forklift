@@ -18,7 +18,7 @@ namespace Forklift.Testing
             b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")), Piece.BlackPawn);
 
             // Black to move: play d7-d5 (double push) -> this should set EnPassantFile automatically
-            b.SetSideToMove(false);
+            b.SetSideToMove(Color.Black);
             var mv = new Board.Move(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")),
                                     Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d5")),
                                     Piece.BlackPawn);

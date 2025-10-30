@@ -11,13 +11,13 @@ namespace ChessEngine.Core
 
             long nodes = 0;
             var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(board, moves, board.WhiteToMove);
+            MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
 
             foreach (var mv in moves)
             {
                 var u = board.MakeMove(mv);
                 // After MakeMove, side to move flipped; the side that just moved must NOT be in check
-                bool legal = !board.InCheck(!board.WhiteToMove);
+                bool legal = !board.InCheck(board.SideToMove.Flip());
                 if (legal)
                     nodes += Count(board, depth - 1);
                 board.UnmakeMove(mv, u);

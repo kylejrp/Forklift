@@ -71,7 +71,7 @@ namespace ChessEngine.Core
                 }
             }
 
-            b.SetSideToMove(whiteToMove);
+            b.SetSideToMove(whiteToMove ? Color.White : Color.Black);
             return b;
         }
     }

@@ -48,8 +48,8 @@ namespace Forklift.Testing
                     int s64 = (Square0x64)sq88;
                     key ^= bb.Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
                 }
-                if (!bb.WhiteToMove) key ^= bb.Tables.Zobrist.SideToMove;
-                if (bb.EnPassantFile is int epf) key ^= bb.Tables.Zobrist.EnPassant[epf];
+                if (!bb.SideToMove.IsWhite()) key ^= bb.Tables.Zobrist.SideToMove;
+                if (bb.EnPassantFile is FileIndex epf) key ^= bb.Tables.Zobrist.EnPassant[epf];
                 key ^= bb.Tables.Zobrist.Castling[(int)bb.CastlingRights & 0xF];
                 return key;
             }
