@@ -1,8 +1,9 @@
-﻿using Xunit;
+﻿using ChessEngine.Core;
 using FluentAssertions;
-using ChessEngine.Core;
 using Forklift.Core;
 using System.Linq;
+using System.Numerics;
+using Xunit;
 
 namespace Forklift.Testing
 {
@@ -31,35 +32,24 @@ namespace Forklift.Testing
         }
 
         [Theory]
-        [InlineData("startpos", 1)]
-        [InlineData("startpos", 2)]
-        public void Perft_Count_Should_Match_Expected_Values(string fenOrStart, int depth)
+        [InlineData("startpos", 1, 20)]
+        [InlineData("startpos", 2, 400)]
+        public void Perft_Count_Should_Match_Expected_Values(string fenOrStart, int depth, long expectedNodes)
         {
             var b = BoardFactory.FromFenOrStart(fenOrStart);
             long nodes = Perft.Count(b, depth);
-
-            // Expected values for startpos at depth 1 and 2
-            long expectedNodes = depth switch
-            {
-                1 => 20, // Depth 1:20 legal moves in the starting position
-                2 => 400, // Depth 2:400 legal positions after 1 move
-                _ => throw new ArgumentOutOfRangeException()
-            };
-
             nodes.Should().Be(expectedNodes);
         }
 
         [Theory]
-        [InlineData("8/8/8/8/8/8/8/8 w - - 0 1", 1)] // Empty board
-        [InlineData("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1)] // Standard starting position
-        public void Perft_Count_Should_Handle_Specific_Positions(string fen, int depth)
+        [InlineData("8/8/8/8/8/8/8/8 w - - 0 1", 1, 0)] // Empty board
+        [InlineData("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1, 20)] // Standard starting position
+        public void Perft_Count_Should_Handle_Specific_Positions(string fen, int depth, long expectedNodes)
         {
             var b = BoardFactory.FromFenOrStart(fen);
             long nodes = Perft.Count(b, depth);
 
-            // Add expected values for specific positions if known
-            // For now, just ensure it runs without exceptions
-            nodes.Should().BeGreaterThan(0);
+            nodes.Should().Be(expectedNodes);
         }
 
         [Theory]
@@ -80,6 +70,110 @@ namespace Forklift.Testing
             {
                 System.Diagnostics.Debug.WriteLine($"Move: {kv.moveUci}, Nodes: {kv.nodes}");
             }
+        }
+
+        [Theory]
+        [InlineData("startpos")]
+        public void Perft_SpotCheck(string fenOrStart)
+        {
+            var board = fenOrStart == "startpos" ? new Board() : BoardFactory.FromFenOrStart(fenOrStart);
+
+            var rootMoves = board.GenerateLegal().ToList();
+            Assert.Equal(20, rootMoves.Count);
+
+            long total = 0;
+
+            foreach (var m in rootMoves)
+            {
+                var u = board.MakeMove(m);
+
+                var legal = board.GenerateLegal().ToList();
+                if (legal.Count != 20)
+                {
+                    bool stm = board.WhiteToMove;          // should be false here (Black to move)
+                    bool blackInCheck = board.InCheck(false);
+
+                    var k64Black = board.FindKingSq64(false);
+                    var kAlg = Squares.ToAlgebraic((Square0x88)k64Black).Value;
+
+                    // High-level breakdown from your Board.AttackerBreakdown
+                    var breakdown = board.AttackerBreakdown(k64Black, byWhite: true);
+
+                    // Raw table masks at the king square (to verify the tables themselves)
+                    var T = board.Tables;
+                    ulong knightFromMask = T.KnightAttackTable[k64Black];
+                    ulong kingFromMask = T.KingAttackTable[k64Black];
+                    ulong wpawnFromMask = T.WhitePawnAttackFrom[k64Black]; // white attackers
+
+                    // Which *white* pieces actually intersect those masks?
+                    var wkMask = knightFromMask & board.GetPieceBitboard(Piece.WhiteKnight);
+                    var wKAdjMask = kingFromMask & board.GetPieceBitboard(Piece.WhiteKing);
+                    var wpMask = wpawnFromMask & board.GetPieceBitboard(Piece.WhitePawn);
+
+                    var msg =
+$@"After {ToUci(m)}:
+  WhiteToMove                = {stm}   (expected: False)
+  Black InCheck              = {blackInCheck}
+  Legal replies              = {legal.Count} (expected: 20)
+
+  AttackerBreakdown on Black king {kAlg} (byWhite: true):
+    Knights                  = {breakdown.knights}   attackers: [{string.Join(", ", MaskToSquares(wkMask))}]
+    Kings                    = {breakdown.kings}     attackers: [{string.Join(", ", MaskToSquares(wKAdjMask))}]
+    Pawns                    = {breakdown.pawns}     attackers: [{string.Join(", ", MaskToSquares(wpMask))}]
+    Bishops/Queens (diagonals)= {breakdown.bishopsQueens}
+    Rooks/Queens (orthogonals)= {breakdown.rooksQueens}
+
+  RAW table contents at {kAlg} (these *should be FROM-squares that attack {kAlg}):
+    KnightAttackTable[{kAlg}] -> [{string.Join(", ", MaskToSquares(knightFromMask))}]
+    KingAttackTable[{kAlg}]   -> [{string.Join(", ", MaskToSquares(kingFromMask))}]
+    WhitePawnAttackFrom[{kAlg}] -> [{string.Join(", ", MaskToSquares(wpawnFromMask))}]
+
+  Occupancy popcounts        = W:{BitOperations.PopCount(board.GetOccupancy(true))}, B:{BitOperations.PopCount(board.GetOccupancy(false))}
+  CastlingRights             = {board.CastlingRights}
+  EnPassantFile              = {(board.EnPassantFile?.ToString() ?? "null")}
+";
+
+                    // Pinpointed assertions so the failure prints the block above
+                    Assert.False(blackInCheck, "Black reported in check after a normal white first move.\n" + msg);
+                    Assert.False(stm, "Side-to-move did not flip after MakeMove.\n" + msg);
+                    Assert.True(legal.Count == 20, "Unexpected reply count.\n" + msg);
+                }
+
+                total += legal.Count;
+                board.UnmakeMove(m, u);
+            }
+
+            Assert.Equal(400, total);
+        }
+
+        private static string ToUci(Board.Move m)
+        {
+            var s = Squares.ToAlgebraic(m.From88).Value + Squares.ToAlgebraic(m.To88).Value;
+            if (m.Promotion != Piece.Empty)
+            {
+                char promo = m.Promotion switch
+                {
+                    Piece.WhiteQueen or Piece.BlackQueen => 'q',
+                    Piece.WhiteRook or Piece.BlackRook => 'r',
+                    Piece.WhiteBishop or Piece.BlackBishop => 'b',
+                    Piece.WhiteKnight or Piece.BlackKnight => 'n',
+                    _ => 'q'
+                };
+                s += promo;
+            }
+            return s;
+        }
+
+        private static string[] MaskToSquares(ulong mask)
+        {
+            var list = new System.Collections.Generic.List<string>(8);
+            while (mask != 0)
+            {
+                int s = BitOperations.TrailingZeroCount(mask);
+                mask &= mask - 1;
+                list.Add(Squares.ToAlgebraic((Square0x64)s).Value);
+            }
+            return list.ToArray();
         }
     }
 }

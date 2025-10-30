@@ -1,110 +1,117 @@
-﻿namespace Forklift.Core;
-
-/// <summary>
-/// Immutable, thread-safe precomputed tables used by the engine.
-/// Create once (e.g., in your test fixture or DI root) and share across threads.
-/// </summary>
-public sealed class EngineTables
+﻿namespace Forklift.Core
 {
-    // Non-sliding attacks
-    public readonly ulong[] KnightAttackTable; // [64]
-    public readonly ulong[] KingAttackTable;   // [64]
-    public readonly ulong[] WhitePawnAttackFrom; // [64] squares white pawns attack FROM
-    public readonly ulong[] BlackPawnAttackFrom; // [64]
-
-    // Optional: simple slider ray attacks (occupancy-agnostic masks along lines)
-    // In this skeleton we'll compute sliders on the fly via 0x88 rays.
-
-    public readonly Zobrist Zobrist;
-
-    // Private ctor ensures immutability
-    private EngineTables(ulong[] knightAttackTable, ulong[] kingAttackTable, ulong[] whitePawnAttackFrom, ulong[] blackPawnAttackFrom, Zobrist zobrist)
+    public sealed class EngineTables
     {
-        KnightAttackTable = knightAttackTable;
-        KingAttackTable = kingAttackTable;
-        WhitePawnAttackFrom = whitePawnAttackFrom;
-        BlackPawnAttackFrom = blackPawnAttackFrom;
-        Zobrist = zobrist;
-    }
+        public readonly ulong[] KnightAttackTable;    // attack-from masks keyed by target 0x64
+        public readonly ulong[] KingAttackTable;      // attack-from masks keyed by target 0x64
+        public readonly ulong[] WhitePawnAttackFrom;  // attack-from masks keyed by target 0x64
+        public readonly ulong[] BlackPawnAttackFrom;  // attack-from masks keyed by target 0x64
 
-    private static Dictionary<int, List<int>> PrecomputeValidDeltas(int[] deltas)
-    {
-        var validDeltas = new Dictionary<int, List<int>>();
-        for (UnsafeSquare0x88 square88 = (UnsafeSquare0x88)0; square88 < 128; square88++)
+        public readonly Zobrist Zobrist;
+
+        private EngineTables(
+            ulong[] knightAttackTable,
+            ulong[] kingAttackTable,
+            ulong[] whitePawnAttackFrom,
+            ulong[] blackPawnAttackFrom,
+            Zobrist zobrist)
         {
-            if (Squares.IsOffboard(square88)) continue;
+            KnightAttackTable = knightAttackTable;
+            KingAttackTable = kingAttackTable;
+            WhitePawnAttackFrom = whitePawnAttackFrom;
+            BlackPawnAttackFrom = blackPawnAttackFrom;
+            Zobrist = zobrist;
+        }
 
-            var validMoves = new List<int>();
-            foreach (var delta in deltas)
+        public static EngineTables CreateDefault(Zobrist? zobrist = null)
+        {
+            var knightAttackTable = new ulong[64];
+            var kingAttackTable = new ulong[64];
+            var whitePawnAttackFrom = new ulong[64];
+            var blackPawnAttackFrom = new ulong[64];
+
+            // 0x88 deltas (same as your generator)
+            ReadOnlySpan<int> KNIGHT = stackalloc int[] { +33, +31, +18, +14, -14, -18, -31, -33 };
+            ReadOnlySpan<int> KING = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
+            // Pawn deltas are defined relative to the PAWN’s attack direction.
+            // For ATTACK-FROM tables keyed by target, we reverse them (see below).
+            const int W_PAWN_L = +15, W_PAWN_R = +17; // white attacks "up"
+            const int B_PAWN_L = -15, B_PAWN_R = -17; // black attacks "down"
+
+            for (UnsafeSquare0x88 t88 = (UnsafeSquare0x88)0; t88 < 128; t88++)
             {
-                var targetSquare = square88 + delta;
-                if (targetSquare >= 0 && targetSquare < 128 && !Squares.IsOffboard(targetSquare))
+                if (Squares.IsOffboard(t88)) continue;
+
+                int t64 = (Square0x64)(Square0x88)t88;
+
+                ulong kmask = 0, Kmask = 0, wpmask = 0, bpmask = 0;
+
+                // Knights: for each target t, attackers are at (t - d) for all d
+                foreach (int d in KNIGHT)
                 {
-                    validMoves.Add(delta);
+                    var from = new UnsafeSquare0x88(t88.Value - d);
+                    if (!Squares.IsOffboard(from))
+                    {
+                        int s64 = (Square0x64)(Square0x88)from;
+                        kmask |= 1UL << s64;
+                    }
                 }
+
+                // Kings: same reverse-lookup idea
+                foreach (int d in KING)
+                {
+                    var from = new UnsafeSquare0x88(t88.Value - d);
+                    if (!Squares.IsOffboard(from))
+                    {
+                        int s64 = (Square0x64)(Square0x88)from;
+                        Kmask |= 1UL << s64;
+                    }
+                }
+
+                // White pawns attack from (t - 15) and (t - 17)
+                {
+                    var fromL = new UnsafeSquare0x88(t88.Value - W_PAWN_L);
+                    if (!Squares.IsOffboard(fromL))
+                    {
+                        int s64 = (Square0x64)(Square0x88)fromL;
+                        wpmask |= 1UL << s64;
+                    }
+                    var fromR = new UnsafeSquare0x88(t88.Value - W_PAWN_R);
+                    if (!Squares.IsOffboard(fromR))
+                    {
+                        int s64 = (Square0x64)(Square0x88)fromR;
+                        wpmask |= 1UL << s64;
+                    }
+                }
+
+                // Black pawns attack from (t - (-15)) = (t + 15) and (t + 17)
+                {
+                    var fromL = new UnsafeSquare0x88(t88.Value - B_PAWN_L); // t + 15
+                    if (!Squares.IsOffboard(fromL))
+                    {
+                        int s64 = (Square0x64)(Square0x88)fromL;
+                        bpmask |= 1UL << s64;
+                    }
+                    var fromR = new UnsafeSquare0x88(t88.Value - B_PAWN_R); // t + 17
+                    if (!Squares.IsOffboard(fromR))
+                    {
+                        int s64 = (Square0x64)(Square0x88)fromR;
+                        bpmask |= 1UL << s64;
+                    }
+                }
+
+                knightAttackTable[t64] = kmask;
+                kingAttackTable[t64] = Kmask;
+                whitePawnAttackFrom[t64] = wpmask;
+                blackPawnAttackFrom[t64] = bpmask;
             }
-            validDeltas[square88] = validMoves;
+
+            return new EngineTables(
+                knightAttackTable,
+                kingAttackTable,
+                whitePawnAttackFrom,
+                blackPawnAttackFrom,
+                zobrist ?? Zobrist.CreateDeterministic());
         }
-        return validDeltas;
-    }
-
-    public static EngineTables CreateDefault(Zobrist? zobrist = null)
-    {
-        var knightAttackTable = new ulong[64];
-        var kingAttackTable = new ulong[64];
-        var whitePawnAttackFrom = new ulong[64];
-        var blackPawnAttackFrom = new ulong[64];
-
-        int[] knightDeltas = { +31, +33, +14, +18, -31, -33, -14, -18 };
-        int[] kingDeltas = { +1, -1, +16, -16, +15, +17, -15, -17 };
-        int[] whitePawnDeltas = { +15, +17 };
-        int[] blackPawnDeltas = { -15, -17 };
-
-        var knightValidDeltas = PrecomputeValidDeltas(knightDeltas);
-        var kingValidDeltas = PrecomputeValidDeltas(kingDeltas);
-        var whitePawnValidDeltas = PrecomputeValidDeltas(whitePawnDeltas);
-        var blackPawnValidDeltas = PrecomputeValidDeltas(blackPawnDeltas);
-
-        for (UnsafeSquare0x88 square88 = (UnsafeSquare0x88)0; square88 < 128; square88++)
-        {
-            if (Squares.IsOffboard(new UnsafeSquare0x88(square88))) continue;
-            int square64 = (Square0x64)square88;
-
-            ulong knightMask = 0, kingMask = 0, whitePawnMask = 0, blackPawnMask = 0;
-            foreach (var validDelta in knightValidDeltas[square88])
-            {
-                UnsafeSquare0x88 targetSquare = square88 + validDelta;
-                knightMask |= 1UL << (Square0x88)targetSquare;
-            }
-            foreach (var delta in kingValidDeltas[square88])
-            {
-                UnsafeSquare0x88 targetSquare = square88 + delta;
-                kingMask |= 1UL << (Square0x88)targetSquare;
-            }
-            foreach (var delta in whitePawnValidDeltas[square88])
-            {
-                UnsafeSquare0x88 targetSquare = square88 + delta;
-                whitePawnMask |= 1UL << (Square0x88)targetSquare;
-            }
-            foreach (var delta in blackPawnValidDeltas[square88])
-            {
-                UnsafeSquare0x88 targetSquare = square88 + delta;
-                blackPawnMask |= 1UL << (Square0x88)targetSquare;
-            }
-            knightAttackTable[square64] = knightMask;
-            kingAttackTable[square64] = kingMask;
-            whitePawnAttackFrom[square64] = whitePawnMask;
-            blackPawnAttackFrom[square64] = blackPawnMask;
-        }
-
-        return new EngineTables(knightAttackTable, kingAttackTable, whitePawnAttackFrom, blackPawnAttackFrom, zobrist ?? Zobrist.CreateDeterministic());
-    }
-
-    // Fix type mismatches in EngineTables
-    public static void InitializeAttackTables()
-    {
-        Square0x88 square = new Square0x88(0x12); // Replace with actual logic
-        // Example usage
-        // ulong attacks = 0UL; // Replace with actual attack generation logic
     }
 }

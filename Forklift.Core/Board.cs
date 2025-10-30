@@ -101,7 +101,7 @@ public sealed class Board
     /// </summary>
     /// <param name="sq88">The square in 0x88 format.</param>
     /// <returns>The piece at the square.</returns>
-    public Piece At(int sq88) => (Piece)mailbox[sq88];
+    public Piece At(Square0x88 sq88) => (Piece)mailbox[sq88];
 
     /// <summary>
     /// Places a piece on the board at the specified square.
@@ -497,11 +497,11 @@ public sealed class Board
         // Pawns (reverse attack)
         if (byWhite)
         {
-            if ((T.BlackPawnAttackFrom[t64] & pieceBB[PieceUtil.Index(Piece.WhitePawn)]) != 0) return true;
+            if ((T.WhitePawnAttackFrom[t64] & pieceBB[PieceUtil.Index(Piece.WhitePawn)]) != 0) return true;
         }
         else
         {
-            if ((T.WhitePawnAttackFrom[t64] & pieceBB[PieceUtil.Index(Piece.BlackPawn)]) != 0) return true;
+            if ((T.BlackPawnAttackFrom[t64] & pieceBB[PieceUtil.Index(Piece.BlackPawn)]) != 0) return true;
         }
 
         // Sliders
@@ -517,7 +517,33 @@ public sealed class Board
 
         return false;
     }
-    // Inside your Board class
+
+    public (bool knights, bool kings, bool pawns, bool bishopsQueens, bool rooksQueens) AttackerBreakdown(Square0x64 t64, bool byWhite)
+    {
+        var T = Tables;
+        ulong wp = pieceBB[PieceUtil.Index(Piece.WhitePawn)];
+        ulong bp = pieceBB[PieceUtil.Index(Piece.BlackPawn)];
+        ulong wn = pieceBB[PieceUtil.Index(Piece.WhiteKnight)];
+        ulong bn = pieceBB[PieceUtil.Index(Piece.BlackKnight)];
+        ulong wk = pieceBB[PieceUtil.Index(Piece.WhiteKing)];
+        ulong bk = pieceBB[PieceUtil.Index(Piece.BlackKing)];
+        ulong wb = pieceBB[PieceUtil.Index(Piece.WhiteBishop)];
+        ulong bb = pieceBB[PieceUtil.Index(Piece.BlackBishop)];
+        ulong wr = pieceBB[PieceUtil.Index(Piece.WhiteRook)];
+        ulong br = pieceBB[PieceUtil.Index(Piece.BlackRook)];
+        ulong wq = pieceBB[PieceUtil.Index(Piece.WhiteQueen)];
+        ulong bq = pieceBB[PieceUtil.Index(Piece.BlackQueen)];
+
+        bool knt = (T.KnightAttackTable[t64] & (byWhite ? wn : bn)) != 0;
+        bool kng = (T.KingAttackTable[t64] & (byWhite ? wk : bk)) != 0;
+        bool pwn = byWhite
+            ? ((T.WhitePawnAttackFrom[t64] & wp) != 0)
+            : ((T.BlackPawnAttackFrom[t64] & bp) != 0);
+        bool bishQ = (BishopAttacks(t64) & (byWhite ? (wb | wq) : (bb | bq))) != 0;
+        bool rookQ = (RookAttacks(t64) & (byWhite ? (wr | wq) : (br | bq))) != 0;
+
+        return (knt, kng, pwn, bishQ, rookQ);
+    }
 
     public void Clear()
     {
@@ -672,5 +698,31 @@ public sealed class Board
             throw new InvalidOperationException("King bitboard is empty.");
 
         return (Square0x88)BitOperations.TrailingZeroCount(bb);
+    }
+
+    public bool EnPassantAvailableFor(bool sideToMove)
+    {
+        // EP can only be taken on the very next ply after a double push by the opponent.
+        if (EnPassantFile is not int file) return false;
+        if (sideToMove != WhiteToMove) return false;
+
+        // Compute the EP target square in 0x88.
+        // If White is to move, target is on rank 6 (index 5): passed-over square after Black's double push.
+        // If Black is to move, target is on rank 3 (index 2): passed-over square after White's double push.
+        int epRank = sideToMove ? 5 : 2;
+        int ep88 = (epRank << 4) | file;
+
+        // Target square must be empty by definition.
+        if (mailbox[ep88] != (sbyte)Piece.Empty) return false;
+
+        // The captured pawn must exist on the square *behind* the target.
+        int capSq88 = sideToMove ? (ep88 - 16) : (ep88 + 16);
+        if ((capSq88 & 0x88) != 0) return false;
+
+        var expectedCaptured = sideToMove ? Piece.BlackPawn : Piece.WhitePawn;
+        if ((Piece)mailbox[capSq88] != expectedCaptured) return false;
+
+        // All EP preconditions hold for this side-to-move.
+        return true;
     }
 }

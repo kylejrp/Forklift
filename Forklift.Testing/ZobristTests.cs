@@ -43,7 +43,7 @@ namespace Forklift.Testing
                 for (UnsafeSquare0x88 sq88 = (UnsafeSquare0x88)0; sq88 < 128; sq88++)
                 {
                     if (Squares.IsOffboard(sq88)) continue;
-                    var p = bb.At(sq88);
+                    var p = bb.At((Square0x88)sq88);
                     if (p == Piece.Empty) continue;
                     int s64 = (Square0x64)sq88;
                     key ^= bb.Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
