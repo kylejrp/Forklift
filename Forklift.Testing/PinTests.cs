@@ -7,20 +7,23 @@ namespace Forklift.Testing
     public class PinTests
     {
         [Fact]
-        public void PinnedPiece_MovesOffFile_AreNotLegal()
+        public void PinnedPiece_CannotMoveOffPinnedFile()
         {
-            // White king e1, white rook e2 (pinned), black rook e8
-            var b = ChessEngine.Core.BoardFactory.FromFenOrStart("4r3/8/8/8/8/8/4R3/4K3 w - - 0 1");
+            // Arrange: Set up a board where the white rook on e2 is pinned by the black rook on e8.
+            var board = ChessEngine.Core.BoardFactory.FromFenOrStart("4r3/8/8/8/8/8/4R3/4K3 w - - 0 1");
 
-            var from = Squares.ParseAlgebraicTo0x88("e2");
-            var legals = b.GenerateLegal()
-                          .Where(m => m.From88 == from)
-                          .ToList();
+            // Act: Generate all legal moves for the pinned piece (white rook on e2).
+            var fromSquare = Squares.ParseAlgebraicTo0x88("e2");
+            var legalMoves = board.GenerateLegal()
+                                  .Where(move => move.From88 == fromSquare)
+                                  .ToList();
 
-            // Any legal move must stay on the e-file (e2->e1/e3/e4...) or be a capture that keeps the king covered.
-            bool IsOnEFile(int sq88) => (sq88 & 0xF) == (Squares.ParseAlgebraicTo0x88("e2") & 0xF);
-            var offFile = legals.Where(m => !IsOnEFile(m.To88)).ToList();
-            offFile.Should().BeEmpty(); // the illegal ones are ONLY those leaving the e-file
+            // Assert: Ensure no moves take the rook off the e-file.
+            bool IsOnEFile(int square) => (square & 0xF) == (Squares.ParseAlgebraicTo0x88("e2") & 0xF);
+            var offFileMoves = legalMoves.Where(move => !IsOnEFile(move.To88)).ToList();
+
+            // Verify that all moves off the e-file are illegal.
+            offFileMoves.Should().BeEmpty();
         }
     }
 }

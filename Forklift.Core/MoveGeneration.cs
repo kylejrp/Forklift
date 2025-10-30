@@ -4,11 +4,20 @@ using static Forklift.Core.Board;
 
 namespace Forklift.Core
 {
+    /// <summary>
+    /// Provides methods for generating pseudo-legal chess moves.
+    /// </summary>
     public static class MoveGeneration
     {
         private static readonly int[] RookDirs = { +1, -1, +16, -16 };
         private static readonly int[] BishopDirs = { +15, +17, -15, -17 };
 
+        /// <summary>
+        /// Generates all pseudo-legal moves for the current board state.
+        /// </summary>
+        /// <param name="board">The chessboard.</param>
+        /// <param name="moves">The list to populate with generated moves.</param>
+        /// <param name="isWhiteTurn">Indicates whether it is white's turn.</param>
         public static void GeneratePseudoLegal(Board board, List<Board.Move> moves, bool isWhiteTurn)
         {
             moves.Clear();

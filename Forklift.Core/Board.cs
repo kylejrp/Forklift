@@ -5,8 +5,8 @@ using System.Collections.Generic;
 namespace Forklift.Core;
 
 /// <summary>
-/// Holds ALL mutable game state. Safe for parallel tests as long as
-/// each test uses its own Board instance (or copies).
+/// Represents the chessboard and manages all mutable game state.
+/// Thread-safe as long as each thread uses its own instance.
 /// </summary>
 public sealed class Board
 {
@@ -54,22 +54,38 @@ public sealed class Board
     public int BlackKingCount => BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackKing)]);
 
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Board"/> class.
+    /// </summary>
+    /// <param name="tables">Optional engine tables. If null, default tables are used.</param>
     public Board(EngineTables? tables = null)
     {
         Tables = tables ?? EngineTables.CreateDefault();
         SetStartPosition();
     }
 
+    /// <summary>
+    /// Clears the board and sets it to the standard starting position.
+    /// </summary>
     public void ClearAndSetStart()
     {
         Array.Fill(mailbox, (sbyte)Piece.Empty);
         Array.Fill(pieceBB, 0UL);
         OccWhite = OccBlack = OccAll = 0;
-        WhiteToMove = true; CastlingRights = CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen | CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen; EnPassantFile = null;
-        HalfmoveClock = 0; FullmoveNumber = 1;
+        WhiteToMove = true;
+        CastlingRights = CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen | CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen;
+        EnPassantFile = null;
+        HalfmoveClock = 0;
+        FullmoveNumber = 1;
         ZKey = 0UL;
 
-        // Place startpos
+        // Place start position pieces
+        PlaceStartingPieces();
+        UpdateZobristFull(); // compute from scratch once; use incremental changes thereafter
+    }
+
+    private void PlaceStartingPieces()
+    {
         Place("a1", Piece.WhiteRook); Place("b1", Piece.WhiteKnight); Place("c1", Piece.WhiteBishop); Place("d1", Piece.WhiteQueen);
         Place("e1", Piece.WhiteKing); Place("f1", Piece.WhiteBishop); Place("g1", Piece.WhiteKnight); Place("h1", Piece.WhiteRook);
         for (char f = 'a'; f <= 'h'; f++) Place($"{f}2", Piece.WhitePawn);
@@ -77,15 +93,27 @@ public sealed class Board
         for (char f = 'a'; f <= 'h'; f++) Place($"{f}7", Piece.BlackPawn);
         Place("a8", Piece.BlackRook); Place("b8", Piece.BlackKnight); Place("c8", Piece.BlackBishop); Place("d8", Piece.BlackQueen);
         Place("e8", Piece.BlackKing); Place("f8", Piece.BlackBishop); Place("g8", Piece.BlackKnight); Place("h8", Piece.BlackRook);
-
-        WhiteToMove = true;
-        UpdateZobristFull(); // compute from scratch once; use incremental changes thereafter
     }
 
+    /// <summary>
+    /// Gets the piece at the specified square.
+    /// </summary>
+    /// <param name="sq88">The square in 0x88 format.</param>
+    /// <returns>The piece at the square.</returns>
     public Piece At(int sq88) => (Piece)mailbox[sq88];
 
+    /// <summary>
+    /// Places a piece on the board at the specified square.
+    /// </summary>
+    /// <param name="algebraic">The square in algebraic notation (e.g., "e4").</param>
+    /// <param name="pc">The piece to place.</param>
     public void Place(string algebraic, Piece pc) => Place(Squares.ParseAlgebraicTo0x88(algebraic), pc);
 
+    /// <summary>
+    /// Places a piece on the board at the specified square.
+    /// </summary>
+    /// <param name="sq88">The square in 0x88 format.</param>
+    /// <param name="pc">The piece to place.</param>
     public void Place(int sq88, Piece pc)
     {
         if (Squares.IsOffboard(sq88)) throw new ArgumentException("Offboard");
@@ -382,6 +410,10 @@ public sealed class Board
         HalfmoveClock = u.HalfmovePrev;
     }
 
+    /// <summary>
+    /// Generates all legal moves for the side to move.
+    /// </summary>
+    /// <returns>An enumerable collection of legal moves.</returns>
     public IEnumerable<Move> GenerateLegal()
     {
         var pseudo = new List<Move>(64);
@@ -398,8 +430,10 @@ public sealed class Board
         }
     }
 
-
-
+    /// <summary>
+    /// Generates all pseudo-legal moves for the side to move.
+    /// </summary>
+    /// <returns>An enumerable collection of pseudo-legal moves.</returns>
     public IEnumerable<Move> GeneratePseudoLegal()
     {
         var moves = new List<Move>(64);
@@ -502,6 +536,9 @@ public sealed class Board
         UpdateZobristFull();
     }
 
+    /// <summary>
+    /// Sets the board to the standard starting position.
+    /// </summary>
     public void SetStartPosition()
     {
         Clear(); // ensures repetition tables, occ, etc. are reset
