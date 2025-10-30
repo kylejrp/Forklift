@@ -118,7 +118,7 @@ namespace Forklift.Testing
         {
             ulong bb = b.GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
             int s64 = bb != 0 ? BitOperations.TrailingZeroCount(bb) : (white ? 4 : 60); // e1/e8
-            return Squares.ConvertTo0x88Index(s64);
+            return Squares.ConvertTo0x88Index(new Square0x64(s64));
         }
 
         private static bool HasAnyLegalMove(Board b)

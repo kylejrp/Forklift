@@ -86,13 +86,13 @@ public sealed class Board
 
     private void PlaceStartingPieces()
     {
-        Place("a1", Piece.WhiteRook); Place("b1", Piece.WhiteKnight); Place("c1", Piece.WhiteBishop); Place("d1", Piece.WhiteQueen);
-        Place("e1", Piece.WhiteKing); Place("f1", Piece.WhiteBishop); Place("g1", Piece.WhiteKnight); Place("h1", Piece.WhiteRook);
-        for (char f = 'a'; f <= 'h'; f++) Place($"{f}2", Piece.WhitePawn);
+        Place(new AlgebraicNotation("a1"), Piece.WhiteRook); Place(new AlgebraicNotation("b1"), Piece.WhiteKnight); Place(new AlgebraicNotation("c1"), Piece.WhiteBishop); Place(new AlgebraicNotation("d1"), Piece.WhiteQueen);
+        Place(new AlgebraicNotation("e1"), Piece.WhiteKing); Place(new AlgebraicNotation("f1"), Piece.WhiteBishop); Place(new AlgebraicNotation("g1"), Piece.WhiteKnight); Place(new AlgebraicNotation("h1"), Piece.WhiteRook);
+        for (char f = 'a'; f <= 'h'; f++) Place(new AlgebraicNotation($"{f}2"), Piece.WhitePawn);
 
-        for (char f = 'a'; f <= 'h'; f++) Place($"{f}7", Piece.BlackPawn);
-        Place("a8", Piece.BlackRook); Place("b8", Piece.BlackKnight); Place("c8", Piece.BlackBishop); Place("d8", Piece.BlackQueen);
-        Place("e8", Piece.BlackKing); Place("f8", Piece.BlackBishop); Place("g8", Piece.BlackKnight); Place("h8", Piece.BlackRook);
+        for (char f = 'a'; f <= 'h'; f++) Place(new AlgebraicNotation($"{f}7"), Piece.BlackPawn);
+        Place(new AlgebraicNotation("a8"), Piece.BlackRook); Place(new AlgebraicNotation("b8"), Piece.BlackKnight); Place(new AlgebraicNotation("c8"), Piece.BlackBishop); Place(new AlgebraicNotation("d8"), Piece.BlackQueen);
+        Place(new AlgebraicNotation("e8"), Piece.BlackKing); Place(new AlgebraicNotation("f8"), Piece.BlackBishop); Place(new AlgebraicNotation("g8"), Piece.BlackKnight); Place(new AlgebraicNotation("h8"), Piece.BlackRook);
     }
 
     /// <summary>
@@ -107,40 +107,42 @@ public sealed class Board
     /// </summary>
     /// <param name="algebraic">The square in algebraic notation (e.g., "e4").</param>
     /// <param name="pc">The piece to place.</param>
-    public void Place(string algebraic, Piece pc) => Place(Squares.ParseAlgebraicTo0x88(algebraic), pc);
+    public void Place(AlgebraicNotation algebraic, Piece pc) => Place(Squares.ParseAlgebraicTo0x88(algebraic), pc);
 
     /// <summary>
     /// Places a piece on the board at the specified square.
     /// </summary>
     /// <param name="sq88">The square in 0x88 format.</param>
     /// <param name="pc">The piece to place.</param>
-    public void Place(int sq88, Piece pc)
+    public void Place(Square0x88 sq88, Piece pc)
     {
         if (Squares.IsOffboard(sq88)) throw new ArgumentException("Offboard");
         RemoveIfAny(sq88);
-        mailbox[sq88] = (sbyte)pc;
+        mailbox[sq88.Value] = (sbyte)pc;
         if (pc != Piece.Empty) AddToBitboards(sq88, pc);
     }
 
-    private void RemoveIfAny(int sq88)
+    private void RemoveIfAny(Square0x88 sq88)
     {
-        var existing = (Piece)mailbox[sq88];
+        var existing = (Piece)mailbox[sq88.Value];
         if (existing == Piece.Empty) return;
         RemoveFromBitboards(sq88, existing);
-        mailbox[sq88] = (sbyte)Piece.Empty;
+        mailbox[sq88.Value] = (sbyte)Piece.Empty;
     }
 
-    private void AddToBitboards(int sq88, Piece pc)
+    private void AddToBitboards(Square0x88 sq88, Piece pc)
     {
-        int s64 = Squares.ConvertTo0x64Index(sq88); ulong b = 1UL << s64;
+        int s64 = Squares.ConvertTo0x64Index(sq88).Value;
+        ulong b = 1UL << s64;
         pieceBB[PieceUtil.Index(pc)] |= b;
         if (PieceUtil.IsWhite(pc)) OccWhite |= b; else OccBlack |= b;
         OccAll |= b;
     }
 
-    private void RemoveFromBitboards(int sq88, Piece pc)
+    private void RemoveFromBitboards(Square0x88 sq88, Piece pc)
     {
-        int s64 = Squares.ConvertTo0x64Index(sq88); ulong b = 1UL << s64;
+        int s64 = Squares.ConvertTo0x64Index(sq88).Value;
+        ulong b = 1UL << s64;
         pieceBB[PieceUtil.Index(pc)] &= ~b;
         if (PieceUtil.IsWhite(pc)) OccWhite &= ~b; else OccBlack &= ~b;
         OccAll &= ~b;
@@ -157,8 +159,8 @@ public sealed class Board
     }
 
     public readonly record struct Move(
-        int From88,
-        int To88,
+        Square0x88 From88,
+        Square0x88 To88,
         Piece Mover,
         Piece Captured = Piece.Empty,
         Piece Promotion = Piece.Empty,
@@ -208,24 +210,24 @@ public sealed class Board
         // own rook moved from corner
         if (m.Mover == Piece.WhiteRook)
         {
-            if (m.From88 == Squares.ParseAlgebraicTo0x88("a1")) newCR &= ~CastlingRightsFlags.WhiteQueen;
-            if (m.From88 == Squares.ParseAlgebraicTo0x88("h1")) newCR &= ~CastlingRightsFlags.WhiteKing;
+            if (m.From88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"))) newCR &= ~CastlingRightsFlags.WhiteQueen;
+            if (m.From88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"))) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
         if (m.Mover == Piece.BlackRook)
         {
-            if (m.From88 == Squares.ParseAlgebraicTo0x88("a8")) newCR &= ~CastlingRightsFlags.BlackQueen;
-            if (m.From88 == Squares.ParseAlgebraicTo0x88("h8")) newCR &= ~CastlingRightsFlags.BlackKing;
+            if (m.From88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"))) newCR &= ~CastlingRightsFlags.BlackQueen;
+            if (m.From88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"))) newCR &= ~CastlingRightsFlags.BlackKing;
         }
         // captured rook on its corner
         if (undo.Captured == Piece.WhiteRook)
         {
-            if (m.To88 == Squares.ParseAlgebraicTo0x88("a1")) newCR &= ~CastlingRightsFlags.WhiteQueen;
-            if (m.To88 == Squares.ParseAlgebraicTo0x88("h1")) newCR &= ~CastlingRightsFlags.WhiteKing;
+            if (m.To88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"))) newCR &= ~CastlingRightsFlags.WhiteQueen;
+            if (m.To88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"))) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
         if (undo.Captured == Piece.BlackRook)
         {
-            if (m.To88 == Squares.ParseAlgebraicTo0x88("a8")) newCR &= ~CastlingRightsFlags.BlackQueen;
-            if (m.To88 == Squares.ParseAlgebraicTo0x88("h8")) newCR &= ~CastlingRightsFlags.BlackKing;
+            if (m.To88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"))) newCR &= ~CastlingRightsFlags.BlackQueen;
+            if (m.To88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"))) newCR &= ~CastlingRightsFlags.BlackKing;
         }
         if (newCR != CastlingRights) SetCastlingRights(newCR); // toggles ZKey appropriately
 
@@ -255,42 +257,42 @@ public sealed class Board
             {
                 if (m.Kind == MoveKind.CastleKing)
                 {
-                    rFrom = Squares.ParseAlgebraicTo0x88("h1");
-                    rTo = Squares.ParseAlgebraicTo0x88("f1");
+                    rFrom = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"));
+                    rTo = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f1"));
                 }
                 else
                 {
-                    rFrom = Squares.ParseAlgebraicTo0x88("a1");
-                    rTo = Squares.ParseAlgebraicTo0x88("d1");
+                    rFrom = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"));
+                    rTo = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d1"));
                 }
             }
             else
             {
                 if (m.Kind == MoveKind.CastleKing)
                 {
-                    rFrom = Squares.ParseAlgebraicTo0x88("h8");
-                    rTo = Squares.ParseAlgebraicTo0x88("f8");
+                    rFrom = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"));
+                    rTo = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f8"));
                 }
                 else
                 {
-                    rFrom = Squares.ParseAlgebraicTo0x88("a8");
-                    rTo = Squares.ParseAlgebraicTo0x88("d8");
+                    rFrom = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"));
+                    rTo = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d8"));
                 }
             }
 
             // Move king to kTo
             mailbox[kTo] = (sbyte)m.Mover;
-            AddToBitboards(kTo, m.Mover);
+            AddToBitboards((Square0x88)kTo, m.Mover);
             XorZPiece(m.Mover, kTo);
 
             // Move rook rFrom -> rTo
             var rook = white ? Piece.WhiteRook : Piece.BlackRook;
-            RemoveFromBitboards(rFrom, rook);
+            RemoveFromBitboards((Square0x88)rFrom, rook);
             mailbox[rFrom] = (sbyte)Piece.Empty;
             XorZPiece(rook, rFrom);
 
             mailbox[rTo] = (sbyte)rook;
-            AddToBitboards(rTo, rook);
+            AddToBitboards((Square0x88)rTo, rook);
             XorZPiece(rook, rTo);
 
             undo = undo with { CastleRookFrom88 = rFrom, CastleRookTo88 = rTo };
@@ -304,7 +306,7 @@ public sealed class Board
                 int capSq = white ? (m.To88 - 16) : (m.To88 + 16);
                 var capPiece = white ? Piece.BlackPawn : Piece.WhitePawn;
 
-                RemoveFromBitboards(capSq, capPiece);
+                RemoveFromBitboards((Square0x88)capSq, capPiece);
                 mailbox[capSq] = (sbyte)Piece.Empty;
                 XorZPiece(capPiece, capSq);
 
@@ -363,11 +365,11 @@ public sealed class Board
             {
                 var rook = PieceUtil.IsWhite(m.Mover) ? Piece.WhiteRook : Piece.BlackRook;
 
-                RemoveFromBitboards(rTo, rook);
+                RemoveFromBitboards((Square0x88)rTo, rook);
                 mailbox[rTo] = (sbyte)Piece.Empty;
 
                 mailbox[rFrom] = (sbyte)rook;
-                AddToBitboards(rFrom, rook);
+                AddToBitboards((Square0x88)rFrom, rook);
             }
 
             // Move king back
@@ -395,7 +397,7 @@ public sealed class Board
                 {
                     var capPiece = PieceUtil.IsWhite(m.Mover) ? Piece.BlackPawn : Piece.WhitePawn;
                     mailbox[capSq] = (sbyte)capPiece;
-                    AddToBitboards(capSq, capPiece);
+                    AddToBitboards((Square0x88)capSq, capPiece);
                 }
             }
             else if (u.Captured != Piece.Empty)
@@ -444,7 +446,7 @@ public sealed class Board
     private void XorZPiece(Piece p, int sq88)
     {
         if (p == Piece.Empty) return;
-        int s64 = Squares.ConvertTo0x64Index(sq88);
+        int s64 = Squares.ConvertTo0x64Index((Square0x88)sq88);
         ZKey ^= Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
     }
 
@@ -453,15 +455,15 @@ public sealed class Board
     private static ulong RayAttacksFrom(int sq64, ulong occ, ReadOnlySpan<int> directions)
     {
         ulong attacks = 0;
-        int s88 = Squares.ConvertTo0x88Index(sq64);
+        int s88 = Squares.ConvertTo0x88Index((Square0x64)sq64);
         foreach (int d in directions)
         {
             int t = s88;
             while (true)
             {
                 t += d;
-                if (Squares.IsOffboard(t)) break;
-                int t64 = Squares.ConvertTo0x64Index(t);
+                if (Squares.IsOffboard((Square0x88)t)) break;
+                int t64 = Squares.ConvertTo0x64Index((Square0x88)t);
                 attacks |= 1UL << t64;
                 if (((occ >> t64) & 1UL) != 0) break;
             }
@@ -474,8 +476,8 @@ public sealed class Board
 
     public bool IsSquareAttacked(int targetSq88, bool byWhite)
     {
-        if (Squares.IsOffboard(targetSq88)) return false;
-        int t64 = Squares.ConvertTo0x64Index(targetSq88);
+        if (Squares.IsOffboard((Square0x88)targetSq88)) return false;
+        int t64 = Squares.ConvertTo0x64Index((Square0x88)targetSq88);
 
         var T = Tables; // local alias
 
@@ -546,20 +548,20 @@ public sealed class Board
         static int Sq(int f, int r) => (r << 4) | f;
 
         // White back rank
-        Place(Sq(0, 0), Piece.WhiteRook); Place(Sq(1, 0), Piece.WhiteKnight);
-        Place(Sq(2, 0), Piece.WhiteBishop); Place(Sq(3, 0), Piece.WhiteQueen);
-        Place(Sq(4, 0), Piece.WhiteKing); Place(Sq(5, 0), Piece.WhiteBishop);
-        Place(Sq(6, 0), Piece.WhiteKnight); Place(Sq(7, 0), Piece.WhiteRook);
+        Place(Squares.ToAlgebraic(new Square0x88(Sq(0, 0))), Piece.WhiteRook); Place(Squares.ToAlgebraic(new Square0x88(Sq(1, 0))), Piece.WhiteKnight);
+        Place(Squares.ToAlgebraic(new Square0x88(Sq(2, 0))), Piece.WhiteBishop); Place(Squares.ToAlgebraic(new Square0x88(Sq(3, 0))), Piece.WhiteQueen);
+        Place(Squares.ToAlgebraic(new Square0x88(Sq(4, 0))), Piece.WhiteKing); Place(Squares.ToAlgebraic(new Square0x88(Sq(5, 0))), Piece.WhiteBishop);
+        Place(Squares.ToAlgebraic(new Square0x88(Sq(6, 0))), Piece.WhiteKnight); Place(Squares.ToAlgebraic(new Square0x88(Sq(7, 0))), Piece.WhiteRook);
 
         // Pawns
-        for (int f = 0; f < 8; f++) Place(Sq(f, 1), Piece.WhitePawn);
-        for (int f = 0; f < 8; f++) Place(Sq(f, 6), Piece.BlackPawn);
+        for (int f = 0; f < 8; f++) Place(Squares.ToAlgebraic(new Square0x88(Sq(f, 1))), Piece.WhitePawn);
+        for (int f = 0; f < 8; f++) Place(Squares.ToAlgebraic(new Square0x88(Sq(f, 6))), Piece.BlackPawn);
 
         // Black back rank
-        Place(Sq(0, 7), Piece.BlackRook); Place(Sq(1, 7), Piece.BlackKnight);
-        Place(Sq(2, 7), Piece.BlackBishop); Place(Sq(3, 7), Piece.BlackQueen);
-        Place(Sq(4, 7), Piece.BlackKing); Place(Sq(5, 7), Piece.BlackBishop);
-        Place(Sq(6, 7), Piece.BlackKnight); Place(Sq(7, 7), Piece.BlackRook);
+        Place(Squares.ToAlgebraic(new Square0x88(Sq(0, 7))), Piece.BlackRook); Place(Squares.ToAlgebraic(new Square0x88(Sq(1, 7))), Piece.BlackKnight);
+        Place(Squares.ToAlgebraic(new Square0x88(Sq(2, 7))), Piece.BlackBishop); Place(Squares.ToAlgebraic(new Square0x88(Sq(3, 7))), Piece.BlackQueen);
+        Place(Squares.ToAlgebraic(new Square0x88(Sq(4, 7))), Piece.BlackKing); Place(Squares.ToAlgebraic(new Square0x88(Sq(5, 7))), Piece.BlackBishop);
+        Place(Squares.ToAlgebraic(new Square0x88(Sq(6, 7))), Piece.BlackKnight); Place(Squares.ToAlgebraic(new Square0x88(Sq(7, 7))), Piece.BlackRook);
 
         // Side & rights
         WhiteToMove = true;
@@ -577,10 +579,10 @@ public sealed class Board
         ulong key = 0;
         for (int sq88 = 0; sq88 < 128; sq88++)
         {
-            if (Squares.IsOffboard(sq88)) continue;
+            if (Squares.IsOffboard((Square0x88)sq88)) continue;
             var p = (Piece)mailbox[sq88];
             if (p == Piece.Empty) continue;
-            int s64 = Squares.ConvertTo0x64Index(sq88);
+            int s64 = Squares.ConvertTo0x64Index((Square0x88)sq88);
             key ^= Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
         }
         if (!WhiteToMove) key ^= Tables.Zobrist.SideToMove;
@@ -641,7 +643,7 @@ public sealed class Board
         ulong kingBB = GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
         if (kingBB == 0) return false; // ill-formed position
         int kingSq64 = BitOperations.TrailingZeroCount(kingBB);
-        int kingSq88 = Squares.ConvertTo0x88Index(kingSq64);
+        int kingSq88 = Squares.ConvertTo0x88Index((Square0x64)kingSq64);
         return IsSquareAttacked(kingSq88, byWhite: !white);
     }
 }

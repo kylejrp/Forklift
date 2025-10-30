@@ -45,30 +45,30 @@ namespace Forklift.Core
                 int s64 = BitOperations.TrailingZeroCount(pawns);
                 pawns &= pawns - 1;
 
-                int from88 = Squares.ConvertTo0x88Index(s64);
+                var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
                 int rank = from88 >> 4;
 
                 // Forward pushes
                 int one = white ? from88 + 16 : from88 - 16;
-                if (!Squares.IsOffboard(one) && board.At(one) == Piece.Empty)
+                if (!Squares.IsOffboard(new Square0x88(one)) && board.At(one) == Piece.Empty)
                 {
                     if ((white && rank == 6) || (!white && rank == 1))
                     {
                         // Promotion pushes (to last rank)
                         foreach (var promo in PromoPieces(white))
-                            moves.Add(new Board.Move(from88, one, white ? Piece.WhitePawn : Piece.BlackPawn, Piece.Empty, promo,
+                            moves.Add(new Board.Move(from88, new Square0x88(one), white ? Piece.WhitePawn : Piece.BlackPawn, Piece.Empty, promo,
                                 MoveKind.Promotion));
                     }
                     else
                     {
-                        moves.Add(new Board.Move(from88, one, white ? Piece.WhitePawn : Piece.BlackPawn));
+                        moves.Add(new Board.Move(from88, new Square0x88(one), white ? Piece.WhitePawn : Piece.BlackPawn));
                         // Double push
                         bool startRank = white ? (rank == 1) : (rank == 6);
                         if (startRank)
                         {
                             int two = white ? (one + 16) : (one - 16);
-                            if (!Squares.IsOffboard(two) && board.At(two) == Piece.Empty)
-                                moves.Add(new Board.Move(from88, two, white ? Piece.WhitePawn : Piece.BlackPawn));
+                            if (!Squares.IsOffboard(new Square0x88(two)) && board.At(two) == Piece.Empty)
+                                moves.Add(new Board.Move(from88, new Square0x88(two), white ? Piece.WhitePawn : Piece.BlackPawn));
                         }
                     }
                 }
@@ -77,7 +77,7 @@ namespace Forklift.Core
                 int[] caps = white ? new[] { +15, +17 } : new[] { -15, -17 };
                 foreach (var d in caps)
                 {
-                    int to88 = from88 + d;
+                    var to88 = new Square0x88(from88.Value + d);
                     if (Squares.IsOffboard(to88)) continue;
                     var target = board.At(to88);
                     if (target == Piece.Empty) continue;
@@ -118,10 +118,10 @@ namespace Forklift.Core
                 int s64 = BitOperations.TrailingZeroCount(bb);
                 bb &= bb - 1;
 
-                int from88 = Squares.ConvertTo0x88Index(s64);
+                var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
                 foreach (int d in deltas)
                 {
-                    int to88 = from88 + d;
+                    var to88 = new Square0x88(from88.Value + d);
                     if (Squares.IsOffboard(to88)) continue;
 
                     var target = board.At(to88);
@@ -148,13 +148,13 @@ namespace Forklift.Core
                 int s64 = BitOperations.TrailingZeroCount(bb);
                 bb &= bb - 1;
 
-                int from88 = Squares.ConvertTo0x88Index(s64);
+                var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
                 foreach (var d in dirs)
                 {
-                    int to = from88;
+                    var to = from88;
                     while (true)
                     {
-                        to += d;
+                        to = new Square0x88(to.Value + d);
                         if (Squares.IsOffboard(to)) break;
 
                         var target = board.At(to);
@@ -185,11 +185,11 @@ namespace Forklift.Core
             if (bb == 0) return;
 
             int s64 = BitOperations.TrailingZeroCount(bb);
-            int from88 = Squares.ConvertTo0x88Index(s64);
+            var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
 
             foreach (int d in deltas)
             {
-                int to88 = from88 + d;
+                var to88 = new Square0x88(from88.Value + d);
                 if (Squares.IsOffboard(to88)) continue;
 
                 var target = board.At(to88);
@@ -213,7 +213,7 @@ namespace Forklift.Core
             if (kingBB == 0) return;
 
             int k64 = BitOperations.TrailingZeroCount(kingBB);
-            int k88 = Squares.ConvertTo0x88Index(k64);
+            var k88 = Squares.ConvertTo0x88Index(new Square0x64(k64));
 
             if (board.InCheck(white)) return;
 
@@ -225,8 +225,8 @@ namespace Forklift.Core
                 // King side
                 if ((board.CastlingRights & Board.CastlingRightsFlags.WhiteKing) != 0)
                 {
-                    int f1 = Squares.ParseAlgebraicTo0x88("f1");
-                    int g1 = Squares.ParseAlgebraicTo0x88("g1");
+                    var f1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f1"));
+                    var g1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g1"));
                     if (board.At(f1) == Piece.Empty && board.At(g1) == Piece.Empty)
                     {
                         // Squares e1,f1,g1 may not be attacked by black
@@ -241,9 +241,9 @@ namespace Forklift.Core
                 // Queen side
                 if ((board.CastlingRights & Board.CastlingRightsFlags.WhiteQueen) != 0)
                 {
-                    int d1 = Squares.ParseAlgebraicTo0x88("d1");
-                    int c1 = Squares.ParseAlgebraicTo0x88("c1");
-                    int b1 = Squares.ParseAlgebraicTo0x88("b1");
+                    var d1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d1"));
+                    var c1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c1"));
+                    var b1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("b1"));
                     if (board.At(d1) == Piece.Empty && board.At(c1) == Piece.Empty && board.At(b1) == Piece.Empty)
                     {
                         if (!board.IsSquareAttacked(k88, byWhite: false) &&
@@ -260,8 +260,8 @@ namespace Forklift.Core
                 // Black king side
                 if ((board.CastlingRights & Board.CastlingRightsFlags.BlackKing) != 0)
                 {
-                    int f8 = Squares.ParseAlgebraicTo0x88("f8");
-                    int g8 = Squares.ParseAlgebraicTo0x88("g8");
+                    var f8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f8"));
+                    var g8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g8"));
                     if (board.At(f8) == Piece.Empty && board.At(g8) == Piece.Empty)
                     {
                         if (!board.IsSquareAttacked(k88, byWhite: true) &&
@@ -275,9 +275,9 @@ namespace Forklift.Core
                 // Black queen side
                 if ((board.CastlingRights & Board.CastlingRightsFlags.BlackQueen) != 0)
                 {
-                    int d8 = Squares.ParseAlgebraicTo0x88("d8");
-                    int c8 = Squares.ParseAlgebraicTo0x88("c8");
-                    int b8 = Squares.ParseAlgebraicTo0x88("b8");
+                    var d8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d8"));
+                    var c8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c8"));
+                    var b8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("b8"));
                     if (board.At(d8) == Piece.Empty && board.At(c8) == Piece.Empty && board.At(b8) == Piece.Empty)
                     {
                         if (!board.IsSquareAttacked(k88, byWhite: true) &&
@@ -299,13 +299,13 @@ namespace Forklift.Core
 
             // EP target square: file at rank 5 for white, rank 2 for black
             int epRank = white ? 5 : 2;
-            int ep88 = (epRank << 4) | file;
+            var ep88 = new Square0x88((epRank << 4) | file);
 
             // The capturing pawns are on the adjacent files on the rank behind the EP target
             // For white, pawns on rank 4 at ep88-15 / ep88-17; for black, rank 3 at ep88+15 / ep88+17
             var candidates = white
-                ? new[] { ep88 - 15, ep88 - 17 }
-                : new[] { ep88 + 15, ep88 + 17 };
+                ? new[] { new Square0x88(ep88.Value - 15), new Square0x88(ep88.Value - 17) }
+                : new[] { new Square0x88(ep88.Value + 15), new Square0x88(ep88.Value + 17) };
 
             foreach (var from in candidates)
             {

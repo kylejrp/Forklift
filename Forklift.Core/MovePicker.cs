@@ -61,7 +61,7 @@ namespace Forklift.Core
 
             // If multiple bits somehow set, pick the LS1B — tests will still fail elsewhere appropriately.
             int s64 = BitOperations.TrailingZeroCount(bb);
-            return Squares.ConvertTo0x88Index(s64);
+            return Squares.ConvertTo0x88Index(new Square0x64(s64));
         }
     }
 }

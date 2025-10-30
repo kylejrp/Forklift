@@ -11,16 +11,16 @@ namespace Forklift.Testing
             // Minimal legal shell: kings + pawns
             var b = ChessEngine.Core.BoardFactory.FromFenOrStart("startpos");
             b.Clear();
-            b.Place(Squares.ParseAlgebraicTo0x88("h1"), Piece.WhiteKing);
-            b.Place(Squares.ParseAlgebraicTo0x88("h8"), Piece.BlackKing);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")), Piece.WhiteKing);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8")), Piece.BlackKing);
 
-            b.Place(Squares.ParseAlgebraicTo0x88("e5"), Piece.WhitePawn); // white pawn ready to capture d6
-            b.Place(Squares.ParseAlgebraicTo0x88("d7"), Piece.BlackPawn);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e5")), Piece.WhitePawn); // white pawn ready to capture d6
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")), Piece.BlackPawn);
 
             // Black to move: play d7-d5 (double push) -> this should set EnPassantFile automatically
             b.SetSideToMove(false);
-            var mv = new Board.Move(Squares.ParseAlgebraicTo0x88("d7"),
-                                    Squares.ParseAlgebraicTo0x88("d5"),
+            var mv = new Board.Move(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")),
+                                    Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d5")),
                                     Piece.BlackPawn);
             var u = b.MakeMove(mv);
             // Now white to move with EP on file 'd'

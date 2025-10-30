@@ -34,7 +34,12 @@ namespace ChessEngine.Core
                 var u = b.MakeMove(mv);
                 long n = Count(b, depth - 1);
                 b.UnmakeMove(mv, u);
-                acc.Add(($"{Squares.ToAlgebraic(mv.From88)}{Squares.ToAlgebraic(mv.To88)}", n));
+                // UCI: from-to, e.g. e2e4, with promotion if any
+                var fromAlg = Squares.ToAlgebraic(mv.From88).Value;
+                var toAlg = Squares.ToAlgebraic(mv.To88).Value;
+                string promo = mv.Promotion != Piece.Empty ? mv.Promotion.ToString().ToLower()[5..6] : "";
+                string uci = fromAlg + toAlg + promo;
+                acc.Add((uci, n));
             }
             return acc.OrderByDescending(x => x.nodes).ToList();
         }

@@ -33,7 +33,7 @@ namespace Forklift.Testing
                 if ((s88 & 0x88) != 0) continue;
                 var p = b.At(s88);
                 if (p == Piece.Empty) continue;
-                int s64 = Squares.ConvertTo0x64Index(s88);
+                int s64 = Squares.ConvertTo0x64Index(new Square0x88(s88));
                 ulong bit = 1UL << s64;
                 recomputedAll |= bit;
                 if (PieceUtil.IsWhite(p)) recomputedWhite |= bit; else recomputedBlack |= bit;

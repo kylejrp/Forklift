@@ -41,29 +41,29 @@ public sealed class EngineTables
 
         for (int square88 = 0; square88 < 128; square88++)
         {
-            if (Squares.IsOffboard(square88)) continue;
-            int square64 = Squares.ConvertTo0x64Index(square88);
+            if (Squares.IsOffboard((Square0x88)square88)) continue;
+            int square64 = Squares.ConvertTo0x64Index(new Square0x88(square88));
 
             ulong knightMask = 0, kingMask = 0, whitePawnMask = 0, blackPawnMask = 0;
             foreach (var delta in knightDeltas)
             {
                 int targetSquare = square88 + delta;
-                if (!Squares.IsOffboard(targetSquare)) knightMask |= 1UL << Squares.ConvertTo0x64Index(targetSquare);
+                if (!Squares.IsOffboard(new Square0x88(targetSquare))) knightMask |= 1UL << Squares.ConvertTo0x64Index(new Square0x88(targetSquare));
             }
             foreach (var delta in kingDeltas)
             {
                 int targetSquare = square88 + delta;
-                if (!Squares.IsOffboard(targetSquare)) kingMask |= 1UL << Squares.ConvertTo0x64Index(targetSquare);
+                if (!Squares.IsOffboard(new Square0x88(targetSquare))) kingMask |= 1UL << Squares.ConvertTo0x64Index(new Square0x88(targetSquare));
             }
             foreach (var delta in whitePawnDeltas)
             {
                 int targetSquare = square88 + delta;
-                if (!Squares.IsOffboard(targetSquare)) whitePawnMask |= 1UL << Squares.ConvertTo0x64Index(targetSquare);
+                if (!Squares.IsOffboard(new Square0x88(targetSquare))) whitePawnMask |= 1UL << Squares.ConvertTo0x64Index(new Square0x88(targetSquare));
             }
             foreach (var delta in blackPawnDeltas)
             {
                 int targetSquare = square88 + delta;
-                if (!Squares.IsOffboard(targetSquare)) blackPawnMask |= 1UL << Squares.ConvertTo0x64Index(targetSquare);
+                if (!Squares.IsOffboard(new Square0x88(targetSquare))) blackPawnMask |= 1UL << Squares.ConvertTo0x64Index(new Square0x88(targetSquare));
             }
             knightAttackTable[square64] = knightMask;
             kingAttackTable[square64] = kingMask;
@@ -72,5 +72,13 @@ public sealed class EngineTables
         }
 
         return new EngineTables(knightAttackTable, kingAttackTable, whitePawnAttackFrom, blackPawnAttackFrom, zobrist ?? Zobrist.CreateDeterministic());
+    }
+
+    // Fix type mismatches in EngineTables
+    public static void InitializeAttackTables()
+    {
+        Square0x88 square = new Square0x88(0x12); // Replace with actual logic
+        // Example usage
+        ulong attacks = 0UL; // Replace with actual attack generation logic
     }
 }

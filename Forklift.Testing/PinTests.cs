@@ -13,13 +13,13 @@ namespace Forklift.Testing
             var board = ChessEngine.Core.BoardFactory.FromFenOrStart("4r3/8/8/8/8/8/4R3/4K3 w - - 0 1");
 
             // Act: Generate all legal moves for the pinned piece (white rook on e2).
-            var fromSquare = Squares.ParseAlgebraicTo0x88("e2");
+            var fromSquare = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e2"));
             var legalMoves = board.GenerateLegal()
-                                  .Where(move => move.From88 == fromSquare)
+                                  .Where(move => move.From88.Value == fromSquare.Value)
                                   .ToList();
 
             // Assert: Ensure no moves take the rook off the e-file.
-            bool IsOnEFile(int square) => (square & 0xF) == (Squares.ParseAlgebraicTo0x88("e2") & 0xF);
+            bool IsOnEFile(Square0x88 square) => Squares.ToAlgebraic(square).Value[0] == 'e';
             var offFileMoves = legalMoves.Where(move => !IsOnEFile(move.To88)).ToList();
 
             // Verify that all moves off the e-file are illegal.

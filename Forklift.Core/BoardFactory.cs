@@ -66,7 +66,7 @@ namespace ChessEngine.Core
                         _ => throw new ArgumentException($"Invalid piece char {c}")
                     };
 
-                    b.Place(sq88, piece);
+                    b.Place(Squares.ToAlgebraic(new Square0x88(sq88)), piece);
                     file++;
                 }
             }
