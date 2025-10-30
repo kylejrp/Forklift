@@ -27,6 +27,27 @@ public sealed class EngineTables
         Zobrist = zobrist;
     }
 
+    private static Dictionary<int, List<int>> PrecomputeValidDeltas(int[] deltas)
+    {
+        var validDeltas = new Dictionary<int, List<int>>();
+        for (UnsafeSquare0x88 square88 = (UnsafeSquare0x88)0; square88 < 128; square88++)
+        {
+            if (Squares.IsOffboard(square88)) continue;
+
+            var validMoves = new List<int>();
+            foreach (var delta in deltas)
+            {
+                var targetSquare = square88 + delta;
+                if (targetSquare >= 0 && targetSquare < 128 && !Squares.IsOffboard(targetSquare))
+                {
+                    validMoves.Add(delta);
+                }
+            }
+            validDeltas[square88] = validMoves;
+        }
+        return validDeltas;
+    }
+
     public static EngineTables CreateDefault(Zobrist? zobrist = null)
     {
         var knightAttackTable = new ulong[64];
@@ -39,31 +60,36 @@ public sealed class EngineTables
         int[] whitePawnDeltas = { +15, +17 };
         int[] blackPawnDeltas = { -15, -17 };
 
-        for (int square88 = 0; square88 < 128; square88++)
+        var knightValidDeltas = PrecomputeValidDeltas(knightDeltas);
+        var kingValidDeltas = PrecomputeValidDeltas(kingDeltas);
+        var whitePawnValidDeltas = PrecomputeValidDeltas(whitePawnDeltas);
+        var blackPawnValidDeltas = PrecomputeValidDeltas(blackPawnDeltas);
+
+        for (UnsafeSquare0x88 square88 = (UnsafeSquare0x88)0; square88 < 128; square88++)
         {
-            if (Squares.IsOffboard(new Square0x88(square88))) continue;
-            int square64 = Squares.ConvertTo0x64Index(new Square0x88(square88)).Value;
+            if (Squares.IsOffboard(new UnsafeSquare0x88(square88))) continue;
+            int square64 = (Square0x64)square88;
 
             ulong knightMask = 0, kingMask = 0, whitePawnMask = 0, blackPawnMask = 0;
-            foreach (var delta in knightDeltas)
+            foreach (var validDelta in knightValidDeltas[square88])
             {
-                int targetSquare = square88 + delta;
-                if (!Squares.IsOffboard(new Square0x88(targetSquare))) knightMask |= 1UL << Squares.ConvertTo0x64Index(new Square0x88(targetSquare)).Value;
+                UnsafeSquare0x88 targetSquare = square88 + validDelta;
+                knightMask |= 1UL << (Square0x88)targetSquare;
             }
-            foreach (var delta in kingDeltas)
+            foreach (var delta in kingValidDeltas[square88])
             {
-                int targetSquare = square88 + delta;
-                if (!Squares.IsOffboard(new Square0x88(targetSquare))) kingMask |= 1UL << Squares.ConvertTo0x64Index(new Square0x88(targetSquare)).Value;
+                UnsafeSquare0x88 targetSquare = square88 + delta;
+                kingMask |= 1UL << (Square0x88)targetSquare;
             }
-            foreach (var delta in whitePawnDeltas)
+            foreach (var delta in whitePawnValidDeltas[square88])
             {
-                int targetSquare = square88 + delta;
-                if (!Squares.IsOffboard(new Square0x88(targetSquare))) whitePawnMask |= 1UL << Squares.ConvertTo0x64Index(new Square0x88(targetSquare)).Value;
+                UnsafeSquare0x88 targetSquare = square88 + delta;
+                whitePawnMask |= 1UL << (Square0x88)targetSquare;
             }
-            foreach (var delta in blackPawnDeltas)
+            foreach (var delta in blackPawnValidDeltas[square88])
             {
-                int targetSquare = square88 + delta;
-                if (!Squares.IsOffboard(new Square0x88(targetSquare))) blackPawnMask |= 1UL << Squares.ConvertTo0x64Index(new Square0x88(targetSquare)).Value;
+                UnsafeSquare0x88 targetSquare = square88 + delta;
+                blackPawnMask |= 1UL << (Square0x88)targetSquare;
             }
             knightAttackTable[square64] = knightMask;
             kingAttackTable[square64] = kingMask;

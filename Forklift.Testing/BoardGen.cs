@@ -110,15 +110,8 @@ namespace Forklift.Testing
         private static bool IsOwnKingInCheck(Board b)
         {
             bool justMovedWhite = !b.WhiteToMove; // after MakeMove, side flipped
-            int kingSq88 = FindKingSq88(b, justMovedWhite);
-            return b.IsSquareAttacked(kingSq88, byWhite: !justMovedWhite);
-        }
-
-        private static int FindKingSq88(Board b, bool white)
-        {
-            ulong bb = b.GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
-            int s64 = bb != 0 ? BitOperations.TrailingZeroCount(bb) : (white ? 4 : 60); // e1/e8
-            return Squares.ConvertTo0x88Index(new Square0x64(s64));
+            var kingSq64 = b.FindKingSq64(justMovedWhite);
+            return b.IsSquareAttacked(kingSq64, byWhite: !justMovedWhite);
         }
 
         private static bool HasAnyLegalMove(Board b)

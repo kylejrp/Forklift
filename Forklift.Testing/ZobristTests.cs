@@ -40,12 +40,12 @@ namespace Forklift.Testing
                 // uses public UpdateZobristFull semantics; if it's private, expose a Debug recompute or mirror here
                 // For the test, mirror the logic:
                 ulong key = 0;
-                for (int sq88 = 0; sq88 < 128; sq88++)
+                for (UnsafeSquare0x88 sq88 = (UnsafeSquare0x88)0; sq88 < 128; sq88++)
                 {
-                    if (Squares.IsOffboard(new Square0x88(sq88))) continue;
+                    if (Squares.IsOffboard(sq88)) continue;
                     var p = bb.At(sq88);
                     if (p == Piece.Empty) continue;
-                    int s64 = Squares.ConvertTo0x64Index(new Square0x88(sq88)).Value;
+                    int s64 = (Square0x64)sq88;
                     key ^= bb.Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
                 }
                 if (!bb.WhiteToMove) key ^= bb.Tables.Zobrist.SideToMove;

@@ -117,7 +117,6 @@ public sealed class Board
     /// <param name="pc">The piece to place.</param>
     public void Place(Square0x88 sq88, Piece pc)
     {
-        if (Squares.IsOffboard(sq88)) throw new ArgumentException("Offboard");
         RemoveIfAny(sq88);
         mailbox[sq88.Value] = (sbyte)pc;
         if (pc != Piece.Empty) AddToBitboards(sq88, pc);
@@ -133,7 +132,7 @@ public sealed class Board
 
     private void AddToBitboards(Square0x88 sq88, Piece pc)
     {
-        int s64 = Squares.ConvertTo0x64Index(sq88).Value;
+        int s64 = (Square0x64)sq88;
         ulong b = 1UL << s64;
         pieceBB[PieceUtil.Index(pc)] |= b;
         if (PieceUtil.IsWhite(pc)) OccWhite |= b; else OccBlack |= b;
@@ -142,7 +141,7 @@ public sealed class Board
 
     private void RemoveFromBitboards(Square0x88 sq88, Piece pc)
     {
-        int s64 = Squares.ConvertTo0x64Index(sq88).Value;
+        int s64 = (Square0x64)sq88;
         ulong b = 1UL << s64;
         pieceBB[PieceUtil.Index(pc)] &= ~b;
         if (PieceUtil.IsWhite(pc)) OccWhite &= ~b; else OccBlack &= ~b;
@@ -283,18 +282,21 @@ public sealed class Board
 
             // Move king to kTo
             mailbox[kTo] = (sbyte)m.Mover;
-            AddToBitboards((Square0x88)kTo, m.Mover);
-            XorZPiece(m.Mover, kTo);
+            var kTo88 = (Square0x88)kTo;
+            AddToBitboards(kTo88, m.Mover);
+            XorZPiece(m.Mover, kTo88);
 
             // Move rook rFrom -> rTo
             var rook = white ? Piece.WhiteRook : Piece.BlackRook;
             RemoveFromBitboards((Square0x88)rFrom, rook);
             mailbox[rFrom] = (sbyte)Piece.Empty;
-            XorZPiece(rook, rFrom);
+            var rFrom88 = (Square0x88)rFrom;
+            XorZPiece(rook, rFrom88);
 
             mailbox[rTo] = (sbyte)rook;
             AddToBitboards((Square0x88)rTo, rook);
-            XorZPiece(rook, rTo);
+            var rTo88 = (Square0x88)rTo;
+            XorZPiece(rook, rTo88);
 
             undo = undo with { CastleRookFrom88 = rFrom, CastleRookTo88 = rTo };
         }
@@ -304,12 +306,17 @@ public sealed class Board
             if (m.Kind == MoveKind.EnPassant)
             {
                 bool white = PieceUtil.IsWhite(m.Mover);
-                int capSq = white ? (m.To88 - 16) : (m.To88 + 16);
+                var capSq = white ? (m.To88 - 16) : (m.To88 + 16);
                 var capPiece = white ? Piece.BlackPawn : Piece.WhitePawn;
 
-                RemoveFromBitboards((Square0x88)capSq, capPiece);
+                if(Squares.IsOffboard(capSq))
+                    throw new InvalidOperationException("En Passant capture square is offboard.");
+
+                var safeCapSq = (Square0x88)capSq;
+
+                RemoveFromBitboards(safeCapSq, capPiece);
                 mailbox[capSq] = (sbyte)Piece.Empty;
-                XorZPiece(capPiece, capSq);
+                XorZPiece(capPiece, safeCapSq);
 
                 undo = undo with { EnPassantCapturedSq88 = capSq };
             }
@@ -444,27 +451,27 @@ public sealed class Board
         return moves;
     }
 
-    private void XorZPiece(Piece p, int sq88)
+    private void XorZPiece(Piece p, Square0x88 sq88)
     {
         if (p == Piece.Empty) return;
-        int s64 = Squares.ConvertTo0x64Index(new Square0x88(sq88)).Value;
+        int s64 = (Square0x64)sq88;
         ZKey ^= Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
     }
 
     // --- Attacks (thread-safe; relies only on immutable tables + this board instance) -----
 
-    private static ulong RayAttacksFrom(int sq64, ulong occ, ReadOnlySpan<int> directions)
+    private static ulong RayAttacksFrom(Square0x64 sq64, ulong occ, ReadOnlySpan<int> directions)
     {
         ulong attacks = 0;
-        int s88 = Squares.ConvertTo0x88Index(new Square0x64(sq64)).Value;
+        Square0x88 sq88 = (Square0x88)sq64;
         foreach (int d in directions)
         {
-            int t = s88;
+            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
             while (true)
             {
                 t += d;
-                if (Squares.IsOffboard((Square0x88)t)) break;
-                int t64 = Squares.ConvertTo0x64Index((Square0x88)t);
+                if (Squares.IsOffboard(t)) break;
+                Square0x64 t64 = (Square0x64)t;
                 attacks |= 1UL << t64;
                 if (((occ >> t64) & 1UL) != 0) break;
             }
@@ -472,14 +479,11 @@ public sealed class Board
         return attacks;
     }
 
-    private ulong RookAttacks(int sq64) => RayAttacksFrom(sq64, OccAll, RookDirections);
-    private ulong BishopAttacks(int sq64) => RayAttacksFrom(sq64, OccAll, BishopDirections);
+    private ulong RookAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, RookDirections);
+    private ulong BishopAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, BishopDirections);
 
-    public bool IsSquareAttacked(int targetSq88, bool byWhite)
+    public bool IsSquareAttacked(Square0x64 t64, bool byWhite)
     {
-        if (Squares.IsOffboard(new Square0x88(targetSq88))) return false;
-        int t64 = Squares.ConvertTo0x64Index(new Square0x88(targetSq88)).Value;
-
         var T = Tables; // local alias
 
         // Knights
@@ -578,12 +582,12 @@ public sealed class Board
     private void UpdateZobristFull()
     {
         ulong key = 0;
-        for (int sq88 = 0; sq88 < 128; sq88++)
+        for (UnsafeSquare0x88 sq88 = (UnsafeSquare0x88)0; sq88 < 128; sq88++)
         {
-            if (Squares.IsOffboard((Square0x88)sq88)) continue;
+            if (Squares.IsOffboard(sq88)) continue;
             var p = (Piece)mailbox[sq88];
             if (p == Piece.Empty) continue;
-            int s64 = Squares.ConvertTo0x64Index((Square0x88)sq88);
+            int s64 = (Square0x64)sq88;
             key ^= Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
         }
         if (!WhiteToMove) key ^= Tables.Zobrist.SideToMove;
@@ -643,8 +647,30 @@ public sealed class Board
         // Find king square for the requested side
         ulong kingBB = GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
         if (kingBB == 0) return false; // ill-formed position
-        int kingSq64 = BitOperations.TrailingZeroCount(kingBB);
-        int kingSq88 = Squares.ConvertTo0x88Index(new Square0x64(kingSq64)).Value;
-        return IsSquareAttacked(kingSq88, byWhite: !white);
+        var kingSq64 = (Square0x64)BitOperations.TrailingZeroCount(kingBB);
+        return IsSquareAttacked(kingSq64, byWhite: !white);
+    }
+
+
+
+    /// <summary>
+    /// Finds the king square (0x64) for the specified color using the board's bitboards.
+    /// </summary>
+    public Square0x64 FindKingSq64(bool white)
+    {
+        ulong bb = GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
+        if (bb == 0)
+            throw new InvalidOperationException("King bitboard is empty.");
+
+        return (Square0x64)BitOperations.TrailingZeroCount(bb);
+    }
+
+    public Square0x88 FindKingSq88(bool white)
+    {
+        ulong bb = GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
+        if (bb == 0)
+            throw new InvalidOperationException("King bitboard is empty.");
+
+        return (Square0x88)BitOperations.TrailingZeroCount(bb);
     }
 }
