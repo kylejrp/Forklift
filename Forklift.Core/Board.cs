@@ -119,30 +119,28 @@ public sealed class Board
     {
         RemoveIfAny(sq88);
         mailbox[sq88.Value] = (sbyte)pc;
-        if (pc != Piece.Empty) AddToBitboards(sq88, pc);
+        if (pc != Piece.Empty) AddToBitboards((Square0x64)sq88, pc);
     }
 
     private void RemoveIfAny(Square0x88 sq88)
     {
         var existing = (Piece)mailbox[sq88.Value];
         if (existing == Piece.Empty) return;
-        RemoveFromBitboards(sq88, existing);
+        RemoveFromBitboards((Square0x64)sq88, existing);
         mailbox[sq88.Value] = (sbyte)Piece.Empty;
     }
 
-    private void AddToBitboards(Square0x88 sq88, Piece pc)
+    private void AddToBitboards(Square0x64 sq64, Piece pc)
     {
-        int s64 = (Square0x64)sq88;
-        ulong b = 1UL << s64;
+        ulong b = 1UL << sq64;
         pieceBB[PieceUtil.Index(pc)] |= b;
         if (PieceUtil.IsWhite(pc)) OccWhite |= b; else OccBlack |= b;
         OccAll |= b;
     }
 
-    private void RemoveFromBitboards(Square0x88 sq88, Piece pc)
+    private void RemoveFromBitboards(Square0x64 sq64, Piece pc)
     {
-        int s64 = (Square0x64)sq88;
-        ulong b = 1UL << s64;
+        ulong b = 1UL << sq64;
         pieceBB[PieceUtil.Index(pc)] &= ~b;
         if (PieceUtil.IsWhite(pc)) OccWhite &= ~b; else OccBlack &= ~b;
         OccAll &= ~b;
@@ -174,9 +172,9 @@ public sealed class Board
         bool WhiteToMovePrev,
         ulong ZKeyPrev,
         // new: for EP/castling reversals
-        int? EnPassantCapturedSq88,
-        int? CastleRookFrom88,
-        int? CastleRookTo88);
+        Square0x88? EnPassantCapturedSq88,
+        Square0x88? CastleRookFrom88,
+        Square0x88? CastleRookTo88);
 
 
     public Undo MakeMove(in Move m)
@@ -234,13 +232,13 @@ public sealed class Board
         // --- Handle captures (normal capture only; EP handled later)
         if (m.Kind != MoveKind.EnPassant && undo.Captured != Piece.Empty)
         {
-            RemoveFromBitboards(m.To88, undo.Captured);
+            RemoveFromBitboards((Square0x64)m.To88, undo.Captured);
             mailbox[m.To88] = (sbyte)Piece.Empty;
             XorZPiece(undo.Captured, m.To88);
         }
 
         // --- Move the mover piece off the from-square
-        RemoveFromBitboards(m.From88, m.Mover);
+        RemoveFromBitboards((Square0x64)m.From88, m.Mover);
         mailbox[m.From88] = (sbyte)Piece.Empty;
         XorZPiece(m.Mover, m.From88);
 
@@ -249,9 +247,9 @@ public sealed class Board
         {
             bool white = PieceUtil.IsWhite(m.Mover);
             // Define king/rook target squares
-            int kFrom = m.From88;
-            int kTo = m.To88;
-            int rFrom, rTo;
+            var kFrom = m.From88;
+            var kTo = m.To88;
+            Square0x88 rFrom, rTo;
 
             if (white)
             {
@@ -282,21 +280,18 @@ public sealed class Board
 
             // Move king to kTo
             mailbox[kTo] = (sbyte)m.Mover;
-            var kTo88 = (Square0x88)kTo;
-            AddToBitboards(kTo88, m.Mover);
-            XorZPiece(m.Mover, kTo88);
+            AddToBitboards((Square0x64)kTo, m.Mover);
+            XorZPiece(m.Mover, kTo);
 
             // Move rook rFrom -> rTo
             var rook = white ? Piece.WhiteRook : Piece.BlackRook;
-            RemoveFromBitboards((Square0x88)rFrom, rook);
+            RemoveFromBitboards((Square0x64)rFrom, rook);
             mailbox[rFrom] = (sbyte)Piece.Empty;
-            var rFrom88 = (Square0x88)rFrom;
-            XorZPiece(rook, rFrom88);
+            XorZPiece(rook, rFrom);
 
             mailbox[rTo] = (sbyte)rook;
-            AddToBitboards((Square0x88)rTo, rook);
-            var rTo88 = (Square0x88)rTo;
-            XorZPiece(rook, rTo88);
+            AddToBitboards((Square0x64)rTo, rook);
+            XorZPiece(rook, rTo);
 
             undo = undo with { CastleRookFrom88 = rFrom, CastleRookTo88 = rTo };
         }
@@ -314,17 +309,17 @@ public sealed class Board
 
                 var safeCapSq = (Square0x88)capSq;
 
-                RemoveFromBitboards(safeCapSq, capPiece);
+                RemoveFromBitboards((Square0x64)safeCapSq, capPiece);
                 mailbox[capSq] = (sbyte)Piece.Empty;
                 XorZPiece(capPiece, safeCapSq);
 
-                undo = undo with { EnPassantCapturedSq88 = capSq };
+                undo = undo with { EnPassantCapturedSq88 = safeCapSq };
             }
 
             // --- Place the moved piece (promotion if any)
             var placed = (m.Promotion != Piece.Empty) ? m.Promotion : m.Mover;
             mailbox[m.To88] = (sbyte)placed;
-            AddToBitboards(m.To88, placed);
+            AddToBitboards((Square0x64)m.To88, placed);
             XorZPiece(placed, m.To88);
         }
 
@@ -369,49 +364,49 @@ public sealed class Board
         if (m.Kind == MoveKind.CastleKing || m.Kind == MoveKind.CastleQueen)
         {
             // Undo rook move
-            if (u.CastleRookFrom88 is int rFrom && u.CastleRookTo88 is int rTo)
+            if (u.CastleRookFrom88 is Square0x88 rFrom && u.CastleRookTo88 is Square0x88 rTo)
             {
                 var rook = PieceUtil.IsWhite(m.Mover) ? Piece.WhiteRook : Piece.BlackRook;
 
-                RemoveFromBitboards((Square0x88)rTo, rook);
+                RemoveFromBitboards((Square0x64)rTo, rook);
                 mailbox[rTo] = (sbyte)Piece.Empty;
 
                 mailbox[rFrom] = (sbyte)rook;
-                AddToBitboards((Square0x88)rFrom, rook);
+                AddToBitboards((Square0x64)rFrom, rook);
             }
 
             // Move king back
-            RemoveFromBitboards(m.To88, m.Mover);
+            RemoveFromBitboards((Square0x64)m.To88, m.Mover);
             mailbox[m.To88] = (sbyte)Piece.Empty;
 
             mailbox[m.From88] = (sbyte)m.Mover;
-            AddToBitboards(m.From88, m.Mover);
+            AddToBitboards((Square0x64)m.From88, m.Mover);
         }
         else
         {
             // Remove piece from To (promotion piece may be there)
             var placed = (m.Promotion != Piece.Empty) ? m.Promotion : m.Mover;
-            RemoveFromBitboards(m.To88, placed);
+            RemoveFromBitboards((Square0x64)m.To88, placed);
             mailbox[m.To88] = (sbyte)Piece.Empty;
 
             // Put mover back
             mailbox[m.From88] = (sbyte)m.Mover;
-            AddToBitboards(m.From88, m.Mover);
+            AddToBitboards((Square0x64)m.From88, m.Mover);
 
             // Restore captured piece (normal capture at To, EP captured behind To)
             if (m.Kind == MoveKind.EnPassant)
             {
-                if (u.EnPassantCapturedSq88 is int capSq)
+                if (u.EnPassantCapturedSq88 is Square0x88 capSq)
                 {
                     var capPiece = PieceUtil.IsWhite(m.Mover) ? Piece.BlackPawn : Piece.WhitePawn;
                     mailbox[capSq] = (sbyte)capPiece;
-                    AddToBitboards((Square0x88)capSq, capPiece);
+                    AddToBitboards((Square0x64)capSq, capPiece);
                 }
             }
             else if (u.Captured != Piece.Empty)
             {
                 mailbox[m.To88] = (sbyte)u.Captured;
-                AddToBitboards(m.To88, u.Captured);
+                AddToBitboards((Square0x64)m.To88, u.Captured);
             }
         }
 
