@@ -86,6 +86,7 @@ public sealed class Board
 
     private void PlaceStartingPieces()
     {
+        // Use direct algebraic notation placement, no change needed here as Place(AlgebraicNotation, Piece) is efficient
         Place(new AlgebraicNotation("a1"), Piece.WhiteRook); Place(new AlgebraicNotation("b1"), Piece.WhiteKnight); Place(new AlgebraicNotation("c1"), Piece.WhiteBishop); Place(new AlgebraicNotation("d1"), Piece.WhiteQueen);
         Place(new AlgebraicNotation("e1"), Piece.WhiteKing); Place(new AlgebraicNotation("f1"), Piece.WhiteBishop); Place(new AlgebraicNotation("g1"), Piece.WhiteKnight); Place(new AlgebraicNotation("h1"), Piece.WhiteRook);
         for (char f = 'a'; f <= 'h'; f++) Place(new AlgebraicNotation($"{f}2"), Piece.WhitePawn);
@@ -446,7 +447,7 @@ public sealed class Board
     private void XorZPiece(Piece p, int sq88)
     {
         if (p == Piece.Empty) return;
-        int s64 = Squares.ConvertTo0x64Index((Square0x88)sq88);
+        int s64 = Squares.ConvertTo0x64Index(new Square0x88(sq88)).Value;
         ZKey ^= Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
     }
 
@@ -455,7 +456,7 @@ public sealed class Board
     private static ulong RayAttacksFrom(int sq64, ulong occ, ReadOnlySpan<int> directions)
     {
         ulong attacks = 0;
-        int s88 = Squares.ConvertTo0x88Index((Square0x64)sq64);
+        int s88 = Squares.ConvertTo0x88Index(new Square0x64(sq64)).Value;
         foreach (int d in directions)
         {
             int t = s88;
@@ -476,8 +477,8 @@ public sealed class Board
 
     public bool IsSquareAttacked(int targetSq88, bool byWhite)
     {
-        if (Squares.IsOffboard((Square0x88)targetSq88)) return false;
-        int t64 = Squares.ConvertTo0x64Index((Square0x88)targetSq88);
+        if (Squares.IsOffboard(new Square0x88(targetSq88))) return false;
+        int t64 = Squares.ConvertTo0x64Index(new Square0x88(targetSq88)).Value;
 
         var T = Tables; // local alias
 
@@ -643,7 +644,7 @@ public sealed class Board
         ulong kingBB = GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
         if (kingBB == 0) return false; // ill-formed position
         int kingSq64 = BitOperations.TrailingZeroCount(kingBB);
-        int kingSq88 = Squares.ConvertTo0x88Index((Square0x64)kingSq64);
+        int kingSq88 = Squares.ConvertTo0x88Index(new Square0x64(kingSq64)).Value;
         return IsSquareAttacked(kingSq88, byWhite: !white);
     }
 }

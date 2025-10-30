@@ -45,7 +45,7 @@ namespace Forklift.Testing
                     if (Squares.IsOffboard(new Square0x88(sq88))) continue;
                     var p = bb.At(sq88);
                     if (p == Piece.Empty) continue;
-                    int s64 = Squares.ConvertTo0x64Index(new Square0x88(sq88));
+                    int s64 = Squares.ConvertTo0x64Index(new Square0x88(sq88)).Value;
                     key ^= bb.Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
                 }
                 if (!bb.WhiteToMove) key ^= bb.Tables.Zobrist.SideToMove;

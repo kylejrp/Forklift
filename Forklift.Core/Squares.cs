@@ -77,6 +77,11 @@ public static class Squares
         return new Square0x88(value);
     }
 
+    public static Square0x64 ParseAlgebraicTo0x64(AlgebraicNotation algebraicNotation)
+    {
+        return ConvertTo0x64Index(ParseAlgebraicTo0x88(algebraicNotation));
+    }
+
     public static Square0x88 ParseAlgebraicTo0x88(AlgebraicNotation algebraicNotation)
     {
         int fileIndex = algebraicNotation.Value[0] - 'a';
@@ -96,5 +101,10 @@ public static class Squares
         char rankChar = (char)('1' + rank);
 
         return new AlgebraicNotation($"{fileChar}{rankChar}");
+    }
+
+    public static AlgebraicNotation ToAlgebraic(Square0x64 square)
+    {
+        return ToAlgebraic(ConvertTo0x88Index(square));
     }
 }
