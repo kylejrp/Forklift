@@ -17,15 +17,19 @@ namespace Forklift.Testing
             b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e5")), Piece.WhitePawn); // white pawn ready to capture d6
             b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")), Piece.BlackPawn);
 
-            // Black to move: play d7-d5 (double push) -> this should set EnPassantFile automatically
+            // Black to move: play d7-d5 (double push) -> this sets EnPassantFile automatically
             b.SetSideToMove(Color.Black);
-            var mv = new Board.Move(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")),
-                                    Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d5")),
-                                    Piece.BlackPawn);
+            var mv = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d5")),
+                Piece.BlackPawn
+            );
             var u = b.MakeMove(mv);
+
             // Now white to move with EP on file 'd'
             return b;
         }
+
 
         [Fact]
         public void EpAvailable_Only_Immediately_After_DoublePush()

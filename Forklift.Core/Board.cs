@@ -150,23 +150,19 @@ public sealed class Board
         mailbox[sq88.Value] = (sbyte)Piece.Empty;
     }
 
-    private void AddToBitboards(Square0x64 sq64, Piece? pc)
+    private void AddToBitboards(Square0x64 sq64, Piece pc)
     {
-        if (pc == null) return;
-
         ulong b = 1UL << sq64;
-        pieceBB[pc.Value.BitboardIndex] |= b;
-        if (pc.Value.IsWhite) OccWhite |= b; else OccBlack |= b;
+        pieceBB[pc.BitboardIndex] |= b;
+        if (pc.IsWhite) OccWhite |= b; else OccBlack |= b;
         OccAll |= b;
     }
 
-    private void RemoveFromBitboards(Square0x64 sq64, Piece? pc)
+    private void RemoveFromBitboards(Square0x64 sq64, Piece pc)
     {
-        if (pc == null) return;
-
         ulong b = 1UL << sq64;
-        pieceBB[pc.Value.BitboardIndex] &= ~b;
-        if (pc.Value.IsWhite) OccWhite &= ~b; else OccBlack &= ~b;
+        pieceBB[pc.BitboardIndex] &= ~b;
+        if (pc.IsWhite) OccWhite &= ~b; else OccBlack &= ~b;
         OccAll &= ~b;
     }
 
@@ -181,12 +177,40 @@ public sealed class Board
     }
 
     public readonly record struct Move(
-        Square0x88 From88,
-        Square0x88 To88,
-        Piece Mover,
-        Piece? Captured = null,
-        Piece? Promotion = null,
-        MoveKind Kind = MoveKind.Normal);
+    Square0x88 From88,
+    Square0x88 To88,
+    Piece Mover,
+    Piece Captured,
+    Piece Promotion,
+    MoveKind Kind)
+    {
+        public static Move Normal(Square0x88 from, Square0x88 to, Piece mover)
+            => new(from, to, mover, Piece.Empty, Piece.Empty, MoveKind.Normal);
+
+        public static Move EnPassant(Square0x88 from, Square0x88 to, Piece mover)
+            => new(from, to, mover, Piece.Empty, Piece.Empty, MoveKind.EnPassant);
+
+        public static Move CastleKingSide(Color side)
+            => new(
+                side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8")),
+                side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g8")),
+                side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleKing);
+
+        public static Move CastleQueenSide(Color side)
+            => new(
+                side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8")),
+                side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c8")),
+                side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleQueen);
+
+        public static Move Capture(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
+            => new(from, to, mover, captured, Piece.Empty, MoveKind.Normal);
+
+        public static Move PromotionPush(Square0x88 from, Square0x88 to, Piece mover, Piece promotion)
+    => new(from, to, mover, Piece.Empty, promotion, MoveKind.Promotion);
+
+        public static Move PromotionCapture(Square0x88 from, Square0x88 to, Piece mover, Piece captured, Piece promotion)
+            => new(from, to, mover, captured, promotion, MoveKind.PromotionCapture);
+    }
 
     public readonly record struct Undo(
         Piece Captured,
@@ -203,9 +227,20 @@ public sealed class Board
 
     public Undo MakeMove(in Move m)
     {
+#if DEBUG
+        if (m.Kind != MoveKind.EnPassant && m.Captured != Piece.Empty)
+        {
+            var atTo = (Piece)mailbox[m.To88];
+            if (atTo != Piece.Empty && atTo != m.Captured)
+                throw new InvalidOperationException($"Captured mismatch: move says {m.Captured} but board has {atTo} at To.");
+        }
+#endif
+
         // Save undo (we'll fill the new special fields below)
         var undo = new Undo(
-            Captured: m.Kind == MoveKind.EnPassant ? (SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn) : (Piece)mailbox[m.To88],
+            Captured: m.Kind == MoveKind.EnPassant
+                ? (SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn)
+                : (Piece)mailbox[m.To88],
             EnPassantFilePrev: EnPassantFile,
             CastlingPrev: CastlingRights,
             HalfmovePrev: HalfmoveClock,
@@ -344,7 +379,7 @@ public sealed class Board
             }
 
             // --- Place the moved piece (promotion if any)
-            var placed = (m.Promotion != null && m.Promotion != Piece.Empty) ? m.Promotion : m.Mover;
+            var placed = m.Promotion != Piece.Empty ? m.Promotion : m.Mover;
             mailbox[m.To88] = (sbyte)placed;
             AddToBitboards((Square0x64)m.To88, placed);
             XorZPiece(placed, m.To88);
@@ -414,8 +449,8 @@ public sealed class Board
         else
         {
             // Remove piece from To (promotion piece may be there)
-            var placed = (m.Promotion.HasValue && m.Promotion.Value != Piece.Empty)
-                ? m.Promotion.Value
+            var placed = m.Promotion != Piece.Empty
+                ? m.Promotion
                 : m.Mover;
 
             RemoveFromBitboards((Square0x64)m.To88, placed);  // placed is Piece (non-null)
@@ -478,11 +513,11 @@ public sealed class Board
         return moves;
     }
 
-    private void XorZPiece(Piece? p, Square0x88 sq88)
+    private void XorZPiece(Piece p, Square0x88 sq88)
     {
-        if (p == null || p == Piece.Empty) return;
+        if (p == Piece.Empty) return;
         int s64 = (Square0x64)sq88;
-        ZKey ^= Tables.Zobrist.PieceSquare[p.Value.BitboardIndex, s64];
+        ZKey ^= Tables.Zobrist.PieceSquare[p.BitboardIndex, s64];
     }
 
     // --- Attacks (thread-safe; relies only on immutable tables + this board instance) -----
@@ -946,7 +981,7 @@ public sealed class Board
         {
             if (move.From88 == fromSq && move.To88 == toSq)
             {
-                var movePromo = move.Promotion.HasValue ? move.Promotion.Value : Piece.Empty;
+                var movePromo = move.Promotion;
 
                 if (uci.Length == 5)
                 {

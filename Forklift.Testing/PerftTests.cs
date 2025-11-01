@@ -157,9 +157,9 @@ namespace Forklift.Testing
         private static string ToUci(Board.Move m)
         {
             var s = Squares.ToAlgebraic(m.From88).Value + Squares.ToAlgebraic(m.To88).Value;
-            if (m.Promotion.HasValue && m.Promotion != Piece.Empty)
+            if (m.Promotion != Piece.Empty)
             {
-                s += m.Promotion.Value.PromotionChar;
+                s += m.Promotion.PromotionChar;
             }
             return s;
         }

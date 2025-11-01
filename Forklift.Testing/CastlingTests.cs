@@ -23,12 +23,17 @@ namespace Forklift.Testing
         public void CastlingRightsClear_When_RookMovesOrCaptured()
         {
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+
             // Move white h1 rook away -> should clear K side for white
-            var mv = new Board.Move(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")),
-                                    Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h2")),
-                                    Piece.WhiteRook);
+            var mv = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h2")),
+                Piece.WhiteRook
+            );
             var u = b.MakeMove(mv);
+
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
+
             b.UnmakeMove(mv, u);
         }
     }
