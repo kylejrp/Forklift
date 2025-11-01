@@ -128,7 +128,7 @@ $@"After {ToUci(m)}:
     KingAttackTable[{kAlg}]   -> [{string.Join(", ", MaskToSquares(kingFromMask))}]
     WhitePawnAttackFrom[{kAlg}] -> [{string.Join(", ", MaskToSquares(wpawnFromMask))}]
 
-  Occupancy popcounts        = W:{BitOperations.PopCount(board.GetOccupancy(true))}, B:{BitOperations.PopCount(board.GetOccupancy(false))}
+  Occupancy popcounts        = W:{BitOperations.PopCount(board.GetOccupancy(Color.White))}, B:{BitOperations.PopCount(board.GetOccupancy(Color.Black))}
   CastlingRights             = {board.CastlingRights}
   EnPassantFile              = {(board.EnPassantFile?.ToString() ?? "null")}
 ";
