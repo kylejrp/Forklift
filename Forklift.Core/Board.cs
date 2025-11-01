@@ -323,7 +323,7 @@ public sealed class Board
                 var capSq = white ? (m.To88 - 16) : (m.To88 + 16);
                 var capPiece = white ? Piece.BlackPawn : Piece.WhitePawn;
 
-                if(Squares.IsOffboard(capSq))
+                if (Squares.IsOffboard(capSq))
                     throw new InvalidOperationException("En Passant capture square is offboard.");
 
                 var safeCapSq = (Square0x88)capSq;
@@ -728,5 +728,85 @@ public sealed class Board
         if ((Piece)mailbox[capSq88] != expectedCaptured) return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// Checks if the current position is a threefold repetition draw.
+    /// </summary>
+    public bool IsThreefoldRepetitionDraw()
+    {
+        return _repCounts.TryGetValue(ZKey, out var count) && count >= 3;
+    }
+
+    /// <summary>
+    /// Checks if the fifty-move rule draw applies.
+    /// </summary>
+    public bool IsFiftyMoveRuleDraw()
+    {
+        return HalfmoveClock >= 100;
+    }
+
+    /// <summary>
+    /// Checks if the position is a draw due to insufficient material.
+    /// </summary>
+    public bool IsInsufficientMaterialDraw()
+    {
+        // Count pieces
+        int whitePawns = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhitePawn)]);
+        int blackPawns = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackPawn)]);
+        int whiteKnights = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteKnight)]);
+        int blackKnights = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackKnight)]);
+        int whiteBishops = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteBishop)]);
+        int blackBishops = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackBishop)]);
+        int whiteRooks = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteRook)]);
+        int blackRooks = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackRook)]);
+        int whiteQueens = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteQueen)]);
+        int blackQueens = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackQueen)]);
+
+        // Only kings
+        if (whitePawns + blackPawns + whiteKnights + blackKnights + whiteBishops + blackBishops + whiteRooks + blackRooks + whiteQueens + blackQueens == 0)
+            return true;
+
+        // King + bishop or king + knight vs king
+        if (whitePawns + blackPawns + whiteRooks + blackRooks + whiteQueens + blackQueens == 0)
+        {
+            if ((whiteKnights + whiteBishops <= 1) && (blackKnights + blackBishops == 0)) return true;
+            if ((blackKnights + blackBishops <= 1) && (whiteKnights + whiteBishops == 0)) return true;
+        }
+
+        // King + bishop vs king + bishop (bishops on same color)
+        if (whitePawns + blackPawns + whiteRooks + blackRooks + whiteQueens + blackQueens + whiteKnights + blackKnights == 0)
+        {
+            if (whiteBishops == 1 && blackBishops == 1)
+            {
+                // Check if both bishops are on the same color square
+                int whiteBishopSq = BitOperations.TrailingZeroCount(pieceBB[PieceUtil.Index(Piece.WhiteBishop)]);
+                int blackBishopSq = BitOperations.TrailingZeroCount(pieceBB[PieceUtil.Index(Piece.BlackBishop)]);
+                bool whiteIsLight = whiteBishopSq % 2 == 0;
+                bool blackIsLight = blackBishopSq % 2 == 0;
+                if (whiteIsLight == blackIsLight)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if the side to move is stalemated.
+    /// </summary>
+    public bool IsStalemate()
+    {
+        if (InCheck(SideToMove)) return false;
+        return !GenerateLegal().Any();
+    }
+
+    /// <summary>
+    /// Checks if the side to move is checkmated.
+    /// </summary>
+    public bool IsCheckmate()
+    {
+        if (!InCheck(SideToMove)) return false;
+        return !GenerateLegal().Any();
     }
 }
