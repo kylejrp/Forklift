@@ -897,4 +897,73 @@ public sealed class Board
         if (!InCheck(SideToMove)) return false;
         return !GenerateLegal().Any();
     }
+
+    /// <summary>
+    /// Parses a UCI move string (e.g., "e2e4", "e7e8q") and returns a legal Move if possible.
+    /// </summary>
+    public Move? ParseUCIMove(string uci)
+    {
+        if (string.IsNullOrWhiteSpace(uci) || (uci.Length != 4 && uci.Length != 5))
+            return null;
+
+        // Parse squares
+        var fromAlg = new AlgebraicNotation(uci.Substring(0, 2));
+        var toAlg = new AlgebraicNotation(uci.Substring(2, 2));
+        var fromSq = Squares.ParseAlgebraicTo0x88(fromAlg);
+        var toSq = Squares.ParseAlgebraicTo0x88(toAlg);
+        Piece promotion = Piece.Empty;
+        if (uci.Length == 5)
+        {
+            char promoChar = uci[4];
+            promotion = SideToMove == Color.White
+                ? promoChar switch
+                {
+                    'q' => Piece.WhiteQueen,
+                    'r' => Piece.WhiteRook,
+                    'b' => Piece.WhiteBishop,
+                    'n' => Piece.WhiteKnight,
+                    _ => Piece.Empty
+                }
+                : promoChar switch
+                {
+                    'q' => Piece.BlackQueen,
+                    'r' => Piece.BlackRook,
+                    'b' => Piece.BlackBishop,
+                    'n' => Piece.BlackKnight,
+                    _ => Piece.Empty
+                };
+        }
+
+        // Find matching legal move
+        foreach (var move in GenerateLegal())
+        {
+            if (move.From88 == fromSq && move.To88 == toSq)
+            {
+                if (uci.Length == 5)
+                {
+                    if (move.Promotion == promotion)
+                        return move;
+                }
+                else if (move.Promotion == Piece.Empty)
+                {
+                    return move;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Parses and applies a UCI move string if legal. Returns true if move was made.
+    /// </summary>
+    public bool TryApplyUCIMove(string uci)
+    {
+        var move = ParseUCIMove(uci);
+        if (move is Move m)
+        {
+            MakeMove(m);
+            return true;
+        }
+        return false;
+    }
 }
