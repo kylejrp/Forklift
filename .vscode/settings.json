@@ -1,9 +1,25 @@
 {
     "cSpell.words": [
+        "bestmove",
         "bitboard",
         "Bitboards",
+        "debug",
+        "fenstring",
         "Fullmove",
+        "go",
         "Halfmove",
+        "info",
+        "isready",
+        "kylejrp",
+        "position",
+        "quit",
+        "readyok",
+        "setoption",
+        "startpos",
+        "stop",
+        "uci",
+        "ucinewgame",
+        "uciok",
         "zobrist"
     ],
     "cSpell.ignoreRegExpList": [
