@@ -552,10 +552,10 @@ public sealed class Board
         bool pwn = byWhite
             ? ((T.WhitePawnAttackFrom[t64] & wp) != 0)
             : ((T.BlackPawnAttackFrom[t64] & bp) != 0);
-        bool bishQ = (BishopAttacks(t64) & (byWhite ? (wb | wq) : (bb | bq))) != 0;
+        bool bishopQ = (BishopAttacks(t64) & (byWhite ? (wb | wq) : (bb | bq))) != 0;
         bool rookQ = (RookAttacks(t64) & (byWhite ? (wr | wq) : (br | bq))) != 0;
 
-        return (knt, kng, pwn, bishQ, rookQ);
+        return (knt, kng, pwn, bishopQ, rookQ);
     }
 
     public void Clear()
@@ -585,38 +585,7 @@ public sealed class Board
     /// <summary>
     /// Sets the board to the standard starting position.
     /// </summary>
-    public void SetStartPosition()
-    {
-        Clear(); // ensures repetition tables, occ, etc. are reset
-
-        static int Sq(int f, int r) => (r << 4) | f;
-
-        // White back rank
-        Place(Squares.ToAlgebraic(new Square0x88(Sq(0, 0))), Piece.WhiteRook); Place(Squares.ToAlgebraic(new Square0x88(Sq(1, 0))), Piece.WhiteKnight);
-        Place(Squares.ToAlgebraic(new Square0x88(Sq(2, 0))), Piece.WhiteBishop); Place(Squares.ToAlgebraic(new Square0x88(Sq(3, 0))), Piece.WhiteQueen);
-        Place(Squares.ToAlgebraic(new Square0x88(Sq(4, 0))), Piece.WhiteKing); Place(Squares.ToAlgebraic(new Square0x88(Sq(5, 0))), Piece.WhiteBishop);
-        Place(Squares.ToAlgebraic(new Square0x88(Sq(6, 0))), Piece.WhiteKnight); Place(Squares.ToAlgebraic(new Square0x88(Sq(7, 0))), Piece.WhiteRook);
-
-        // Pawns
-        for (int f = 0; f < 8; f++) Place(Squares.ToAlgebraic(new Square0x88(Sq(f, 1))), Piece.WhitePawn);
-        for (int f = 0; f < 8; f++) Place(Squares.ToAlgebraic(new Square0x88(Sq(f, 6))), Piece.BlackPawn);
-
-        // Black back rank
-        Place(Squares.ToAlgebraic(new Square0x88(Sq(0, 7))), Piece.BlackRook); Place(Squares.ToAlgebraic(new Square0x88(Sq(1, 7))), Piece.BlackKnight);
-        Place(Squares.ToAlgebraic(new Square0x88(Sq(2, 7))), Piece.BlackBishop); Place(Squares.ToAlgebraic(new Square0x88(Sq(3, 7))), Piece.BlackQueen);
-        Place(Squares.ToAlgebraic(new Square0x88(Sq(4, 7))), Piece.BlackKing); Place(Squares.ToAlgebraic(new Square0x88(Sq(5, 7))), Piece.BlackBishop);
-        Place(Squares.ToAlgebraic(new Square0x88(Sq(6, 7))), Piece.BlackKnight); Place(Squares.ToAlgebraic(new Square0x88(Sq(7, 7))), Piece.BlackRook);
-
-        // Side & rights
-        SideToMove = Color.White;
-        EnPassantFile = null;
-        HalfmoveClock = 0;
-        FullmoveNumber = 1;
-        CastlingRights = CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen |
-                         CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen;
-
-        UpdateZobristFull();
-    }
+    public void SetStartPosition() => SetPositionFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 
     private void UpdateZobristFull()
     {
@@ -633,6 +602,125 @@ public sealed class Board
         if (EnPassantFile is FileIndex epf) key ^= Tables.Zobrist.EnPassant[epf.Value];
         key ^= Tables.Zobrist.Castling[(int)CastlingRights & 0xF];
         ZKey = key;
+    }
+
+    /// <summary>
+    /// Sets the board position from a FEN string.
+    /// </summary>
+    public void SetPositionFromFEN(string fen)
+    {
+        Clear();
+        var parts = fen.Split(' ');
+        if (parts.Length < 4)
+            throw new ArgumentException("Invalid FEN string.", nameof(fen));
+        var ranks = parts[0].Split('/');
+        if (ranks.Length != 8)
+            throw new ArgumentException("Invalid FEN: must have 8 ranks.", nameof(fen));
+        Array.Fill(mailbox, (sbyte)Piece.Empty);
+        Array.Fill(pieceBB, 0UL);
+        OccWhite = OccBlack = OccAll = 0UL;
+        for (int rank = 0; rank < 8; rank++)
+        {
+            int file = 0;
+            foreach (char c in ranks[rank])
+            {
+                if (char.IsDigit(c))
+                {
+                    file += c - '0';
+                }
+                else
+                {
+                    int sq88 = ((7 - rank) << 4) | file;
+                    Piece pc = PieceUtil.FromFENChar(c);
+                    Place(new Square0x88(sq88), pc);
+                    file++;
+                }
+            }
+        }
+        SideToMove = parts[1] == "w" ? Color.White : Color.Black;
+        CastlingRightsFlags cr = CastlingRightsFlags.None;
+        if (parts[2].Contains('K')) cr |= CastlingRightsFlags.WhiteKing;
+        if (parts[2].Contains('Q')) cr |= CastlingRightsFlags.WhiteQueen;
+        if (parts[2].Contains('k')) cr |= CastlingRightsFlags.BlackKing;
+        if (parts[2].Contains('q')) cr |= CastlingRightsFlags.BlackQueen;
+        CastlingRights = cr;
+        if (parts[3] != "-")
+        {
+            var epFile = parts[3][0] - 'a';
+            EnPassantFile = new FileIndex(epFile);
+        }
+        else
+        {
+            EnPassantFile = null;
+        }
+        if (parts.Length > 4)
+            HalfmoveClock = int.TryParse(parts[4], out var hmc) ? hmc : 0;
+        else
+            HalfmoveClock = 0;
+        if (parts.Length > 5)
+            FullmoveNumber = int.TryParse(parts[5], out var fmn) ? fmn : 1;
+        else
+            FullmoveNumber = 1;
+        UpdateZobristFull();
+    }
+
+    /// <summary>
+    /// Gets the FEN string for the current board position.
+    /// </summary>
+    public string GetFEN()
+    {
+        var fen = new System.Text.StringBuilder();
+        for (int rank = 7; rank >= 0; rank--)
+        {
+            int empty = 0;
+            for (int file = 0; file < 8; file++)
+            {
+                int sq88 = (rank << 4) | file;
+                Piece pc = (Piece)mailbox[sq88];
+                if (pc == Piece.Empty)
+                {
+                    empty++;
+                }
+                else
+                {
+                    if (empty > 0)
+                    {
+                        fen.Append(empty);
+                        empty = 0;
+                    }
+                    fen.Append(PieceUtil.ToFENChar(pc));
+                }
+            }
+            if (empty > 0)
+                fen.Append(empty);
+            if (rank > 0)
+                fen.Append('/');
+        }
+        fen.Append(' ');
+        fen.Append(SideToMove == Color.White ? 'w' : 'b');
+        fen.Append(' ');
+        string cr = "";
+        if ((CastlingRights & CastlingRightsFlags.WhiteKing) != 0) cr += "K";
+        if ((CastlingRights & CastlingRightsFlags.WhiteQueen) != 0) cr += "Q";
+        if ((CastlingRights & CastlingRightsFlags.BlackKing) != 0) cr += "k";
+        if ((CastlingRights & CastlingRightsFlags.BlackQueen) != 0) cr += "q";
+        fen.Append(cr.Length > 0 ? cr : "-");
+        fen.Append(' ');
+        if (EnPassantFile is FileIndex epf)
+        {
+            int epRank = SideToMove == Color.White ? 6 : 3;
+            fen.Append((char)('a' + epf.Value));
+            fen.Append(epRank);
+        }
+        else
+        {
+            fen.Append('-');
+        }
+        fen.Append(' ');
+        fen.Append(HalfmoveClock);
+        fen.Append(' ');
+        fen.Append(FullmoveNumber);
+        return fen.ToString();
     }
 
     public void SetEnPassantFile(FileIndex? file)

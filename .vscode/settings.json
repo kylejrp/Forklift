@@ -5,5 +5,8 @@
         "Fullmove",
         "Halfmove",
         "zobrist"
+    ],
+    "cSpell.ignoreRegExpList": [
+        "/[rnbqkpRNBQKP1-8\\/]+ [wb] [KQkq\\-]+ [a-h1-8\\-]+ \\d+ \\d+/"
     ]
 }
