@@ -25,7 +25,7 @@ namespace ChessEngine.Core
             if (parts.Length < 1) throw new ArgumentException("Invalid FEN");
 
             string boardPart = parts[0];
-            bool whiteToMove = parts.Length > 1 ? parts[1] == "w" : true;
+            bool whiteToMove = parts.Length <= 1 || parts[1] == "w";
 
             var b = new Board();
             b.Clear();
@@ -49,22 +49,7 @@ namespace ChessEngine.Core
                     if (file >= 8) throw new ArgumentException("Invalid FEN placement");
                     var sq88 = (rank << 4) | file;
 
-                    Piece piece = c switch
-                    {
-                        'P' => Piece.WhitePawn,
-                        'N' => Piece.WhiteKnight,
-                        'B' => Piece.WhiteBishop,
-                        'R' => Piece.WhiteRook,
-                        'Q' => Piece.WhiteQueen,
-                        'K' => Piece.WhiteKing,
-                        'p' => Piece.BlackPawn,
-                        'n' => Piece.BlackKnight,
-                        'b' => Piece.BlackBishop,
-                        'r' => Piece.BlackRook,
-                        'q' => Piece.BlackQueen,
-                        'k' => Piece.BlackKing,
-                        _ => throw new ArgumentException($"Invalid piece char {c}")
-                    };
+                    Piece piece = Piece.FromFENChar(c);
 
                     b.Place(Squares.ToAlgebraic(new Square0x88(sq88)), piece);
                     file++;

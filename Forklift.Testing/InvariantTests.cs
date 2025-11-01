@@ -36,7 +36,7 @@ namespace Forklift.Testing
                 var s64 = (Square0x64)s88;
                 ulong bit = 1UL << s64;
                 recomputedAll |= bit;
-                if (PieceUtil.IsWhite(p)) recomputedWhite |= bit; else recomputedBlack |= bit;
+                if (p.IsWhite) recomputedWhite |= bit; else recomputedBlack |= bit;
             }
 
             b.OccAll.Should().Be(recomputedAll);

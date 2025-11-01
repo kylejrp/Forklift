@@ -70,8 +70,8 @@ public sealed class Board
 
     public int HashHistoryCount => _repCounts.TryGetValue(ZKey, out var n) ? n : 0;
 
-    public int WhiteKingCount => BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteKing)]);
-    public int BlackKingCount => BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackKing)]);
+    public int WhiteKingCount => BitOperations.PopCount(GetPieceBitboard(Piece.WhiteKing));
+    public int BlackKingCount => BitOperations.PopCount(GetPieceBitboard(Piece.BlackKing));
 
 
     /// <summary>
@@ -150,19 +150,23 @@ public sealed class Board
         mailbox[sq88.Value] = (sbyte)Piece.Empty;
     }
 
-    private void AddToBitboards(Square0x64 sq64, Piece pc)
+    private void AddToBitboards(Square0x64 sq64, Piece? pc)
     {
+        if (pc == null) return;
+
         ulong b = 1UL << sq64;
-        pieceBB[PieceUtil.Index(pc)] |= b;
-        if (PieceUtil.IsWhite(pc)) OccWhite |= b; else OccBlack |= b;
+        pieceBB[pc.Value.BitboardIndex] |= b;
+        if (pc.Value.IsWhite) OccWhite |= b; else OccBlack |= b;
         OccAll |= b;
     }
 
-    private void RemoveFromBitboards(Square0x64 sq64, Piece pc)
+    private void RemoveFromBitboards(Square0x64 sq64, Piece? pc)
     {
+        if (pc == null) return;
+
         ulong b = 1UL << sq64;
-        pieceBB[PieceUtil.Index(pc)] &= ~b;
-        if (PieceUtil.IsWhite(pc)) OccWhite &= ~b; else OccBlack &= ~b;
+        pieceBB[pc.Value.BitboardIndex] &= ~b;
+        if (pc.Value.IsWhite) OccWhite &= ~b; else OccBlack &= ~b;
         OccAll &= ~b;
     }
 
@@ -180,8 +184,8 @@ public sealed class Board
         Square0x88 From88,
         Square0x88 To88,
         Piece Mover,
-        Piece Captured = Piece.Empty,
-        Piece Promotion = Piece.Empty,
+        Piece? Captured = null,
+        Piece? Promotion = null,
         MoveKind Kind = MoveKind.Normal);
 
     public readonly record struct Undo(
@@ -201,7 +205,7 @@ public sealed class Board
     {
         // Save undo (we'll fill the new special fields below)
         var undo = new Undo(
-            Captured: (m.Kind == MoveKind.EnPassant ? (Piece)(SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn) : (Piece)mailbox[m.To88]),
+            Captured: m.Kind == MoveKind.EnPassant ? (SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn) : (Piece)mailbox[m.To88],
             EnPassantFilePrev: EnPassantFile,
             CastlingPrev: CastlingRights,
             HalfmovePrev: HalfmoveClock,
@@ -268,7 +272,7 @@ public sealed class Board
         // --- Special: castling rook movement
         if (m.Kind == MoveKind.CastleKing || m.Kind == MoveKind.CastleQueen)
         {
-            bool white = PieceUtil.IsWhite(m.Mover);
+            bool white = m.Mover.IsWhite;
             // Define king/rook target squares
             var kFrom = m.From88;
             var kTo = m.To88;
@@ -323,7 +327,7 @@ public sealed class Board
             // --- EP capture removal (captured pawn sits behind the to-square)
             if (m.Kind == MoveKind.EnPassant)
             {
-                bool white = PieceUtil.IsWhite(m.Mover);
+                bool white = m.Mover.IsWhite;
                 var capSq = white ? (m.To88 - 16) : (m.To88 + 16);
                 var capPiece = white ? Piece.BlackPawn : Piece.WhitePawn;
 
@@ -340,7 +344,7 @@ public sealed class Board
             }
 
             // --- Place the moved piece (promotion if any)
-            var placed = (m.Promotion != Piece.Empty) ? m.Promotion : m.Mover;
+            var placed = (m.Promotion != null && m.Promotion != Piece.Empty) ? m.Promotion : m.Mover;
             mailbox[m.To88] = (sbyte)placed;
             AddToBitboards((Square0x64)m.To88, placed);
             XorZPiece(placed, m.To88);
@@ -391,7 +395,7 @@ public sealed class Board
             // Undo rook move
             if (u.CastleRookFrom88 is Square0x88 rFrom && u.CastleRookTo88 is Square0x88 rTo)
             {
-                var rook = PieceUtil.IsWhite(m.Mover) ? Piece.WhiteRook : Piece.BlackRook;
+                var rook = m.Mover.IsWhite ? Piece.WhiteRook : Piece.BlackRook;
 
                 RemoveFromBitboards((Square0x64)rTo, rook);
                 mailbox[rTo] = (sbyte)Piece.Empty;
@@ -410,20 +414,23 @@ public sealed class Board
         else
         {
             // Remove piece from To (promotion piece may be there)
-            var placed = (m.Promotion != Piece.Empty) ? m.Promotion : m.Mover;
-            RemoveFromBitboards((Square0x64)m.To88, placed);
+            var placed = (m.Promotion.HasValue && m.Promotion.Value != Piece.Empty)
+                ? m.Promotion.Value
+                : m.Mover;
+
+            RemoveFromBitboards((Square0x64)m.To88, placed);  // placed is Piece (non-null)
             mailbox[m.To88] = (sbyte)Piece.Empty;
 
             // Put mover back
             mailbox[m.From88] = (sbyte)m.Mover;
             AddToBitboards((Square0x64)m.From88, m.Mover);
 
-            // Restore captured piece (normal capture at To, EP captured behind To)
+            // Restore captured piece ...
             if (m.Kind == MoveKind.EnPassant)
             {
                 if (u.EnPassantCapturedSq88 is Square0x88 capSq)
                 {
-                    var capPiece = PieceUtil.IsWhite(m.Mover) ? Piece.BlackPawn : Piece.WhitePawn;
+                    var capPiece = m.Mover.IsWhite ? Piece.BlackPawn : Piece.WhitePawn;
                     mailbox[capSq] = (sbyte)capPiece;
                     AddToBitboards((Square0x64)capSq, capPiece);
                 }
@@ -471,11 +478,11 @@ public sealed class Board
         return moves;
     }
 
-    private void XorZPiece(Piece p, Square0x88 sq88)
+    private void XorZPiece(Piece? p, Square0x88 sq88)
     {
-        if (p == Piece.Empty) return;
+        if (p == null || p == Piece.Empty) return;
         int s64 = (Square0x64)sq88;
-        ZKey ^= Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
+        ZKey ^= Tables.Zobrist.PieceSquare[p.Value.BitboardIndex, s64];
     }
 
     // --- Attacks (thread-safe; relies only on immutable tables + this board instance) -----
@@ -508,32 +515,32 @@ public sealed class Board
         var byWhite = bySide.IsWhite();
 
         // Knights
-        ulong knights = byWhite ? pieceBB[PieceUtil.Index(Piece.WhiteKnight)] : pieceBB[PieceUtil.Index(Piece.BlackKnight)];
+        ulong knights = byWhite ? GetPieceBitboard(Piece.WhiteKnight) : GetPieceBitboard(Piece.BlackKnight);
         if ((T.KnightAttackTable[t64] & knights) != 0) return true;
 
         // Kings
-        ulong kings = byWhite ? pieceBB[PieceUtil.Index(Piece.WhiteKing)] : pieceBB[PieceUtil.Index(Piece.BlackKing)];
+        ulong kings = byWhite ? GetPieceBitboard(Piece.WhiteKing) : GetPieceBitboard(Piece.BlackKing);
         if ((T.KingAttackTable[t64] & kings) != 0) return true;
 
         // Pawns (reverse attack)
         if (byWhite)
         {
-            if ((T.WhitePawnAttackFrom[t64] & pieceBB[PieceUtil.Index(Piece.WhitePawn)]) != 0) return true;
+            if ((T.WhitePawnAttackFrom[t64] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
         }
         else
         {
-            if ((T.BlackPawnAttackFrom[t64] & pieceBB[PieceUtil.Index(Piece.BlackPawn)]) != 0) return true;
+            if ((T.BlackPawnAttackFrom[t64] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
         }
 
         // Sliders
         ulong bishopsQueens = byWhite
-            ? (pieceBB[PieceUtil.Index(Piece.WhiteBishop)] | pieceBB[PieceUtil.Index(Piece.WhiteQueen)])
-            : (pieceBB[PieceUtil.Index(Piece.BlackBishop)] | pieceBB[PieceUtil.Index(Piece.BlackQueen)]);
+            ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
+            : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
         if ((BishopAttacks(t64) & bishopsQueens) != 0) return true;
 
         ulong rooksQueens = byWhite
-            ? (pieceBB[PieceUtil.Index(Piece.WhiteRook)] | pieceBB[PieceUtil.Index(Piece.WhiteQueen)])
-            : (pieceBB[PieceUtil.Index(Piece.BlackRook)] | pieceBB[PieceUtil.Index(Piece.BlackQueen)]);
+            ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
+            : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
         if ((RookAttacks(t64) & rooksQueens) != 0) return true;
 
         return false;
@@ -542,18 +549,18 @@ public sealed class Board
     public (bool knights, bool kings, bool pawns, bool bishopsQueens, bool rooksQueens) AttackerBreakdown(Square0x64 t64, bool byWhite)
     {
         var T = Tables;
-        ulong wp = pieceBB[PieceUtil.Index(Piece.WhitePawn)];
-        ulong bp = pieceBB[PieceUtil.Index(Piece.BlackPawn)];
-        ulong wn = pieceBB[PieceUtil.Index(Piece.WhiteKnight)];
-        ulong bn = pieceBB[PieceUtil.Index(Piece.BlackKnight)];
-        ulong wk = pieceBB[PieceUtil.Index(Piece.WhiteKing)];
-        ulong bk = pieceBB[PieceUtil.Index(Piece.BlackKing)];
-        ulong wb = pieceBB[PieceUtil.Index(Piece.WhiteBishop)];
-        ulong bb = pieceBB[PieceUtil.Index(Piece.BlackBishop)];
-        ulong wr = pieceBB[PieceUtil.Index(Piece.WhiteRook)];
-        ulong br = pieceBB[PieceUtil.Index(Piece.BlackRook)];
-        ulong wq = pieceBB[PieceUtil.Index(Piece.WhiteQueen)];
-        ulong bq = pieceBB[PieceUtil.Index(Piece.BlackQueen)];
+        ulong wp = GetPieceBitboard(Piece.WhitePawn);
+        ulong bp = GetPieceBitboard(Piece.BlackPawn);
+        ulong wn = GetPieceBitboard(Piece.WhiteKnight);
+        ulong bn = GetPieceBitboard(Piece.BlackKnight);
+        ulong wk = GetPieceBitboard(Piece.WhiteKing);
+        ulong bk = GetPieceBitboard(Piece.BlackKing);
+        ulong wb = GetPieceBitboard(Piece.WhiteBishop);
+        ulong bb = GetPieceBitboard(Piece.BlackBishop);
+        ulong wr = GetPieceBitboard(Piece.WhiteRook);
+        ulong br = GetPieceBitboard(Piece.BlackRook);
+        ulong wq = GetPieceBitboard(Piece.WhiteQueen);
+        ulong bq = GetPieceBitboard(Piece.BlackQueen);
 
         bool knt = (T.KnightAttackTable[t64] & (byWhite ? wn : bn)) != 0;
         bool kng = (T.KingAttackTable[t64] & (byWhite ? wk : bk)) != 0;
@@ -608,7 +615,7 @@ public sealed class Board
             var p = (Piece)mailbox[sq88];
             if (p == Piece.Empty) continue;
             int s64 = (Square0x64)sq88;
-            key ^= Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
+            key ^= Tables.Zobrist.PieceSquare[p.BitboardIndex, s64];
         }
         if (!SideToMove.IsWhite()) key ^= Tables.Zobrist.SideToMove;
         if (EnPassantFile is FileIndex epf) key ^= Tables.Zobrist.EnPassant[epf.Value];
@@ -643,7 +650,7 @@ public sealed class Board
                 else
                 {
                     int sq88 = ((7 - rank) << 4) | file;
-                    Piece pc = PieceUtil.FromFENChar(c);
+                    Piece pc = Piece.FromFENChar(c);
                     Place(new Square0x88(sq88), pc);
                     file++;
                 }
@@ -700,7 +707,7 @@ public sealed class Board
                         fen.Append(empty);
                         empty = 0;
                     }
-                    fen.Append(PieceUtil.ToFENChar(pc));
+                    fen.Append(Piece.ToFENChar(pc));
                 }
             }
             if (empty > 0)
@@ -762,11 +769,13 @@ public sealed class Board
 
     // Returns the bitboard for a specific piece type.
     // Safe for parallel reads; it's just a by-value ulong from this instance's state.
+    public ulong GetPieceBitboard(Piece? piece) => piece == null ? throw new ArgumentNullException(nameof(piece)) : GetPieceBitboard(piece.Value);
+
     public ulong GetPieceBitboard(Piece piece)
     {
         if (piece == Piece.Empty)
             throw new ArgumentException("Piece cannot be empty.", nameof(piece));
-        return pieceBB[PieceUtil.Index(piece)];
+        return pieceBB[piece.BitboardIndex];
     }
 
     // Occupancy helpers (already exposed as properties, but symmetric with the API above)
@@ -852,16 +861,16 @@ public sealed class Board
     public bool IsInsufficientMaterialDraw()
     {
         // Count pieces
-        int whitePawns = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhitePawn)]);
-        int blackPawns = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackPawn)]);
-        int whiteKnights = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteKnight)]);
-        int blackKnights = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackKnight)]);
-        int whiteBishops = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteBishop)]);
-        int blackBishops = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackBishop)]);
-        int whiteRooks = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteRook)]);
-        int blackRooks = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackRook)]);
-        int whiteQueens = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.WhiteQueen)]);
-        int blackQueens = BitOperations.PopCount(pieceBB[PieceUtil.Index(Piece.BlackQueen)]);
+        int whitePawns = BitOperations.PopCount(GetPieceBitboard(Piece.WhitePawn));
+        int blackPawns = BitOperations.PopCount(GetPieceBitboard(Piece.BlackPawn));
+        int whiteKnights = BitOperations.PopCount(GetPieceBitboard(Piece.WhiteKnight));
+        int blackKnights = BitOperations.PopCount(GetPieceBitboard(Piece.BlackKnight));
+        int whiteBishops = BitOperations.PopCount(GetPieceBitboard(Piece.WhiteBishop));
+        int blackBishops = BitOperations.PopCount(GetPieceBitboard(Piece.BlackBishop));
+        int whiteRooks = BitOperations.PopCount(GetPieceBitboard(Piece.WhiteRook));
+        int blackRooks = BitOperations.PopCount(GetPieceBitboard(Piece.BlackRook));
+        int whiteQueens = BitOperations.PopCount(GetPieceBitboard(Piece.WhiteQueen));
+        int blackQueens = BitOperations.PopCount(GetPieceBitboard(Piece.BlackQueen));
 
         // Only kings
         if (whitePawns + blackPawns + whiteKnights + blackKnights + whiteBishops + blackBishops + whiteRooks + blackRooks + whiteQueens + blackQueens == 0)
@@ -880,8 +889,8 @@ public sealed class Board
             if (whiteBishops == 1 && blackBishops == 1)
             {
                 // Check if both bishops are on the same color square
-                int whiteBishopSq = BitOperations.TrailingZeroCount(pieceBB[PieceUtil.Index(Piece.WhiteBishop)]);
-                int blackBishopSq = BitOperations.TrailingZeroCount(pieceBB[PieceUtil.Index(Piece.BlackBishop)]);
+                int whiteBishopSq = BitOperations.TrailingZeroCount(GetPieceBitboard(Piece.WhiteBishop));
+                int blackBishopSq = BitOperations.TrailingZeroCount(GetPieceBitboard(Piece.BlackBishop));
                 bool whiteIsLight = whiteBishopSq % 2 == 0;
                 bool blackIsLight = blackBishopSq % 2 == 0;
                 if (whiteIsLight == blackIsLight)
@@ -923,42 +932,29 @@ public sealed class Board
         var toAlg = new AlgebraicNotation(uci.Substring(2, 2));
         var fromSq = Squares.ParseAlgebraicTo0x88(fromAlg);
         var toSq = Squares.ParseAlgebraicTo0x88(toAlg);
+
+        // promotion chosen from side-to-move
         Piece promotion = Piece.Empty;
         if (uci.Length == 5)
         {
             char promoChar = uci[4];
-            promotion = SideToMove == Color.White
-                ? promoChar switch
-                {
-                    'q' => Piece.WhiteQueen,
-                    'r' => Piece.WhiteRook,
-                    'b' => Piece.WhiteBishop,
-                    'n' => Piece.WhiteKnight,
-                    _ => Piece.Empty
-                }
-                : promoChar switch
-                {
-                    'q' => Piece.BlackQueen,
-                    'r' => Piece.BlackRook,
-                    'b' => Piece.BlackBishop,
-                    'n' => Piece.BlackKnight,
-                    _ => Piece.Empty
-                };
+            promotion = Piece.FromPromotionChar(promoChar, SideToMove);
         }
 
-        // Find matching legal move
+        // match
         foreach (var move in GenerateLegal())
         {
             if (move.From88 == fromSq && move.To88 == toSq)
             {
+                var movePromo = move.Promotion.HasValue ? move.Promotion.Value : Piece.Empty;
+
                 if (uci.Length == 5)
                 {
-                    if (move.Promotion == promotion)
-                        return move;
+                    if (movePromo == promotion) return move;
                 }
-                else if (move.Promotion == Piece.Empty)
+                else
                 {
-                    return move;
+                    if (movePromo == Piece.Empty) return move;
                 }
             }
         }

@@ -37,7 +37,7 @@ namespace ChessEngine.Core
                 // UCI: from-to, e.g. e2e4, with promotion if any
                 var fromAlg = Squares.ToAlgebraic(mv.From88).Value;
                 var toAlg = Squares.ToAlgebraic(mv.To88).Value;
-                string promo = mv.Promotion != Piece.Empty ? mv.Promotion.ToString().ToLower()[5..6] : "";
+                string promo = mv.Promotion.HasValue && mv.Promotion.Value != Piece.Empty ? char.ToLower(Piece.ToFENChar(mv.Promotion.Value)).ToString() : string.Empty;
                 string uci = fromAlg + toAlg + promo;
                 acc.Add((uci, n));
             }

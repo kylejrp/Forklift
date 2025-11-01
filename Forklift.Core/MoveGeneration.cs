@@ -75,11 +75,11 @@ namespace Forklift.Core
                                 if (!Squares.IsOffboard(two))
                                 {
                                     var safeTwo = (Square0x88)two;
-                                    if(board.At(safeTwo) == Piece.Empty)
+                                    if (board.At(safeTwo) == Piece.Empty)
                                     {
                                         moves.Add(new Board.Move(from88, safeTwo, white ? Piece.WhitePawn : Piece.BlackPawn));
                                     }
-                                } 
+                                }
                             }
                         }
                     }
@@ -94,7 +94,7 @@ namespace Forklift.Core
                     var safeTo88 = (Square0x88)to88;
                     var target = board.At(safeTo88);
                     if (target == Piece.Empty) continue;
-                    if (white == PieceUtil.IsWhite(target)) continue; // own piece
+                    if (white == target.IsWhite) continue; // own piece
 
                     if ((white && rank == 6) || (!white && rank == 1))
                     {
@@ -144,7 +144,7 @@ namespace Forklift.Core
                     {
                         moves.Add(new Board.Move(from88, safeTo88, mover));
                     }
-                    else if (white != PieceUtil.IsWhite(target))
+                    else if (white != target.IsWhite)
                     {
                         moves.Add(new Board.Move(from88, safeTo88, mover, target));
                     }
@@ -183,7 +183,7 @@ namespace Forklift.Core
                             continue;
                         }
 
-                        if ((white && !PieceUtil.IsWhite(target)) || (!white && PieceUtil.IsWhite(target)))
+                        if ((white && !target.IsWhite) || (!white && target.IsWhite))
                             moves.Add(new Board.Move(safeFrom, safeTo, piece, target));
 
                         break;
@@ -219,7 +219,7 @@ namespace Forklift.Core
                 {
                     moves.Add(new Board.Move(from88, safeTo88, king));
                 }
-                else if (white != PieceUtil.IsWhite(target))
+                else if (white != target.IsWhite)
                 {
                     moves.Add(new Board.Move(from88, safeTo88, king, target));
                 }

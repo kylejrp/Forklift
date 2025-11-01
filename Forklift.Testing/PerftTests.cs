@@ -110,28 +110,36 @@ namespace Forklift.Testing
                     var wKAdjMask = kingFromMask & board.GetPieceBitboard(Piece.WhiteKing);
                     var wpMask = wpawnFromMask & board.GetPieceBitboard(Piece.WhitePawn);
 
-                    var msg =
-$@"After {ToUci(m)}:
-  WhiteToMove                = {stm}   (expected: Black)
-  Black InCheck              = {blackInCheck}
-  Legal replies              = {legal.Count} (expected: 20)
+                    // Output the list of legal moves for investigation
+                    var legalMovesList = string.Join("\n        ", legal.Select(x => ToUci(x)));
 
-  AttackerBreakdown on Black king {kAlg} (byWhite: true):
-    Knights                  = {breakdown.knights}   attackers: [{string.Join(", ", MaskToSquares(wkMask))}]
-    Kings                    = {breakdown.kings}     attackers: [{string.Join(", ", MaskToSquares(wKAdjMask))}]
-    Pawns                    = {breakdown.pawns}     attackers: [{string.Join(", ", MaskToSquares(wpMask))}]
-    Bishops/Queens (diagonals)= {breakdown.bishopsQueens}
-    Rooks/Queens (orthogonals)= {breakdown.rooksQueens}
+                    var blackPawnBB = board.GetPieceBitboard(Piece.BlackPawn);
+                    Console.WriteLine(Convert.ToString((long)blackPawnBB, 2).PadLeft(64, '0'));
 
-  RAW table contents at {kAlg} (these *should be FROM-squares that attack {kAlg}):
-    KnightAttackTable[{kAlg}] -> [{string.Join(", ", MaskToSquares(knightFromMask))}]
-    KingAttackTable[{kAlg}]   -> [{string.Join(", ", MaskToSquares(kingFromMask))}]
-    WhitePawnAttackFrom[{kAlg}] -> [{string.Join(", ", MaskToSquares(wpawnFromMask))}]
+                    var msg = $@"
+    After {ToUci(m)}:
+        WhiteToMove                = {stm}   (expected: Black)
+        Black InCheck              = {blackInCheck}
+        Legal replies              = {legal.Count} (expected: 20)
+        Legal moves:
+                    {legalMovesList}
 
-  Occupancy popcounts        = W:{BitOperations.PopCount(board.GetOccupancy(Color.White))}, B:{BitOperations.PopCount(board.GetOccupancy(Color.Black))}
-  CastlingRights             = {board.CastlingRights}
-  EnPassantFile              = {(board.EnPassantFile?.ToString() ?? "null")}
-";
+        AttackerBreakdown on Black king {kAlg} (byWhite: true):
+            Knights                  = {breakdown.knights}   attackers: [{string.Join(", ", MaskToSquares(wkMask))}]
+            Kings                    = {breakdown.kings}     attackers: [{string.Join(", ", MaskToSquares(wKAdjMask))}]
+            Pawns                    = {breakdown.pawns}     attackers: [{string.Join(", ", MaskToSquares(wpMask))}]
+            Bishops/Queens (diagonals)= {breakdown.bishopsQueens}
+            Rooks/Queens (orthogonals)= {breakdown.rooksQueens}
+
+        RAW table contents at {kAlg} (these *should be FROM-squares that attack {kAlg}):
+            KnightAttackTable[{kAlg}] -> [{string.Join(", ", MaskToSquares(knightFromMask))}]
+            KingAttackTable[{kAlg}]   -> [{string.Join(", ", MaskToSquares(kingFromMask))}]
+            WhitePawnAttackFrom[{kAlg}] -> [{string.Join(", ", MaskToSquares(wpawnFromMask))}]
+
+        Occupancy popcounts        = W:{BitOperations.PopCount(board.GetOccupancy(Color.White))}, B:{BitOperations.PopCount(board.GetOccupancy(Color.Black))}
+        CastlingRights             = {board.CastlingRights}
+        EnPassantFile              = {(board.EnPassantFile?.ToString() ?? "null")}
+    ";
 
                     // Pinpointed assertions so the failure prints the block above
                     Assert.False(blackInCheck, "Black reported in check after a normal white first move.\n" + msg);
@@ -149,17 +157,9 @@ $@"After {ToUci(m)}:
         private static string ToUci(Board.Move m)
         {
             var s = Squares.ToAlgebraic(m.From88).Value + Squares.ToAlgebraic(m.To88).Value;
-            if (m.Promotion != Piece.Empty)
+            if (m.Promotion.HasValue && m.Promotion != Piece.Empty)
             {
-                char promo = m.Promotion switch
-                {
-                    Piece.WhiteQueen or Piece.BlackQueen => 'q',
-                    Piece.WhiteRook or Piece.BlackRook => 'r',
-                    Piece.WhiteBishop or Piece.BlackBishop => 'b',
-                    Piece.WhiteKnight or Piece.BlackKnight => 'n',
-                    _ => 'q'
-                };
-                s += promo;
+                s += m.Promotion.Value.PromotionChar;
             }
             return s;
         }

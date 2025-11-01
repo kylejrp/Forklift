@@ -46,7 +46,7 @@ namespace Forklift.Testing
                     var p = bb.At((Square0x88)sq88);
                     if (p == Piece.Empty) continue;
                     int s64 = (Square0x64)sq88;
-                    key ^= bb.Tables.Zobrist.PieceSquare[PieceUtil.Index(p), s64];
+                    key ^= bb.Tables.Zobrist.PieceSquare[p.BitboardIndex, s64];
                 }
                 if (!bb.SideToMove.IsWhite()) key ^= bb.Tables.Zobrist.SideToMove;
                 if (bb.EnPassantFile is FileIndex epf) key ^= bb.Tables.Zobrist.EnPassant[epf];

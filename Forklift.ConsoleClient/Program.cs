@@ -102,20 +102,18 @@ while (true)
     {
         stopSearch = false;
 
-        // For now, just pick the first legal move
-        var legal = board.GenerateLegal().ToList();
-        if (legal.Count > 0)
+        // Use minimax search to find best move
+        int searchDepth = 2; // You can adjust this for speed/strength
+        var (bestMove, bestScore) = Search.FindBestMove(board, searchDepth);
+        if (bestMove is Board.Move move)
         {
-            var move = legal[0];
-            // Format as UCI string
             string uci = Squares.ToAlgebraic(move.From88).ToString().ToLower() + Squares.ToAlgebraic(move.To88).ToString().ToLower();
-            if (move.Promotion != Piece.Empty)
+            if (move.Promotion.HasValue && move.Promotion != Piece.Empty)
             {
-                char promoChar = char.ToLower(PieceUtil.ToFENChar(move.Promotion));
+                char promoChar = char.ToLower(Piece.ToFENChar(move.Promotion.Value));
                 uci += promoChar;
             }
-            // Output info line (example)
-            Console.WriteLine($"info depth 1 score cp 0 nodes {legal.Count} pv {uci}");
+            Console.WriteLine($"info depth {searchDepth} score cp {bestScore} pv {uci}");
             Console.WriteLine($"bestmove {uci}");
         }
         else
