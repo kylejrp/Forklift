@@ -211,6 +211,10 @@ public sealed class Board
             CastleRookFrom88: null,
             CastleRookTo88: null);
 
+        // Track move history
+        _moveHistory.Add(m);
+        _undoHistory.Add(undo);
+
         // --- Clear old EP key
         SetEnPassantFile(null);
 
@@ -372,6 +376,10 @@ public sealed class Board
                 else _repCounts[keyAfterMove] = c - 1;
             }
         }
+
+        // Track undo history
+        if (_moveHistory.Count > 0) _moveHistory.RemoveAt(_moveHistory.Count - 1);
+        if (_undoHistory.Count > 0) _undoHistory.RemoveAt(_undoHistory.Count - 1);
 
         // Restore side and ZKey (this also covers EP and castling zobrist, so do it early)
         _sideToMove = u.SideToMovePrev;
@@ -580,6 +588,10 @@ public sealed class Board
 
         // Zobrist from empty state
         UpdateZobristFull();
+
+        // Move history tracking
+        _moveHistory.Clear();
+        _undoHistory.Clear();
     }
 
     /// <summary>
@@ -965,5 +977,35 @@ public sealed class Board
             return true;
         }
         return false;
+    }
+
+    // Public move history for undo/redo (UCI go/undo commands)
+    public IReadOnlyList<Move> MoveHistory => _moveHistory;
+    public IReadOnlyList<Undo> UndoHistory => _undoHistory;
+    private readonly List<Move> _moveHistory = new();
+    private readonly List<Undo> _undoHistory = new();
+
+    /// <summary>
+    /// Undoes the last move in the history, if any.
+    /// </summary>
+    public bool UndoLastMove()
+    {
+        if (_moveHistory.Count == 0 || _undoHistory.Count == 0)
+            return false;
+        var lastMove = _moveHistory[^1];
+        var lastUndo = _undoHistory[^1];
+        UnmakeMove(lastMove, lastUndo);
+        _moveHistory.RemoveAt(_moveHistory.Count - 1);
+        _undoHistory.RemoveAt(_undoHistory.Count - 1);
+        return true;
+    }
+
+    /// <summary>
+    /// Clears the move and undo history.
+    /// </summary>
+    public void ClearMoveHistory()
+    {
+        _moveHistory.Clear();
+        _undoHistory.Clear();
     }
 }
