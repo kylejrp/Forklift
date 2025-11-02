@@ -125,7 +125,6 @@ namespace Forklift.Testing
 
             // Pinned: EP move should be illegal
             var b2 = BuildEpPosition_PinnedPawn(true);
-            Console.WriteLine(b2.GetFEN());
             var epMoves2 = b2.GenerateLegal().Where(m => m.Kind == Board.MoveKind.EnPassant).ToList();
             epMoves2.Should().BeEmpty();
         }

@@ -19,6 +19,22 @@ namespace Forklift.Testing
         }
 
         [Fact]
+        public void CastlingRightsClear_When_KingMoves()
+        {
+            var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+            // Move white king e1-f1
+            var mv = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f1")),
+                Piece.WhiteKing
+            );
+            var u = b.MakeMove(mv);
+            (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
+            (b.CastlingRights & Board.CastlingRightsFlags.WhiteQueen).Should().Be(0);
+            b.UnmakeMove(mv, u);
+        }
+
+        [Fact]
         public void CastlingRightsClear_When_RookMovesOrCaptured()
         {
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
@@ -30,10 +46,69 @@ namespace Forklift.Testing
                 Piece.WhiteRook
             );
             var u = b.MakeMove(mv);
-
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
-
             b.UnmakeMove(mv, u);
+
+            // Move white a1 rook away -> should clear Q side for white
+            var mv2 = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a2")),
+                Piece.WhiteRook
+            );
+            var u2 = b.MakeMove(mv2);
+            (b.CastlingRights & Board.CastlingRightsFlags.WhiteQueen).Should().Be(0);
+            b.UnmakeMove(mv2, u2);
+
+            // Capture white h1 rook -> should clear K side for white
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")), Piece.WhiteRook);
+            var mv3 = Board.Move.Capture(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g2")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")),
+                Piece.BlackRook,
+                Piece.WhiteRook
+            );
+            var u3 = b.MakeMove(mv3);
+            (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
+            b.UnmakeMove(mv3, u3);
+        }
+
+        [Fact]
+        public void CastlingRightsNotRestored_When_RookReturns()
+        {
+            var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+            // Move h1 rook away and back
+            var mv1 = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h2")),
+                Piece.WhiteRook
+            );
+            b.MakeMove(mv1);
+            var mv2 = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h2")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")),
+                Piece.WhiteRook
+            );
+            b.MakeMove(mv2);
+            (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
+        }
+
+        [Fact]
+        public void CannotCastle_When_DiscoveredCheckOnPath()
+        {
+            // White king on e1, rook on h1, black bishop on c3 attacking f2 (discovered check if king moves)
+            var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/2b5/R3K2R w KQkq - 0 1");
+            // Place a white pawn on f2 to block bishop
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f2")), Piece.WhitePawn);
+            // Move pawn away, so bishop attacks f2
+            var mv = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f2")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f3")),
+                Piece.WhitePawn
+            );
+            b.MakeMove(mv);
+            // Now bishop attacks f2, so castling through f1 is illegal
+            var legals = b.GenerateLegal().ToList();
+            legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleKing);
         }
     }
 }
