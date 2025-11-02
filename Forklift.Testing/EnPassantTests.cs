@@ -29,33 +29,126 @@ namespace Forklift.Testing
             return b;
         }
 
+        private static Board BuildEpPosition_PinnedPawn(bool pin)
+        {
+            // Setup: white king on e1, black king on h8, white pawn e5, black pawn d7, black rook e8 (for pin)
+            var b = BoardFactory.FromFenOrStart("startpos");
+            b.Clear();
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")), Piece.WhiteKing);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8")), Piece.BlackKing);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e5")), Piece.WhitePawn);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")), Piece.BlackPawn);
+            if (pin)
+                b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8")), Piece.BlackRook);
+            b.SetSideToMove(Color.Black);
+            var mv = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d5")),
+                Piece.BlackPawn
+            );
+            b.MakeMove(mv);
+            return b;
+        }
+
+
+
+        [Fact]
+        public void EpSquare_Set_Only_After_DoublePush_And_Cleared_If_Unused()
+        {
+            var b = BoardFactory.FromFenOrStart("startpos");
+            b.Clear();
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")), Piece.WhiteKing);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8")), Piece.BlackKing);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e2")), Piece.WhitePawn);
+            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")), Piece.BlackPawn);
+            b.SetSideToMove(Color.White);
+
+            // White plays e2-e3 (single push): no EP
+            var mv1 = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e2")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e3")),
+                Piece.WhitePawn
+            );
+            b.MakeMove(mv1);
+            b.EnPassantFile.Should().BeNull();
+
+            // Black plays d7-d5 (double push): EP set
+            var mv2 = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d7")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d5")),
+                Piece.BlackPawn
+            );
+            b.MakeMove(mv2);
+            b.EnPassantFile.Should().Be(new FileIndex(3)); // 'd' file
+
+            // White plays a non-EP move: king h1-g1
+            var mv3 = Board.Move.Normal(
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")),
+                Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g1")),
+                Piece.WhiteKing
+            );
+            b.MakeMove(mv3);
+            b.EnPassantFile.Should().BeNull();
+        }
 
         [Fact]
         public void EpAvailable_Only_Immediately_After_DoublePush()
         {
             var b = BuildEpPosition_WhiteToCapture();
-
             var epMoves = b.GenerateLegal().Where(m => m.Kind == Board.MoveKind.EnPassant).ToList();
             epMoves.Should().ContainSingle();
-
-            // Make a different legal move for white (e.g., king h1-g1 if legal),
-            // or just make/unmake the EP move to check it exists.
+            // Make/unmake EP move to check it exists
             var u = b.MakeMove(epMoves[0]);
             b.UnmakeMove(epMoves[0], u);
         }
+
 
         [Fact]
         public void EpCapture_RemovesBehindPawn_And_RestoresOnUnmake()
         {
             var b = BuildEpPosition_WhiteToCapture();
-
             var ep = b.GenerateLegal().First(m => m.Kind == Board.MoveKind.EnPassant);
             var occ0 = b.OccAll;
-
             var u = b.MakeMove(ep);
             b.OccAll.Should().NotBe(occ0); // captured pawn removed
             b.UnmakeMove(ep, u);
             b.OccAll.Should().Be(occ0);
+        }
+
+        [Fact]
+        public void EpCapture_Legal_If_NotPinned_Illegal_If_Pinned()
+        {
+            // Not pinned: EP move should be legal
+            var b1 = BuildEpPosition_PinnedPawn(false);
+            var epMoves1 = b1.GenerateLegal().Where(m => m.Kind == Board.MoveKind.EnPassant).ToList();
+            epMoves1.Should().ContainSingle();
+
+            // Pinned: EP move should be illegal
+            var b2 = BuildEpPosition_PinnedPawn(true);
+            Console.WriteLine(b2.GetFEN());
+            var epMoves2 = b2.GenerateLegal().Where(m => m.Kind == Board.MoveKind.EnPassant).ToList();
+            epMoves2.Should().BeEmpty();
+        }
+
+        [Fact]
+        public void ZobristKey_XorEpFile_Only_WhenEpAvailable_MakeUnmakePreservesKey()
+        {
+            var b = BuildEpPosition_WhiteToCapture();
+            var key0 = b.ZKey;
+            var epFile = b.EnPassantFile;
+            epFile.Should().NotBeNull();
+
+            // Make EP move: EP file should be cleared, key updated
+            var epMove = b.GenerateLegal().First(m => m.Kind == Board.MoveKind.EnPassant);
+            var u = b.MakeMove(epMove);
+            b.EnPassantFile.Should().BeNull();
+            var key1 = b.ZKey;
+            key1.Should().NotBe(key0); // Key should change
+
+            // Unmake: key and EP file restored
+            b.UnmakeMove(epMove, u);
+            b.EnPassantFile.Should().Be(epFile);
+            b.ZKey.Should().Be(key0);
         }
     }
 }
