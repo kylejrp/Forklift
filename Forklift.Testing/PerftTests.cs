@@ -75,7 +75,7 @@ namespace Forklift.Testing
         [InlineData("startpos")]
         public void Perft_SpotCheck(string fenOrStart)
         {
-            var board = fenOrStart == "startpos" ? new Board() : BoardFactory.FromFenOrStart(fenOrStart);
+            var board = BoardFactory.FromFenOrStart(fenOrStart);
 
             var rootMoves = board.GenerateLegal().ToList();
             Assert.Equal(20, rootMoves.Count);

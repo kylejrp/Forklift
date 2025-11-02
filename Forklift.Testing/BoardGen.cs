@@ -69,7 +69,7 @@ namespace Forklift.Testing
                       .SelectMany(plyCount =>
                           GenConstant(() =>
                           {
-                              var b = new Board(); // ctor -> startpos (per your refactor)
+                              var b = new Board(startPosition: true);
                               var rng = new Random(SeedFromZKey(b.ZKey, plyCount));
 
                               for (int i = 0; i < plyCount; i++)
@@ -85,11 +85,11 @@ namespace Forklift.Testing
                                   }
                               }
 
-                              if (!HasExactlyOneKingEach(b)) return new Board();
-                              if (IsOwnKingInCheck(b)) return new Board();
+                              if (!HasExactlyOneKingEach(b)) return new Board(startPosition: true);
+                              if (IsOwnKingInCheck(b)) return new Board(startPosition: true);
 
                               if (requireNonStalemate && !HasAnyLegalMove(b))
-                                  return new Board();
+                                  return new Board(startPosition: true);
 
                               return b;
                           })

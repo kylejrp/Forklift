@@ -5,17 +5,39 @@ namespace Forklift.Testing
 {
     public class CastlingTests
     {
-        [Fact]
-        public void CannotCastleThroughCheck_Or_WhileInCheck()
+        [Theory]
+        [InlineData("4k3/r7/8/8/8/8/8/R3K2R w KQ - 0 1", true, true)]
+        [InlineData("4k3/1r6/8/8/8/8/8/R3K2R w KQ - 0 1", true, true)]
+        [InlineData("4k3/2r5/8/8/8/8/8/R3K2R w KQ - 0 1", false, true)]
+        [InlineData("4k3/3r4/8/8/8/8/8/R3K2R w KQ - 0 1", false, true)]
+        [InlineData("4k3/4r3/8/8/8/8/8/R3K2R w KQ - 0 1", false, false)]
+        [InlineData("4k3/5r2/8/8/8/8/8/R3K2R w KQ - 0 1", true, false)]
+        [InlineData("4k3/6r1/8/8/8/8/8/R3K2R w KQ - 0 1", true, false)]
+        [InlineData("4k3/7r/8/8/8/8/8/R3K2R w KQ - 0 1", true, true)]
+        [InlineData("4k3/2r2r2/8/8/8/8/8/R3K2R w KQ - 0 1", false, false)]
+        public void CannotCastleThroughCheck_Or_WhileInCheck(string fen, bool canCastleQueenSide, bool canCastleKingSide)
         {
-            // Classic: white in check on e1 or path attacked => no O-O/O-O-O
-            var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"); // empty board + rights
-            // Put a black rook attacking f1
-            b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f8")), Piece.BlackRook);
+            var b = BoardFactory.FromFenOrStart(fen);
 
             var legals = b.GenerateLegal().ToList();
-            legals.Should().NotContain(m => m.Mover == Piece.WhiteKing &&
-                                            (m.Kind == Board.MoveKind.CastleKing || m.Kind == Board.MoveKind.CastleQueen));
+
+            if (canCastleKingSide)
+            {
+                legals.Should().Contain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleKing);
+            }
+            else
+            {
+                legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleKing);
+            }
+
+            if (canCastleQueenSide)
+            {
+                legals.Should().Contain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleQueen);
+            }
+            else
+            {
+                legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleQueen);
+            }
         }
 
         [Fact]

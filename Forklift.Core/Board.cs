@@ -78,10 +78,10 @@ public sealed class Board
     /// Initializes a new instance of the <see cref="Board"/> class.
     /// </summary>
     /// <param name="tables">Optional engine tables. If null, default tables are used.</param>
-    public Board(EngineTables? tables = null)
+    public Board(EngineTables? tables = null, bool startPosition = false)
     {
         Tables = tables ?? EngineTables.CreateDefault();
-        SetStartPosition();
+        if (startPosition) SetStartPosition();
     }
 
     /// <summary>
@@ -236,6 +236,15 @@ public sealed class Board
         public bool IsPromotion => Kind == MoveKind.Promotion || Kind == MoveKind.PromotionCapture;
         public bool IsCastle => Kind == MoveKind.CastleKing || Kind == MoveKind.CastleQueen;
         public bool IsEnPassant => Kind == MoveKind.EnPassant;
+
+        public override string ToString()
+        {
+            string fromAlg = Squares.ToAlgebraic(From88).Value;
+            string toAlg = Squares.ToAlgebraic(To88).Value;
+            string promoStr = IsPromotion ? $"={Promotion}" : string.Empty;
+            string captureStr = IsCapture ? "x" : "-";
+            return $"{fromAlg}{captureStr}{toAlg}{promoStr}";
+        }
     }
 
     public readonly record struct Undo(

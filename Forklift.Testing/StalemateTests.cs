@@ -17,5 +17,15 @@ namespace Forklift.Testing
             var legalMoves = b.GenerateLegal().ToList();
             legalMoves.Should().BeEmpty();
         }
+
+        [Fact]
+        public void IsFiftyMoveRuleDraw()
+        {
+            var b = BoardFactory.FromFenOrStart("8/8/8/8/8/8/8/K6k w - - 100 50");
+            b.IsFiftyMoveRuleDraw().Should().BeTrue();
+
+            var b2 = BoardFactory.FromFenOrStart("8/8/8/8/8/8/8/K6k w - - 99 50");
+            b2.IsFiftyMoveRuleDraw().Should().BeFalse();
+        }
     }
 }
