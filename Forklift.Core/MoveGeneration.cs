@@ -184,7 +184,13 @@ namespace Forklift.Core
                         }
 
                         if (white != target.IsWhite)
+                        {
+#if DEBUG
+                            if (board.At(to88) == Piece.Empty)
+                                throw new InvalidOperationException($"Capture generated to empty square {Squares.ToAlgebraic(to88)} from {Squares.ToAlgebraic((Square0x88)from)}");
+#endif
                             moves.Add(Move.Capture((Square0x88)from, to88, piece, target));
+                        }
 
                         break; // stop on first occupied square
                     }
@@ -235,81 +241,90 @@ namespace Forklift.Core
             if (kingBB == 0) return;
 
             var k64 = (Square0x64)BitOperations.TrailingZeroCount(kingBB);
-            if (board.InCheck(sideToMove)) return;
+            if (board.InCheck(sideToMove)) return; // cannot castle out of check
 
             if (white)
             {
-                // White king side: e1,f1,g1 must be safe and f1,g1 empty
+                // White king side: e1,f1,g1 must be safe; f1,g1 empty; rook on h1
                 if ((board.CastlingRights & Board.CastlingRightsFlags.WhiteKing) != 0)
                 {
                     var f1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("f1"));
                     var g1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("g1"));
+                    var h1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"));
 
-                    if (board.At((Square0x88)f1) == Piece.Empty && board.At((Square0x88)g1) == Piece.Empty)
+                    if (board.At((Square0x88)f1) == Piece.Empty &&
+                        board.At((Square0x88)g1) == Piece.Empty &&
+                        board.At(h1) == Piece.WhiteRook &&
+                        !board.IsSquareAttacked(k64, Color.Black) &&
+                        !board.IsSquareAttacked(f1, Color.Black) &&
+                        !board.IsSquareAttacked(g1, Color.Black))
                     {
-                        if (!board.IsSquareAttacked(k64, Color.Black) &&
-                            !board.IsSquareAttacked(f1, Color.Black) &&
-                            !board.IsSquareAttacked(g1, Color.Black))
-                        {
-                            moves.Add(Move.CastleKingSide(Color.White));
-                        }
+                        moves.Add(Board.Move.CastleKingSide(Color.White));
                     }
                 }
 
-                // White queen side: d1,c1 must be safe and d1,c1 empty (b1 may be occupied)
+                // White queen side: b1,c1,d1 must be empty; e1,d1,c1 must be safe; rook on a1
                 if ((board.CastlingRights & Board.CastlingRightsFlags.WhiteQueen) != 0)
                 {
-                    var d1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("d1"));
+                    var b1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("b1"));
                     var c1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("c1"));
+                    var d1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("d1"));
+                    var a1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"));
 
-                    if (board.At((Square0x88)d1) == Piece.Empty && board.At((Square0x88)c1) == Piece.Empty)
+                    if (board.At((Square0x88)b1) == Piece.Empty &&
+                        board.At((Square0x88)c1) == Piece.Empty &&
+                        board.At((Square0x88)d1) == Piece.Empty &&
+                        board.At(a1) == Piece.WhiteRook &&
+                        !board.IsSquareAttacked(k64, Color.Black) &&
+                        !board.IsSquareAttacked(d1, Color.Black) &&
+                        !board.IsSquareAttacked(c1, Color.Black))
                     {
-                        if (!board.IsSquareAttacked(k64, Color.Black) &&
-                            !board.IsSquareAttacked(d1, Color.Black) &&
-                            !board.IsSquareAttacked(c1, Color.Black))
-                        {
-                            moves.Add(Move.CastleQueenSide(Color.White));
-                        }
+                        moves.Add(Board.Move.CastleQueenSide(Color.White));
                     }
                 }
             }
             else
             {
-                // Black king side
+                // Black king side: e8,f8,g8 must be safe; f8,g8 empty; rook on h8
                 if ((board.CastlingRights & Board.CastlingRightsFlags.BlackKing) != 0)
                 {
                     var f8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("f8"));
                     var g8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("g8"));
+                    var h8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"));
 
-                    if (board.At((Square0x88)f8) == Piece.Empty && board.At((Square0x88)g8) == Piece.Empty)
+                    if (board.At((Square0x88)f8) == Piece.Empty &&
+                        board.At((Square0x88)g8) == Piece.Empty &&
+                        board.At(h8) == Piece.BlackRook &&
+                        !board.IsSquareAttacked(k64, Color.White) &&
+                        !board.IsSquareAttacked(f8, Color.White) &&
+                        !board.IsSquareAttacked(g8, Color.White))
                     {
-                        if (!board.IsSquareAttacked(k64, Color.White) &&
-                            !board.IsSquareAttacked(f8, Color.White) &&
-                            !board.IsSquareAttacked(g8, Color.White))
-                        {
-                            moves.Add(Move.CastleKingSide(Color.Black));
-                        }
+                        moves.Add(Board.Move.CastleKingSide(Color.Black));
                     }
                 }
 
-                // Black queen side
+                // Black queen side: b8,c8,d8 must be empty; e8,d8,c8 must be safe; rook on a8
                 if ((board.CastlingRights & Board.CastlingRightsFlags.BlackQueen) != 0)
                 {
-                    var d8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("d8"));
+                    var b8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("b8"));
                     var c8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("c8"));
+                    var d8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("d8"));
+                    var a8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"));
 
-                    if (board.At((Square0x88)d8) == Piece.Empty && board.At((Square0x88)c8) == Piece.Empty)
+                    if (board.At((Square0x88)b8) == Piece.Empty &&
+                        board.At((Square0x88)c8) == Piece.Empty &&
+                        board.At((Square0x88)d8) == Piece.Empty &&
+                        board.At(a8) == Piece.BlackRook &&
+                        !board.IsSquareAttacked(k64, Color.White) &&
+                        !board.IsSquareAttacked(d8, Color.White) &&
+                        !board.IsSquareAttacked(c8, Color.White))
                     {
-                        if (!board.IsSquareAttacked(k64, Color.White) &&
-                            !board.IsSquareAttacked(d8, Color.White) &&
-                            !board.IsSquareAttacked(c8, Color.White))
-                        {
-                            moves.Add(Move.CastleQueenSide(Color.Black));
-                        }
+                        moves.Add(Board.Move.CastleQueenSide(Color.Black));
                     }
                 }
             }
         }
+
 
         // --- En Passant (from Board.EnPassantFile / availability pre-check) ---------------
 
@@ -348,8 +363,7 @@ namespace Forklift.Core
                 var from88 = (Square0x88)fromUnsafe;
                 if (board.At(from88) != mover) continue;
 
-                // Use the dedicated EP factory (captured piece is inferred/validated in MakeMove)
-                moves.Add(Move.EnPassant(from88, ep88, mover));
+                moves.Add(Move.EnPassant(from88, ep88, mover, captured));
             }
         }
     }

@@ -187,8 +187,8 @@ public sealed class Board
         public static Move Normal(Square0x88 from, Square0x88 to, Piece mover)
             => new(from, to, mover, Piece.Empty, Piece.Empty, MoveKind.Normal);
 
-        public static Move EnPassant(Square0x88 from, Square0x88 to, Piece mover)
-            => new(from, to, mover, Piece.Empty, Piece.Empty, MoveKind.EnPassant);
+        public static Move EnPassant(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
+            => new(from, to, mover, captured, Piece.Empty, MoveKind.EnPassant);
 
         public static Move CastleKingSide(Color side)
         {
@@ -263,11 +263,24 @@ public sealed class Board
     public Undo MakeMove(in Move m)
     {
 #if DEBUG
-        if (m.IsCapture)
+        var destPieceBefore = (Piece)mailbox[m.To88];
+        if (m.IsEnPassant)
         {
-            var atTo = (Piece)mailbox[m.To88];
-            if (atTo != Piece.Empty && atTo != m.Captured)
-                throw new InvalidOperationException($"Captured mismatch: move says {m.Captured} but board has {atTo} at To.");
+            // EP destination must be empty by definition
+            if (destPieceBefore != Piece.Empty)
+                throw new InvalidOperationException("EP destination square was not empty.");
+        }
+        else if (m.IsCapture)
+        {
+            if (destPieceBefore == Piece.Empty)
+                throw new InvalidOperationException($"Capture to empty square at {Squares.ToAlgebraic(m.To88)}.");
+            if (destPieceBefore == m.Mover || destPieceBefore.IsWhite == m.Mover.IsWhite)
+                throw new InvalidOperationException("Capture of own piece generated.");
+        }
+        else
+        {
+            if (destPieceBefore != Piece.Empty)
+                throw new InvalidOperationException($"Quiet move to occupied square at {Squares.ToAlgebraic(m.To88)}.");
         }
 #endif
 
@@ -574,8 +587,8 @@ public sealed class Board
         return attacks;
     }
 
-    private ulong RookAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, RookDirections);
-    private ulong BishopAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, BishopDirections);
+    internal ulong RookAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, RookDirections);
+    internal ulong BishopAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, BishopDirections);
 
     public bool IsSquareAttacked(Square0x64 t64, Color bySide)
     {
@@ -614,7 +627,7 @@ public sealed class Board
         return false;
     }
 
-    public (bool knights, bool kings, bool pawns, bool bishopsQueens, bool rooksQueens) AttackerBreakdown(Square0x64 t64, bool byWhite)
+    public (bool knights, bool kings, bool pawns, bool bishopsQueens, bool rooksQueens) AttackerBreakdownBool(Square0x64 t64, bool byWhite)
     {
         var T = Tables;
         ulong wp = GetPieceBitboard(Piece.WhitePawn);
@@ -639,6 +652,42 @@ public sealed class Board
         bool rookQ = (RookAttacks(t64) & (byWhite ? (wr | wq) : (br | bq))) != 0;
 
         return (knt, kng, pwn, bishopQ, rookQ);
+    }
+
+    public ulong AttackersToSquare(Square0x64 t64, Color bySide)
+    {
+        var T = Tables;
+        bool byWhite = bySide.IsWhite();
+
+        ulong attackers = 0UL;
+
+        // Knights
+        ulong knights = byWhite ? GetPieceBitboard(Piece.WhiteKnight) : GetPieceBitboard(Piece.BlackKnight);
+        attackers |= (T.KnightAttackTable[(int)t64] & knights);
+
+        // Kings
+        ulong kings = byWhite ? GetPieceBitboard(Piece.WhiteKing) : GetPieceBitboard(Piece.BlackKing);
+        attackers |= (T.KingAttackTable[(int)t64] & kings);
+
+        // Pawns (reverse attack-from masks)
+        if (byWhite)
+            attackers |= (T.WhitePawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.WhitePawn));
+        else
+            attackers |= (T.BlackPawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.BlackPawn));
+
+        // Bishops / Queens along diagonals
+        ulong bishopsQueens = byWhite
+            ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
+            : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
+        attackers |= (BishopAttacks(t64) & bishopsQueens);
+
+        // Rooks / Queens along ranks/files
+        ulong rooksQueens = byWhite
+            ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
+            : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
+        attackers |= (RookAttacks(t64) & rooksQueens);
+
+        return attackers;
     }
 
     public void Clear()
@@ -880,8 +929,10 @@ public sealed class Board
         if (bb == 0)
             throw new InvalidOperationException("King bitboard is empty.");
 
-        return (Square0x88)BitOperations.TrailingZeroCount(bb);
+        var s64 = (Square0x64)BitOperations.TrailingZeroCount(bb);
+        return Squares.ConvertTo0x88Index(s64);
     }
+
 
     public bool EnPassantAvailableFor(Color sideToMove)
     {
