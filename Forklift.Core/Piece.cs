@@ -13,16 +13,16 @@ namespace Forklift.Core
         public static readonly Piece Empty = new(0);
 
         // Uncolored (type) atoms 1..6
-        public static readonly Piece Pawn = new(1);
-        public static readonly Piece Knight = new(2);
-        public static readonly Piece Bishop = new(3);
-        public static readonly Piece Rook = new(4);
-        public static readonly Piece Queen = new(5);
-        public static readonly Piece King = new(6);
+        private static readonly Piece Pawn = new(1);
+        private static readonly Piece Knight = new(2);
+        private static readonly Piece Bishop = new(3);
+        private static readonly Piece Rook = new(4);
+        private static readonly Piece Queen = new(5);
+        private static readonly Piece King = new(6);
 
         // Color aliases (Option B: White == 0 == Empty)
-        public static readonly Piece White = new(0);
-        public static readonly Piece Black = new(8);
+        private static readonly Piece White = new(0);
+        private static readonly Piece Black = new(8);
 
         // Precomposed white pieces (1..6)
         public static readonly Piece WhitePawn = new(1);
@@ -40,7 +40,15 @@ namespace Forklift.Core
         public static readonly Piece BlackQueen = new(13);
         public static readonly Piece BlackKing = new(14);
 
-        // ===== Derived properties =====
+        public enum PieceType : sbyte
+        {
+            Pawn = 0,
+            Knight = 1,
+            Bishop = 2,
+            Rook = 3,
+            Queen = 4,
+            King = 5
+        }
 
         public bool IsWhite
         {
@@ -55,17 +63,16 @@ namespace Forklift.Core
         }
 
         // Returns only the 3-bit type (0..6) as a Piece value (0 => Empty)
-        public Piece Type
+        public PieceType Type
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => new((sbyte)(value & 0b0111));
+            get => (PieceType)((value & 0b0111) - 1);
         }
 
-        // Option B: return Empty for Empty; otherwise 0 (white) or 8 (black)
-        public Piece Color
+        public Color Color
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => value == 0 ? Empty : new((sbyte)(value & 0b1000));
+            get => value == 0 ? throw new InvalidOperationException("Empty has no color.") : ((value & 0b1000) == 0b1000 ? Color.Black : Color.White);
         }
 
         // 0..5 for white, 6..11 for black; throws for Empty/invalid
@@ -98,10 +105,10 @@ namespace Forklift.Core
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => Type switch
             {
-                var t when t == Queen => 'q',
-                var t when t == Rook => 'r',
-                var t when t == Bishop => 'b',
-                var t when t == Knight => 'n',
+                var t when t == PieceType.Queen => 'q',
+                var t when t == PieceType.Rook => 'r',
+                var t when t == PieceType.Bishop => 'b',
+                var t when t == PieceType.Knight => 'n',
                 _ => throw new InvalidOperationException("Invalid promotion piece")
             };
         }
@@ -142,12 +149,12 @@ namespace Forklift.Core
         public static char ToFENChar(Piece p)
         {
             var t = p.Type;
-            if (t == Pawn) return p.IsBlack ? 'p' : 'P';
-            if (t == Knight) return p.IsBlack ? 'n' : 'N';
-            if (t == Bishop) return p.IsBlack ? 'b' : 'B';
-            if (t == Rook) return p.IsBlack ? 'r' : 'R';
-            if (t == Queen) return p.IsBlack ? 'q' : 'Q';
-            if (t == King) return p.IsBlack ? 'k' : 'K';
+            if (t == PieceType.Pawn) return p.IsBlack ? 'p' : 'P';
+            if (t == PieceType.Knight) return p.IsBlack ? 'n' : 'N';
+            if (t == PieceType.Bishop) return p.IsBlack ? 'b' : 'B';
+            if (t == PieceType.Rook) return p.IsBlack ? 'r' : 'R';
+            if (t == PieceType.Queen) return p.IsBlack ? 'q' : 'Q';
+            if (t == PieceType.King) return p.IsBlack ? 'k' : 'K';
             throw new ArgumentException("Invalid piece for FEN conversion");
         }
 
@@ -176,5 +183,28 @@ namespace Forklift.Core
 
         public static bool operator ==(Piece a, Piece b) => a.value == b.value;
         public static bool operator !=(Piece a, Piece b) => a.value != b.value;
+
+        public override string ToString()
+        {
+            if (this == Empty) return "Empty";
+            var unicodeSymbol = this switch
+            {
+                var p when p == WhitePawn => "♙",
+                var p when p == WhiteKnight => "♘",
+                var p when p == WhiteBishop => "♗",
+                var p when p == WhiteRook => "♖",
+                var p when p == WhiteQueen => "♕",
+                var p when p == WhiteKing => "♔",
+                var p when p == BlackPawn => "♟",
+                var p when p == BlackKnight => "♞",
+                var p when p == BlackBishop => "♝",
+                var p when p == BlackRook => "♜",
+                var p when p == BlackQueen => "♛",
+                var p when p == BlackKing => "♚",
+                _ => "?"
+            };
+
+            return $"{unicodeSymbol} ({Color} {Type})";
+        }
     }
 }

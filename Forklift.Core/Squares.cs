@@ -37,7 +37,11 @@ public readonly struct UnsafeSquare0x64
         return new UnsafeSquare0x64(square.Value - 1);
     }
 
-    public override string ToString() => Value.ToString();
+    public override string ToString()
+    {
+        string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraic(new Square0x64(Value)).Value : string.Empty;
+        return string.IsNullOrEmpty(algebraic) ? $"(0x64 {Value})" : $"{algebraic} (0x64 {Value})";
+    }
 }
 
 /// <summary>
@@ -80,7 +84,11 @@ public readonly struct Square0x64
         return new UnsafeSquare0x64(square.Value - offset);
     }
 
-    public override string ToString() => Value.ToString();
+    public override string ToString()
+    {
+        string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraic(this).Value : string.Empty;
+        return string.IsNullOrEmpty(algebraic) ? $"(0x64 {Value})" : $"{algebraic} (0x64 {Value})";
+    }
 }
 
 
@@ -104,7 +112,11 @@ public readonly struct UnsafeSquare0x88
         return new UnsafeSquare0x88(value);
     }
 
-    public override string ToString() => Value.ToString();
+    public override string ToString()
+    {
+        string algebraic = ((Value & 0x88) == 0) ? Squares.ToAlgebraic(new Square0x88(Value)).Value : string.Empty;
+        return string.IsNullOrEmpty(algebraic) ? $"(0x88 {Value})" : $"{algebraic} (0x88 {Value})";
+    }
 
     public static UnsafeSquare0x88 operator +(UnsafeSquare0x88 square, int offset)
     {
@@ -163,7 +175,11 @@ public readonly struct Square0x88
         return new UnsafeSquare0x88(square.Value - offset);
     }
 
-    public override string ToString() => Value.ToString();
+    public override string ToString()
+    {
+        string algebraic = ((Value & 0x88) == 0) ? Squares.ToAlgebraic(this).Value : string.Empty;
+        return string.IsNullOrEmpty(algebraic) ? $"(0x88 {Value})" : $"{algebraic} (0x88 {Value})";
+    }
 }
 
 /// <summary>
