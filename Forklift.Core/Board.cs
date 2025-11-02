@@ -252,6 +252,7 @@ public sealed class Board
         FileIndex? EnPassantFilePrev,
         CastlingRightsFlags CastlingPrev,
         int HalfmovePrev,
+        int FullmovePrev,
         Color SideToMovePrev,
         ulong ZKeyPrev,
         // new: for EP/castling reversals
@@ -292,6 +293,7 @@ public sealed class Board
             EnPassantFilePrev: EnPassantFile,
             CastlingPrev: CastlingRights,
             HalfmovePrev: HalfmoveClock,
+            FullmovePrev: FullmoveNumber,
             SideToMovePrev: SideToMove,
             ZKeyPrev: ZKey,
             EnPassantCapturedSq88: null,
@@ -526,6 +528,7 @@ public sealed class Board
         EnPassantFile = u.EnPassantFilePrev;
         CastlingRights = u.CastlingPrev;
         HalfmoveClock = u.HalfmovePrev;
+        FullmoveNumber = u.FullmovePrev;
     }
 
     /// <summary>
