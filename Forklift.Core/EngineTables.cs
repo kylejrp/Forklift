@@ -38,11 +38,11 @@
             const int W_PAWN_L = +15, W_PAWN_R = +17; // white attacks "up"
             const int B_PAWN_L = -15, B_PAWN_R = -17; // black attacks "down"
 
-            for (UnsafeSquare0x88 t88 = (UnsafeSquare0x88)0; t88 < 128; t88++)
+            for (UnsafeSquare0x88 t88 = (UnsafeSquare0x88)0; t88.Value < 128; t88++)
             {
                 if (Squares.IsOffboard(t88)) continue;
 
-                int t64 = (Square0x64)(Square0x88)t88;
+                var t64 = (Square0x64)(Square0x88)t88;
 
                 ulong kmask = 0, Kmask = 0, wpmask = 0, bpmask = 0;
 
@@ -52,8 +52,8 @@
                     var from = new UnsafeSquare0x88(t88.Value - d);
                     if (!Squares.IsOffboard(from))
                     {
-                        int s64 = (Square0x64)(Square0x88)from;
-                        kmask |= 1UL << s64;
+                        var s64 = (Square0x64)(Square0x88)from;
+                        kmask |= 1UL << (int)s64;
                     }
                 }
 
@@ -63,8 +63,8 @@
                     var from = new UnsafeSquare0x88(t88.Value - d);
                     if (!Squares.IsOffboard(from))
                     {
-                        int s64 = (Square0x64)(Square0x88)from;
-                        Kmask |= 1UL << s64;
+                        var s64 = (Square0x64)(Square0x88)from;
+                        Kmask |= 1UL << (int)s64;
                     }
                 }
 
@@ -73,14 +73,14 @@
                     var fromL = new UnsafeSquare0x88(t88.Value - W_PAWN_L);
                     if (!Squares.IsOffboard(fromL))
                     {
-                        int s64 = (Square0x64)(Square0x88)fromL;
-                        wpmask |= 1UL << s64;
+                        var s64 = (Square0x64)(Square0x88)fromL;
+                        wpmask |= 1UL << (int)s64;
                     }
                     var fromR = new UnsafeSquare0x88(t88.Value - W_PAWN_R);
                     if (!Squares.IsOffboard(fromR))
                     {
-                        int s64 = (Square0x64)(Square0x88)fromR;
-                        wpmask |= 1UL << s64;
+                        var s64 = (Square0x64)(Square0x88)fromR;
+                        wpmask |= 1UL << (int)s64;
                     }
                 }
 
@@ -89,21 +89,21 @@
                     var fromL = new UnsafeSquare0x88(t88.Value - B_PAWN_L); // t + 15
                     if (!Squares.IsOffboard(fromL))
                     {
-                        int s64 = (Square0x64)(Square0x88)fromL;
-                        bpmask |= 1UL << s64;
+                        var s64 = (Square0x64)(Square0x88)fromL;
+                        bpmask |= 1UL << (int)s64;
                     }
                     var fromR = new UnsafeSquare0x88(t88.Value - B_PAWN_R); // t + 17
                     if (!Squares.IsOffboard(fromR))
                     {
-                        int s64 = (Square0x64)(Square0x88)fromR;
-                        bpmask |= 1UL << s64;
+                        var s64 = (Square0x64)(Square0x88)fromR;
+                        bpmask |= 1UL << (int)s64;
                     }
                 }
 
-                knightAttackTable[t64] = kmask;
-                kingAttackTable[t64] = Kmask;
-                whitePawnAttackFrom[t64] = wpmask;
-                blackPawnAttackFrom[t64] = bpmask;
+                knightAttackTable[(int)t64] = kmask;
+                kingAttackTable[(int)t64] = Kmask;
+                whitePawnAttackFrom[(int)t64] = wpmask;
+                blackPawnAttackFrom[(int)t64] = bpmask;
             }
 
             return new EngineTables(

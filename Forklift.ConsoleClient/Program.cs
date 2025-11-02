@@ -108,9 +108,9 @@ while (true)
         if (bestMove is Board.Move move)
         {
             string uci = Squares.ToAlgebraic(move.From88).ToString().ToLower() + Squares.ToAlgebraic(move.To88).ToString().ToLower();
-            if (move.Promotion.HasValue && move.Promotion != Piece.Empty)
+            if (move.IsPromotion)
             {
-                char promoChar = char.ToLower(Piece.ToFENChar(move.Promotion.Value));
+                char promoChar = char.ToLower(Piece.ToFENChar(move.Promotion));
                 uci += promoChar;
             }
             Console.WriteLine($"info depth {searchDepth} score cp {bestScore} pv {uci}");

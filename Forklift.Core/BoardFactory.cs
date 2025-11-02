@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace ChessEngine.Core
+namespace Forklift.Core
 {
     public static class BoardFactory
     {

@@ -1,5 +1,4 @@
-﻿using ChessEngine.Core;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Forklift.Core;
 
 namespace Forklift.Testing
@@ -9,7 +8,7 @@ namespace Forklift.Testing
         private static Board BuildEpPosition_WhiteToCapture()
         {
             // Minimal legal shell: kings + pawns
-            var b = ChessEngine.Core.BoardFactory.FromFenOrStart("startpos");
+            var b = BoardFactory.FromFenOrStart("startpos");
             b.Clear();
             b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1")), Piece.WhiteKing);
             b.Place(Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8")), Piece.BlackKing);

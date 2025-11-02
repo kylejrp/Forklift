@@ -69,7 +69,7 @@ namespace Forklift.Core
         }
 
         // 0..5 for white, 6..11 for black; throws for Empty/invalid
-        public sbyte BitboardIndex
+        public sbyte PieceIndex
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -78,6 +78,18 @@ namespace Forklift.Core
                 sbyte t = (sbyte)(value & 0b0111);
                 if (t < 1 || t > 6) throw new InvalidOperationException($"Invalid piece value: {value}");
                 return (sbyte)((t - 1) + (((value & 0b1000) != 0) ? 6 : 0));
+            }
+        }
+
+        public sbyte TypeIndex
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                if (value == 0) throw new InvalidOperationException("Empty has no type index.");
+                sbyte t = (sbyte)(value & 0b0111);
+                if (t < 1 || t > 6) throw new InvalidOperationException($"Invalid piece value: {value}");
+                return (sbyte)(t - 1);
             }
         }
 

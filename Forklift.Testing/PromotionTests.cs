@@ -1,5 +1,4 @@
-﻿using ChessEngine.Core;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Forklift.Core;
 
 namespace Forklift.Testing

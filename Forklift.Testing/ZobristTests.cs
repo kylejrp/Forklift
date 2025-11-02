@@ -1,5 +1,4 @@
-﻿using ChessEngine.Core;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Forklift.Core;
 
 namespace Forklift.Testing
@@ -40,13 +39,13 @@ namespace Forklift.Testing
                 // uses public UpdateZobristFull semantics; if it's private, expose a Debug recompute or mirror here
                 // For the test, mirror the logic:
                 ulong key = 0;
-                for (UnsafeSquare0x88 sq88 = (UnsafeSquare0x88)0; sq88 < 128; sq88++)
+                for (UnsafeSquare0x88 sq88 = (UnsafeSquare0x88)0; (int)sq88 < 128; sq88++)
                 {
                     if (Squares.IsOffboard(sq88)) continue;
                     var p = bb.At((Square0x88)sq88);
                     if (p == Piece.Empty) continue;
-                    int s64 = (Square0x64)sq88;
-                    key ^= bb.Tables.Zobrist.PieceSquare[p.BitboardIndex, s64];
+                    var s64 = (Square0x64)sq88;
+                    key ^= bb.Tables.Zobrist.PieceSquare[p.PieceIndex, (int)s64];
                 }
                 if (!bb.SideToMove.IsWhite()) key ^= bb.Tables.Zobrist.SideToMove;
                 if (bb.EnPassantFile is FileIndex epf) key ^= bb.Tables.Zobrist.EnPassant[epf];

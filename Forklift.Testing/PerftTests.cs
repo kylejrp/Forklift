@@ -1,5 +1,4 @@
-﻿using ChessEngine.Core;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Forklift.Core;
 using System.Linq;
 using System.Numerics;
@@ -101,9 +100,9 @@ namespace Forklift.Testing
 
                     // Raw table masks at the king square (to verify the tables themselves)
                     var T = board.Tables;
-                    ulong knightFromMask = T.KnightAttackTable[k64Black];
-                    ulong kingFromMask = T.KingAttackTable[k64Black];
-                    ulong wpawnFromMask = T.WhitePawnAttackFrom[k64Black]; // white attackers
+                    ulong knightFromMask = T.KnightAttackTable[(int)k64Black];
+                    ulong kingFromMask = T.KingAttackTable[(int)k64Black];
+                    ulong wpawnFromMask = T.WhitePawnAttackFrom[(int)k64Black]; // white attackers
 
                     // Which *white* pieces actually intersect those masks?
                     var wkMask = knightFromMask & board.GetPieceBitboard(Piece.WhiteKnight);

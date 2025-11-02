@@ -1,7 +1,7 @@
 ﻿using System.Collections;
 using Forklift.Core;
 
-namespace ChessEngine.Core
+namespace Forklift.Core
 {
     public static class Perft
     {

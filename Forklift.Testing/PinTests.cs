@@ -1,5 +1,4 @@
-﻿using ChessEngine.Core;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Forklift.Core;
 
 namespace Forklift.Testing
@@ -10,7 +9,7 @@ namespace Forklift.Testing
         public void PinnedPiece_CannotMoveOffPinnedFile()
         {
             // Arrange: Set up a board where the white rook on e2 is pinned by the black rook on e8.
-            var board = ChessEngine.Core.BoardFactory.FromFenOrStart("4r3/8/8/8/8/8/4R3/4K3 w - - 0 1");
+            var board = BoardFactory.FromFenOrStart("4r3/8/8/8/8/8/4R3/4K3 w - - 0 1");
 
             // Act: Generate all legal moves for the pinned piece (white rook on e2).
             var fromSquare = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e2"));

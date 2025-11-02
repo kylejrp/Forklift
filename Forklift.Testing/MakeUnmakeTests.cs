@@ -1,6 +1,5 @@
 ﻿using Xunit;
 using FluentAssertions;
-using ChessEngine.Core;
 using Forklift.Core;
 
 namespace Forklift.Testing

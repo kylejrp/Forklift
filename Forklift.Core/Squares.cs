@@ -55,7 +55,7 @@ public readonly struct Square0x64
         Value = value;
     }
 
-    public static implicit operator int(Square0x64 square) => square.Value;
+    public static explicit operator int(Square0x64 square) => square.Value;
     public static explicit operator Square0x64(int value) => new Square0x64(value);
 
     public static explicit operator Square0x64(Square0x88 square)
@@ -94,7 +94,7 @@ public readonly struct UnsafeSquare0x88
     {
         Value = value;
     }
-    public static implicit operator int(UnsafeSquare0x88 square) => square.Value;
+    public static explicit operator int(UnsafeSquare0x88 square) => square.Value;
     public static explicit operator UnsafeSquare0x88(int value) => new UnsafeSquare0x88(value);
     public static explicit operator UnsafeSquare0x88(Square0x88 square) => new UnsafeSquare0x88(square.Value);
     public static explicit operator Square0x88(UnsafeSquare0x88 square) => new Square0x88(square.Value);

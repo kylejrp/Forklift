@@ -152,16 +152,16 @@ public sealed class Board
 
     private void AddToBitboards(Square0x64 sq64, Piece pc)
     {
-        ulong b = 1UL << sq64;
-        pieceBB[pc.BitboardIndex] |= b;
+        ulong b = 1UL << (int)sq64;
+        pieceBB[pc.PieceIndex] |= b;
         if (pc.IsWhite) OccWhite |= b; else OccBlack |= b;
         OccAll |= b;
     }
 
     private void RemoveFromBitboards(Square0x64 sq64, Piece pc)
     {
-        ulong b = 1UL << sq64;
-        pieceBB[pc.BitboardIndex] &= ~b;
+        ulong b = 1UL << (int)sq64;
+        pieceBB[pc.PieceIndex] &= ~b;
         if (pc.IsWhite) OccWhite &= ~b; else OccBlack &= ~b;
         OccAll &= ~b;
     }
@@ -177,12 +177,12 @@ public sealed class Board
     }
 
     public readonly record struct Move(
-    Square0x88 From88,
-    Square0x88 To88,
-    Piece Mover,
-    Piece Captured,
-    Piece Promotion,
-    MoveKind Kind)
+        Square0x88 From88,
+        Square0x88 To88,
+        Piece Mover,
+        Piece Captured,
+        Piece Promotion,
+        MoveKind Kind)
     {
         public static Move Normal(Square0x88 from, Square0x88 to, Piece mover)
             => new(from, to, mover, Piece.Empty, Piece.Empty, MoveKind.Normal);
@@ -191,25 +191,51 @@ public sealed class Board
             => new(from, to, mover, Piece.Empty, Piece.Empty, MoveKind.EnPassant);
 
         public static Move CastleKingSide(Color side)
-            => new(
-                side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8")),
-                side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g8")),
-                side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleKing);
+        {
+            var from = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8"));
+            var to = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g8"));
+            return new(from, to, side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleKing);
+        }
 
         public static Move CastleQueenSide(Color side)
-            => new(
-                side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8")),
-                side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c8")),
-                side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleQueen);
+        {
+            var from = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8"));
+            var to = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c8"));
+            return new(from, to, side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleQueen);
+        }
 
         public static Move Capture(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
             => new(from, to, mover, captured, Piece.Empty, MoveKind.Normal);
 
         public static Move PromotionPush(Square0x88 from, Square0x88 to, Piece mover, Piece promotion)
-    => new(from, to, mover, Piece.Empty, promotion, MoveKind.Promotion);
+        {
+            // Validate promotion invariants
+            if (promotion == Piece.Empty)
+                throw new ArgumentException("Promotion piece must not be empty.", nameof(promotion));
+            int toRank = to.Value >> 4;
+            if (!(toRank == 0 || toRank == 7))
+                throw new ArgumentException("Promotion must occur on rank 1 or 8.", nameof(to));
+            return new(from, to, mover, Piece.Empty, promotion, MoveKind.Promotion);
+        }
 
         public static Move PromotionCapture(Square0x88 from, Square0x88 to, Piece mover, Piece captured, Piece promotion)
-            => new(from, to, mover, captured, promotion, MoveKind.PromotionCapture);
+        {
+            if (promotion == Piece.Empty)
+                throw new ArgumentException("Promotion piece must not be empty.", nameof(promotion));
+            int toRank = to.Value >> 4;
+            if (!(toRank == 0 || toRank == 7))
+                throw new ArgumentException("Promotion must occur on rank 1 or 8.", nameof(to));
+            if (captured == Piece.Empty)
+                throw new ArgumentException("Promotion capture must specify captured piece.", nameof(captured));
+            return new(from, to, mover, captured, promotion, MoveKind.PromotionCapture);
+        }
+
+        public bool IsCapture => Kind == MoveKind.Normal && Captured != Piece.Empty
+                     || Kind == MoveKind.EnPassant
+                     || Kind == MoveKind.PromotionCapture;
+        public bool IsPromotion => Kind == MoveKind.Promotion || Kind == MoveKind.PromotionCapture;
+        public bool IsCastle => Kind == MoveKind.CastleKing || Kind == MoveKind.CastleQueen;
+        public bool IsEnPassant => Kind == MoveKind.EnPassant;
     }
 
     public readonly record struct Undo(
@@ -228,7 +254,7 @@ public sealed class Board
     public Undo MakeMove(in Move m)
     {
 #if DEBUG
-        if (m.Kind != MoveKind.EnPassant && m.Captured != Piece.Empty)
+        if (m.IsCapture)
         {
             var atTo = (Piece)mailbox[m.To88];
             if (atTo != Piece.Empty && atTo != m.Captured)
@@ -292,7 +318,7 @@ public sealed class Board
         if (newCR != CastlingRights) SetCastlingRights(newCR); // toggles ZKey appropriately
 
         // --- Handle captures (normal capture only; EP handled later)
-        if (m.Kind != MoveKind.EnPassant && undo.Captured != Piece.Empty)
+        if (m.IsCapture && !m.IsEnPassant)
         {
             RemoveFromBitboards((Square0x64)m.To88, undo.Captured);
             mailbox[m.To88] = (sbyte)Piece.Empty;
@@ -305,7 +331,7 @@ public sealed class Board
         XorZPiece(m.Mover, m.From88);
 
         // --- Special: castling rook movement
-        if (m.Kind == MoveKind.CastleKing || m.Kind == MoveKind.CastleQueen)
+        if (m.IsCastle)
         {
             bool white = m.Mover.IsWhite;
             // Define king/rook target squares
@@ -360,7 +386,7 @@ public sealed class Board
         else
         {
             // --- EP capture removal (captured pawn sits behind the to-square)
-            if (m.Kind == MoveKind.EnPassant)
+            if (m.IsEnPassant)
             {
                 bool white = m.Mover.IsWhite;
                 var capSq = white ? (m.To88 - 16) : (m.To88 + 16);
@@ -372,21 +398,21 @@ public sealed class Board
                 var safeCapSq = (Square0x88)capSq;
 
                 RemoveFromBitboards((Square0x64)safeCapSq, capPiece);
-                mailbox[capSq] = (sbyte)Piece.Empty;
+                mailbox[(int)safeCapSq] = (sbyte)Piece.Empty;
                 XorZPiece(capPiece, safeCapSq);
 
                 undo = undo with { EnPassantCapturedSq88 = safeCapSq };
             }
 
             // --- Place the moved piece (promotion if any)
-            var placed = m.Promotion != Piece.Empty ? m.Promotion : m.Mover;
+            var placed = m.IsPromotion ? m.Promotion : m.Mover;
             mailbox[m.To88] = (sbyte)placed;
             AddToBitboards((Square0x64)m.To88, placed);
             XorZPiece(placed, m.To88);
         }
 
         // --- New EP target if a pawn moved two squares
-        if (isPawnMove && (m.To88 - m.From88 == +32 || m.To88 - m.From88 == -32))
+        if (isPawnMove && ((int)(m.To88 - m.From88) == +32 || (int)(m.To88 - m.From88) == -32))
         {
             var file = (FileIndex)(m.From88.Value & 0x0F);
             SetEnPassantFile(file);
@@ -425,7 +451,7 @@ public sealed class Board
         ZKey = u.ZKeyPrev;
 
         // Clear destination / rook squares as needed and put things back
-        if (m.Kind == MoveKind.CastleKing || m.Kind == MoveKind.CastleQueen)
+        if (m.IsCastle)
         {
             // Undo rook move
             if (u.CastleRookFrom88 is Square0x88 rFrom && u.CastleRookTo88 is Square0x88 rTo)
@@ -449,9 +475,7 @@ public sealed class Board
         else
         {
             // Remove piece from To (promotion piece may be there)
-            var placed = m.Promotion != Piece.Empty
-                ? m.Promotion
-                : m.Mover;
+            var placed = m.IsPromotion ? m.Promotion : m.Mover;
 
             RemoveFromBitboards((Square0x64)m.To88, placed);  // placed is Piece (non-null)
             mailbox[m.To88] = (sbyte)Piece.Empty;
@@ -461,7 +485,7 @@ public sealed class Board
             AddToBitboards((Square0x64)m.From88, m.Mover);
 
             // Restore captured piece ...
-            if (m.Kind == MoveKind.EnPassant)
+            if (m.IsEnPassant)
             {
                 if (u.EnPassantCapturedSq88 is Square0x88 capSq)
                 {
@@ -470,7 +494,7 @@ public sealed class Board
                     AddToBitboards((Square0x64)capSq, capPiece);
                 }
             }
-            else if (u.Captured != Piece.Empty)
+            else if (m.IsCapture && u.Captured != Piece.Empty)
             {
                 mailbox[m.To88] = (sbyte)u.Captured;
                 AddToBitboards((Square0x64)m.To88, u.Captured);
@@ -486,12 +510,12 @@ public sealed class Board
     /// Generates all legal moves for the side to move.
     /// </summary>
     /// <returns>An enumerable collection of legal moves.</returns>
-    public IEnumerable<Move> GenerateLegal()
+    public IEnumerable<Move> GenerateLegal(IList<Move>? pseudoBuffer = null)
     {
-        var pseudo = new List<Move>(64);
-        MoveGeneration.GeneratePseudoLegal(this, pseudo, SideToMove);
+        pseudoBuffer ??= new List<Move>(64);
+        MoveGeneration.GeneratePseudoLegal(this, pseudoBuffer, SideToMove);
 
-        foreach (var mv in pseudo)
+        foreach (var mv in pseudoBuffer)
         {
             var u = MakeMove(mv);
             // after MakeMove, side to move flipped
@@ -516,8 +540,8 @@ public sealed class Board
     private void XorZPiece(Piece p, Square0x88 sq88)
     {
         if (p == Piece.Empty) return;
-        int s64 = (Square0x64)sq88;
-        ZKey ^= Tables.Zobrist.PieceSquare[p.BitboardIndex, s64];
+        var s64 = (Square0x64)sq88;
+        ZKey ^= Tables.Zobrist.PieceSquare[p.PieceIndex, (int)s64];
     }
 
     // --- Attacks (thread-safe; relies only on immutable tables + this board instance) -----
@@ -534,8 +558,8 @@ public sealed class Board
                 t += d;
                 if (Squares.IsOffboard(t)) break;
                 Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << t64;
-                if (((occ >> t64) & 1UL) != 0) break;
+                attacks |= 1UL << (int)t64;
+                if (((occ >> (int)t64) & 1UL) != 0) break;
             }
         }
         return attacks;
@@ -551,20 +575,20 @@ public sealed class Board
 
         // Knights
         ulong knights = byWhite ? GetPieceBitboard(Piece.WhiteKnight) : GetPieceBitboard(Piece.BlackKnight);
-        if ((T.KnightAttackTable[t64] & knights) != 0) return true;
+        if ((T.KnightAttackTable[(int)t64] & knights) != 0) return true;
 
         // Kings
         ulong kings = byWhite ? GetPieceBitboard(Piece.WhiteKing) : GetPieceBitboard(Piece.BlackKing);
-        if ((T.KingAttackTable[t64] & kings) != 0) return true;
+        if ((T.KingAttackTable[(int)t64] & kings) != 0) return true;
 
         // Pawns (reverse attack)
         if (byWhite)
         {
-            if ((T.WhitePawnAttackFrom[t64] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
+            if ((T.WhitePawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
         }
         else
         {
-            if ((T.BlackPawnAttackFrom[t64] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
+            if ((T.BlackPawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
         }
 
         // Sliders
@@ -597,11 +621,11 @@ public sealed class Board
         ulong wq = GetPieceBitboard(Piece.WhiteQueen);
         ulong bq = GetPieceBitboard(Piece.BlackQueen);
 
-        bool knt = (T.KnightAttackTable[t64] & (byWhite ? wn : bn)) != 0;
-        bool kng = (T.KingAttackTable[t64] & (byWhite ? wk : bk)) != 0;
+        bool knt = (T.KnightAttackTable[(int)t64] & (byWhite ? wn : bn)) != 0;
+        bool kng = (T.KingAttackTable[(int)t64] & (byWhite ? wk : bk)) != 0;
         bool pwn = byWhite
-            ? ((T.WhitePawnAttackFrom[t64] & wp) != 0)
-            : ((T.BlackPawnAttackFrom[t64] & bp) != 0);
+            ? ((T.WhitePawnAttackFrom[(int)t64] & wp) != 0)
+            : ((T.BlackPawnAttackFrom[(int)t64] & bp) != 0);
         bool bishopQ = (BishopAttacks(t64) & (byWhite ? (wb | wq) : (bb | bq))) != 0;
         bool rookQ = (RookAttacks(t64) & (byWhite ? (wr | wq) : (br | bq))) != 0;
 
@@ -644,13 +668,13 @@ public sealed class Board
     private void UpdateZobristFull()
     {
         ulong key = 0;
-        for (UnsafeSquare0x88 sq88 = (UnsafeSquare0x88)0; sq88 < 128; sq88++)
+        for (UnsafeSquare0x88 sq88 = (UnsafeSquare0x88)0; (int)sq88 < 128; sq88++)
         {
             if (Squares.IsOffboard(sq88)) continue;
-            var p = (Piece)mailbox[sq88];
+            var p = (Piece)mailbox[(int)sq88];
             if (p == Piece.Empty) continue;
-            int s64 = (Square0x64)sq88;
-            key ^= Tables.Zobrist.PieceSquare[p.BitboardIndex, s64];
+            var s64 = (Square0x64)sq88;
+            key ^= Tables.Zobrist.PieceSquare[p.PieceIndex, (int)s64];
         }
         if (!SideToMove.IsWhite()) key ^= Tables.Zobrist.SideToMove;
         if (EnPassantFile is FileIndex epf) key ^= Tables.Zobrist.EnPassant[epf.Value];
@@ -810,7 +834,7 @@ public sealed class Board
     {
         if (piece == Piece.Empty)
             throw new ArgumentException("Piece cannot be empty.", nameof(piece));
-        return pieceBB[piece.BitboardIndex];
+        return pieceBB[piece.PieceIndex];
     }
 
     // Occupancy helpers (already exposed as properties, but symmetric with the API above)

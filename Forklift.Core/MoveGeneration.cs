@@ -18,7 +18,7 @@ namespace Forklift.Core
         /// <param name="board">The chessboard.</param>
         /// <param name="moves">The list to populate with generated moves.</param>
         /// <param name="sideToMove">The side to move.</param>
-        public static void GeneratePseudoLegal(Board board, List<Board.Move> moves, Color sideToMove)
+        public static void GeneratePseudoLegal(Board board, IList<Board.Move> moves, Color sideToMove)
         {
             moves.Clear();
 
@@ -38,7 +38,7 @@ namespace Forklift.Core
 
         // --- Pawns (pushes, captures, promotions; EP is generated separately) -------------
 
-        private static void GeneratePawnMoves(Board board, List<Board.Move> moves, Color sideToMove)
+        private static void GeneratePawnMoves(Board board, IList<Board.Move> moves, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             Piece pawn = white ? Piece.WhitePawn : Piece.BlackPawn;
@@ -117,7 +117,7 @@ namespace Forklift.Core
 
         // --- Knights ----------------------------------------------------------------------
 
-        private static void GenerateKnightMoves(Board board, List<Board.Move> moves, Color sideToMove)
+        private static void GenerateKnightMoves(Board board, IList<Board.Move> moves, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             // 0x88 deltas: (+/-2, +/-1) and (+/-1, +/-2)
@@ -154,7 +154,7 @@ namespace Forklift.Core
 
         // --- Sliders (bishops/rooks/queens) ----------------------------------------------
 
-        private static void GenerateSliderMoves(Board board, List<Board.Move> moves, Color sideToMove, Piece piece, int[] dirs)
+        private static void GenerateSliderMoves(Board board, IList<Board.Move> moves, Color sideToMove, Piece piece, int[] dirs)
         {
             bool white = sideToMove.IsWhite();
             ulong bb = board.GetPieceBitboard(piece);
@@ -194,7 +194,7 @@ namespace Forklift.Core
 
         // --- King (no castling here; see GenerateCastling) --------------------------------
 
-        private static void GenerateKingMoves(Board board, List<Board.Move> moves, Color sideToMove)
+        private static void GenerateKingMoves(Board board, IList<Board.Move> moves, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             ReadOnlySpan<int> deltas = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
@@ -227,7 +227,7 @@ namespace Forklift.Core
 
         // --- Castling (requires empty path + no attacked transit squares) -----------------
 
-        private static void GenerateCastling(Board board, List<Board.Move> moves, Color sideToMove)
+        private static void GenerateCastling(Board board, IList<Board.Move> moves, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
 
@@ -313,7 +313,7 @@ namespace Forklift.Core
 
         // --- En Passant (from Board.EnPassantFile / availability pre-check) ---------------
 
-        private static void GenerateEnPassant(Board board, List<Board.Move> moves, Color sideToMove)
+        private static void GenerateEnPassant(Board board, IList<Board.Move> moves, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             if (board.EnPassantFile is not FileIndex file) return;
