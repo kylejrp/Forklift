@@ -15,38 +15,30 @@ namespace Forklift.Core
         /// </summary>
         public static Board.Move FirstPseudoLegal(Board board)
         {
-            var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
-            if (moves.Count == 0)
+            Span<Board.Move> moves = stackalloc Board.Move[256];
+            var span = MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
+            if (span.Length == 0)
                 throw new InvalidOperationException("No pseudo-legal moves available.");
-            return moves[0];
+            return span[0];
         }
 
         /// <summary>
         /// Returns the first fully legal move (king not left in check).
-        /// Uses local list; no static buffers, so it is parallel-test safe.
         /// </summary>
         public static Board.Move FirstLegal(Board board)
         {
-            var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
-
-            foreach (var mv in moves)
+            Span<Board.Move> moves = stackalloc Board.Move[256];
+            var span = MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
+            foreach (var mv in span)
             {
                 var undo = board.MakeMove(mv);
-
-                // After MakeMove, board.WhiteToMove has flipped.
-                // The side now to move is the opponent; check if OUR king is in check.
                 bool ourKingInCheck = board.IsSquareAttacked(
                     t64: board.FindKingSq64(board.SideToMove.Flip()),
                     bySide: board.SideToMove);
-
                 board.UnmakeMove(mv, undo);
-
                 if (!ourKingInCheck)
                     return mv;
             }
-
             throw new InvalidOperationException("No legal moves available.");
         }
     }

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace Forklift.Core;
 
@@ -72,6 +73,8 @@ public sealed class Board
 
     public int WhiteKingCount => BitOperations.PopCount(GetPieceBitboard(Piece.WhiteKing));
     public int BlackKingCount => BitOperations.PopCount(GetPieceBitboard(Piece.BlackKing));
+
+    public bool KeepTrackOfRepetitions { get; set; } = true;
 
 
     /// <summary>
@@ -446,9 +449,12 @@ public sealed class Board
         SideToMove = SideToMove.Flip();
 
         // Repetition bookkeeping
-        _hashStack.Push(ZKey);
-        if (_repCounts.TryGetValue(ZKey, out var c)) _repCounts[ZKey] = c + 1;
-        else _repCounts[ZKey] = 1;
+        if (KeepTrackOfRepetitions)
+        {
+            _hashStack.Push(ZKey);
+            if (_repCounts.TryGetValue(ZKey, out var c)) _repCounts[ZKey] = c + 1;
+            else _repCounts[ZKey] = 1;
+        }
 
         return undo;
     }
@@ -459,7 +465,7 @@ public sealed class Board
         if (_hashStack.Count > 0)
         {
             var keyAfterMove = _hashStack.Pop();
-            if (_repCounts.TryGetValue(keyAfterMove, out var c))
+            if (KeepTrackOfRepetitions && _repCounts.TryGetValue(keyAfterMove, out var c))
             {
                 if (c <= 1) _repCounts.Remove(keyAfterMove);
                 else _repCounts[keyAfterMove] = c - 1;
@@ -534,32 +540,53 @@ public sealed class Board
     /// <summary>
     /// Generates all legal moves for the side to move.
     /// </summary>
-    /// <returns>An enumerable collection of legal moves.</returns>
-    public IEnumerable<Move> GenerateLegal(IList<Move>? pseudoBuffer = null)
+    /// <returns>An array of legal moves</returns>
+    public Move[] GenerateLegal()
     {
-        pseudoBuffer ??= new List<Move>(64);
-        MoveGeneration.GeneratePseudoLegal(this, pseudoBuffer, SideToMove);
+        Span<Move> moveBuffer = stackalloc Move[256];
+        var legalSpan = GenerateLegal(moveBuffer);
+        Move[] result = legalSpan.ToArray();
+        return result;
+    }
 
-        foreach (var mv in pseudoBuffer)
+    public Span<Move> GenerateLegal(Span<Move> moveBuffer)
+    {
+        var pseudo = MoveGeneration.GeneratePseudoLegal(this, moveBuffer, SideToMove); // <- slice of candidates
+
+        int i = 0;
+        foreach (var mv in pseudo)   // iterate only pseudo-candidates, not full buffer
         {
             var u = MakeMove(mv);
-            // after MakeMove, side to move flipped
-            bool ownKingInCheck = InCheck(SideToMove.Flip());
+            bool inCheck = InCheck(SideToMove.Flip());
             UnmakeMove(mv, u);
-            if (!ownKingInCheck)
-                yield return mv;
+            if (!inCheck) moveBuffer[i++] = mv;
         }
+        return moveBuffer[..i];
+    }
+
+    public bool HasAnyLegalMoves()
+    {
+        Span<Move> moveBuffer = stackalloc Move[256];
+        var pseudo = MoveGeneration.GeneratePseudoLegal(this, moveBuffer, SideToMove);
+
+        foreach (var mv in pseudo)
+        {
+            var u = MakeMove(mv);
+            bool inCheck = InCheck(SideToMove.Flip());
+            UnmakeMove(mv, u);
+            if (!inCheck) return true;
+        }
+        return false;
     }
 
     /// <summary>
     /// Generates all pseudo-legal moves for the side to move.
     /// </summary>
-    /// <returns>An enumerable collection of pseudo-legal moves.</returns>
-    public IEnumerable<Move> GeneratePseudoLegal()
+    public Move[] GeneratePseudoLegal()
     {
-        var moves = new List<Move>(64);
+        Span<Move> moves = stackalloc Move[256];
         MoveGeneration.GeneratePseudoLegal(this, moves, SideToMove);
-        return moves;
+        return moves.ToArray();
     }
 
     private void XorZPiece(Piece p, Square0x88 sq88)
@@ -569,8 +596,8 @@ public sealed class Board
         ZKey ^= Tables.Zobrist.PieceSquare[p.PieceIndex, (int)s64];
     }
 
-    // --- Attacks (thread-safe; relies only on immutable tables + this board instance) -----
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ulong RayAttacksFrom(Square0x64 sq64, ulong occ, ReadOnlySpan<int> directions)
     {
         ulong attacks = 0;
@@ -590,7 +617,10 @@ public sealed class Board
         return attacks;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal ulong RookAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, RookDirections);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal ulong BishopAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, BishopDirections);
 
     public bool IsSquareAttacked(Square0x64 t64, Color bySide)
@@ -657,38 +687,54 @@ public sealed class Board
         return (knt, kng, pwn, bishopQ, rookQ);
     }
 
-    public ulong AttackersToSquare(Square0x64 t64, Color bySide)
+    public ulong AttackersToSquare(Square0x64 t64, Color bySide, Piece.PieceType? pieceFilters = null)
     {
         var T = Tables;
         bool byWhite = bySide.IsWhite();
 
         ulong attackers = 0UL;
 
-        // Knights
-        ulong knights = byWhite ? GetPieceBitboard(Piece.WhiteKnight) : GetPieceBitboard(Piece.BlackKnight);
-        attackers |= (T.KnightAttackTable[(int)t64] & knights);
+        // here, pieceFilters can be any combination of piece types, eg. Piece.PieceType.Knight | Piece.PieceType.Bishop
+        if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.Knight))
+        {
+            // Knights
+            ulong knights = byWhite ? GetPieceBitboard(Piece.WhiteKnight) : GetPieceBitboard(Piece.BlackKnight);
+            attackers |= (T.KnightAttackTable[(int)t64] & knights);
+        }
 
-        // Kings
-        ulong kings = byWhite ? GetPieceBitboard(Piece.WhiteKing) : GetPieceBitboard(Piece.BlackKing);
-        attackers |= (T.KingAttackTable[(int)t64] & kings);
+        if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.King))
+        {
+            // Kings
+            ulong kings = byWhite ? GetPieceBitboard(Piece.WhiteKing) : GetPieceBitboard(Piece.BlackKing);
+            attackers |= (T.KingAttackTable[(int)t64] & kings);
+        }
 
-        // Pawns (reverse attack-from masks)
-        if (byWhite)
-            attackers |= (T.WhitePawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.WhitePawn));
-        else
-            attackers |= (T.BlackPawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.BlackPawn));
+        if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.Pawn))
+        {
+            // Pawns (reverse attack-from masks)
+            if (byWhite)
+                attackers |= (T.WhitePawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.WhitePawn));
+            else
+                attackers |= (T.BlackPawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.BlackPawn));
+        }
 
-        // Bishops / Queens along diagonals
-        ulong bishopsQueens = byWhite
-            ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
-            : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
-        attackers |= (BishopAttacks(t64) & bishopsQueens);
+        if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.Bishop) || pieceFilters.Value.HasFlag(Piece.PieceType.Queen))
+        {
+            // Bishops / Queens along diagonals
+            ulong bishopsQueens = byWhite
+                ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
+                : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
+            attackers |= (BishopAttacks(t64) & bishopsQueens);
+        }
 
-        // Rooks / Queens along ranks/files
-        ulong rooksQueens = byWhite
-            ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
-            : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
-        attackers |= (RookAttacks(t64) & rooksQueens);
+        if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.Rook) || pieceFilters.Value.HasFlag(Piece.PieceType.Queen))
+        {
+            // Rooks / Queens along ranks/files
+            ulong rooksQueens = byWhite
+                ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
+                : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
+            attackers |= (RookAttacks(t64) & rooksQueens);
+        }
 
         return attackers;
     }
@@ -966,7 +1012,7 @@ public sealed class Board
     /// </summary>
     public bool IsThreefoldRepetitionDraw()
     {
-        return _repCounts.TryGetValue(ZKey, out var count) && count >= 3;
+        return KeepTrackOfRepetitions && _repCounts.TryGetValue(ZKey, out var count) && count >= 3;
     }
 
     /// <summary>
@@ -1029,7 +1075,7 @@ public sealed class Board
     public bool IsStalemate()
     {
         if (InCheck(SideToMove)) return false;
-        return !GenerateLegal().Any();
+        return !HasAnyLegalMoves();
     }
 
     /// <summary>
@@ -1038,7 +1084,7 @@ public sealed class Board
     public bool IsCheckmate()
     {
         if (!InCheck(SideToMove)) return false;
-        return !GenerateLegal().Any();
+        return !HasAnyLegalMoves();
     }
 
     /// <summary>

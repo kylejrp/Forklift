@@ -115,9 +115,9 @@ namespace Forklift.Testing
 
         private static bool HasAnyLegalMove(Board b)
         {
-            var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(b, moves, b.SideToMove);
-            foreach (var mv in moves)
+            Span<Board.Move> moves = stackalloc Board.Move[256];
+            var span = MoveGeneration.GeneratePseudoLegal(b, moves, b.SideToMove);
+            foreach (var mv in span)
             {
                 var u = b.MakeMove(mv);
                 bool ok = !IsOwnKingInCheck(b);
@@ -129,14 +129,14 @@ namespace Forklift.Testing
 
         private static bool TryPickRandomLegalMove(Board b, Random rng, out Board.Move move)
         {
-            var pseudo = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(b, pseudo, b.SideToMove);
-            if (pseudo.Count == 0) { move = default; return false; }
+            Span<Board.Move> pseudo = stackalloc Board.Move[256];
+            var span = MoveGeneration.GeneratePseudoLegal(b, pseudo, b.SideToMove);
+            if (span.Length == 0) { move = default; return false; }
 
-            int start = rng.Next(pseudo.Count);
-            for (int i = 0; i < pseudo.Count; i++)
+            int start = rng.Next(span.Length);
+            for (int i = 0; i < span.Length; i++)
             {
-                var mv = pseudo[(start + i) % pseudo.Count];
+                var mv = span[(start + i) % span.Length];
                 var u = b.MakeMove(mv);
                 bool ok = !IsOwnKingInCheck(b);
                 b.UnmakeMove(mv, u);

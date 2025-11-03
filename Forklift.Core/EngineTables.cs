@@ -7,6 +7,14 @@
         public readonly ulong[] WhitePawnAttackFrom;  // attack-from masks keyed by target 0x64
         public readonly ulong[] BlackPawnAttackFrom;  // attack-from masks keyed by target 0x64
 
+        // Slider directions in 0x88 space (pure consts)
+        private static readonly int[] RookDirections = [+1, -1, +16, -16];
+        private static readonly int[] BishopDirections = [+15, +17, -15, -17];
+
+        public readonly ulong[][] BishopAttackMasks;   // [fromSq][occupancy] -> attacks
+        public readonly ulong[][] RookAttackMasks;     // [fromSq][occupancy] -> attacks
+        public readonly ulong[][] QueenAttackMasks;    // [fromSq][occupancy] -> attacks
+
         public readonly Zobrist Zobrist;
 
         private EngineTables(
@@ -14,12 +22,18 @@
             ulong[] kingAttackTable,
             ulong[] whitePawnAttackFrom,
             ulong[] blackPawnAttackFrom,
+            ulong[][] bishopAttackMasks,
+            ulong[][] rookAttackMasks,
+            ulong[][] queenAttackMasks,
             Zobrist zobrist)
         {
             KnightAttackTable = knightAttackTable;
             KingAttackTable = kingAttackTable;
             WhitePawnAttackFrom = whitePawnAttackFrom;
             BlackPawnAttackFrom = blackPawnAttackFrom;
+            BishopAttackMasks = bishopAttackMasks;
+            RookAttackMasks = rookAttackMasks;
+            QueenAttackMasks = queenAttackMasks;
             Zobrist = zobrist;
         }
 
@@ -29,6 +43,10 @@
             var kingAttackTable = new ulong[64];
             var whitePawnAttackFrom = new ulong[64];
             var blackPawnAttackFrom = new ulong[64];
+
+            var bishopAttackMasks = new ulong[64][];
+            var rookAttackMasks = new ulong[64][];
+            var queenAttackMasks = new ulong[64][];
 
             // 0x88 deltas (same as your generator)
             ReadOnlySpan<int> KNIGHT = stackalloc int[] { +33, +31, +18, +14, -14, -18, -31, -33 };
@@ -104,6 +122,14 @@
                 kingAttackTable[(int)t64] = Kmask;
                 whitePawnAttackFrom[(int)t64] = wpmask;
                 blackPawnAttackFrom[(int)t64] = bpmask;
+
+                // Precompute slider attacks for bishop, rook, queen
+                bishopAttackMasks[(int)t64] = PrecomputeSliderAttacks((int)t64, BishopDirections);
+                rookAttackMasks[(int)t64] = PrecomputeSliderAttacks((int)t64, RookDirections);
+                // Queen = bishop | rook
+                queenAttackMasks[(int)t64] = new ulong[512];
+                for (int occ = 0; occ < 512; occ++)
+                    queenAttackMasks[(int)t64][occ] = bishopAttackMasks[(int)t64][occ] | rookAttackMasks[(int)t64][occ];
             }
 
             return new EngineTables(
@@ -111,7 +137,35 @@
                 kingAttackTable,
                 whitePawnAttackFrom,
                 blackPawnAttackFrom,
+                bishopAttackMasks,
+                rookAttackMasks,
+                queenAttackMasks,
                 zobrist ?? Zobrist.CreateDeterministic());
+        }
+
+        // Helper to precompute slider attacks for a square and directions
+        private static ulong[] PrecomputeSliderAttacks(int fromSq, int[] directions)
+        {
+            // For simplicity, use a small occupancy mask (e.g., 9 bits for relevant squares)
+            // This is a placeholder; real magic bitboards would be more complex
+            var attacks = new ulong[512];
+            for (int occ = 0; occ < attacks.Length; occ++)
+            {
+                attacks[occ] = 0UL;
+                foreach (var d in directions)
+                {
+                    int sq = fromSq;
+                    while (true)
+                    {
+                        sq += d;
+                        if (sq < 0 || sq >= 64) break;
+                        attacks[occ] |= 1UL << sq;
+                        // Stop if occupancy bit is set (simulate blockers)
+                        if ((occ & (1 << (sq % 9))) != 0) break;
+                    }
+                }
+            }
+            return attacks;
         }
     }
 }

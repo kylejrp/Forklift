@@ -18,27 +18,28 @@ namespace Forklift.Core
         /// <param name="board">The chessboard.</param>
         /// <param name="moves">The list to populate with generated moves.</param>
         /// <param name="sideToMove">The side to move.</param>
-        public static void GeneratePseudoLegal(Board board, IList<Board.Move> moves, Color sideToMove)
+        public static Span<Move> GeneratePseudoLegal(Board board, Span<Move> moves, Color sideToMove)
         {
-            moves.Clear();
+            var moveIndex = 0;
 
-            GeneratePawnMoves(board, moves, sideToMove);
-            GenerateKnightMoves(board, moves, sideToMove);
+            GeneratePawnMoves(board, moves, ref moveIndex, sideToMove);
+            GenerateKnightMoves(board, moves, ref moveIndex, sideToMove);
 
-            // Bishops, Rooks, Queens (queens = rook rays + bishop rays)
-            GenerateSliderMoves(board, moves, sideToMove, sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
-            GenerateSliderMoves(board, moves, sideToMove, sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
-            GenerateSliderMoves(board, moves, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, RookDirs);
-            GenerateSliderMoves(board, moves, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, BishopDirs);
+            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
+            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
+            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, RookDirs);
+            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, BishopDirs);
 
-            GenerateKingMoves(board, moves, sideToMove);
-            GenerateCastling(board, moves, sideToMove);
-            GenerateEnPassant(board, moves, sideToMove);
+            GenerateKingMoves(board, moves, ref moveIndex, sideToMove);
+            GenerateCastling(board, moves, ref moveIndex, sideToMove);
+            GenerateEnPassant(board, moves, ref moveIndex, sideToMove);
+
+            return moves[..moveIndex];
         }
 
         // --- Pawns (pushes, captures, promotions; EP is generated separately) -------------
 
-        private static void GeneratePawnMoves(Board board, IList<Board.Move> moves, Color sideToMove)
+        private static void GeneratePawnMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             Piece pawn = white ? Piece.WhitePawn : Piece.BlackPawn;
@@ -63,11 +64,11 @@ namespace Forklift.Core
                         if ((white && rank == 6) || (!white && rank == 1))
                         {
                             foreach (var promo in PromoPieces(sideToMove))
-                                moves.Add(Move.PromotionPush(from88, one88, white ? Piece.WhitePawn : Piece.BlackPawn, promo));
+                                moves[moveIndex++] = Move.PromotionPush(from88, one88, white ? Piece.WhitePawn : Piece.BlackPawn, promo);
                         }
                         else
                         {
-                            moves.Add(Move.Normal(from88, one88, pawn));
+                            moves[moveIndex++] = Move.Normal(from88, one88, pawn);
 
                             // Forward two (double push) from start rank if clear
                             bool startRank = white ? (rank == 1) : (rank == 6);
@@ -78,7 +79,7 @@ namespace Forklift.Core
                                 {
                                     var two88 = (Square0x88)two;
                                     if (board.At(two88) == Piece.Empty)
-                                        moves.Add(Move.Normal(from88, two88, pawn));
+                                        moves[moveIndex++] = Move.Normal(from88, two88, pawn);
                                 }
                             }
                         }
@@ -101,11 +102,11 @@ namespace Forklift.Core
                     if ((white && rank == 6) || (!white && rank == 1))
                     {
                         foreach (var promo in PromoPieces(sideToMove))
-                            moves.Add(Board.Move.PromotionCapture(from88, to88, white ? Piece.WhitePawn : Piece.BlackPawn, target, promo));
+                            moves[moveIndex++] = Move.PromotionCapture(from88, to88, white ? Piece.WhitePawn : Piece.BlackPawn, target, promo);
                     }
                     else
                     {
-                        moves.Add(Move.Capture(from88, to88, pawn, target));
+                        moves[moveIndex++] = Move.Capture(from88, to88, pawn, target);
                     }
                 }
             }
@@ -117,7 +118,7 @@ namespace Forklift.Core
 
         // --- Knights ----------------------------------------------------------------------
 
-        private static void GenerateKnightMoves(Board board, IList<Board.Move> moves, Color sideToMove)
+        private static void GenerateKnightMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             // 0x88 deltas: (+/-2, +/-1) and (+/-1, +/-2)
@@ -142,11 +143,11 @@ namespace Forklift.Core
 
                     if (target == Piece.Empty)
                     {
-                        moves.Add(Move.Normal(from88, to88, mover));
+                        moves[moveIndex++] = Move.Normal(from88, to88, mover);
                     }
                     else if (white != target.IsWhite)
                     {
-                        moves.Add(Move.Capture(from88, to88, mover, target));
+                        moves[moveIndex++] = Move.Capture(from88, to88, mover, target);
                     }
                 }
             }
@@ -154,7 +155,7 @@ namespace Forklift.Core
 
         // --- Sliders (bishops/rooks/queens) ----------------------------------------------
 
-        private static void GenerateSliderMoves(Board board, IList<Board.Move> moves, Color sideToMove, Piece piece, int[] dirs)
+        private static void GenerateSliderMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove, Piece piece, int[] dirs)
         {
             bool white = sideToMove.IsWhite();
             ulong bb = board.GetPieceBitboard(piece);
@@ -179,17 +180,13 @@ namespace Forklift.Core
 
                         if (target == Piece.Empty)
                         {
-                            moves.Add(Move.Normal((Square0x88)from, to88, piece));
+                            moves[moveIndex++] = Move.Normal((Square0x88)from, to88, piece);
                             continue;
                         }
 
                         if (white != target.IsWhite)
                         {
-#if DEBUG
-                            if (board.At(to88) == Piece.Empty)
-                                throw new InvalidOperationException($"Capture generated to empty square {Squares.ToAlgebraic(to88)} from {Squares.ToAlgebraic((Square0x88)from)}");
-#endif
-                            moves.Add(Move.Capture((Square0x88)from, to88, piece, target));
+                            moves[moveIndex++] = Move.Capture((Square0x88)from, to88, piece, target);
                         }
 
                         break; // stop on first occupied square
@@ -200,7 +197,7 @@ namespace Forklift.Core
 
         // --- King (no castling here; see GenerateCastling) --------------------------------
 
-        private static void GenerateKingMoves(Board board, IList<Board.Move> moves, Color sideToMove)
+        private static void GenerateKingMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             ReadOnlySpan<int> deltas = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
@@ -222,18 +219,92 @@ namespace Forklift.Core
 
                 if (target == Piece.Empty)
                 {
-                    moves.Add(Move.Normal(from88, to88, king));
+                    moves[moveIndex++] = Move.Normal(from88, to88, king);
                 }
                 else if (white != target.IsWhite)
                 {
-                    moves.Add(Move.Capture(from88, to88, king, target));
+                    moves[moveIndex++] = Move.Capture(from88, to88, king, target);
                 }
             }
         }
 
         // --- Castling (requires empty path + no attacked transit squares) -----------------
 
-        private static void GenerateCastling(Board board, IList<Board.Move> moves, Color sideToMove)
+        // Precomputed squares for castling
+        private static readonly Square0x64 F1_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("f1"));
+        private static readonly Square0x64 G1_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("g1"));
+        private static readonly Square0x88 H1_88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"));
+        private static readonly Square0x64 B1_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("b1"));
+        private static readonly Square0x64 C1_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("c1"));
+        private static readonly Square0x64 D1_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("d1"));
+        private static readonly Square0x88 A1_88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"));
+
+        private static readonly Square0x64 F8_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("f8"));
+        private static readonly Square0x64 G8_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("g8"));
+        private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"));
+        private static readonly Square0x64 B8_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("b8"));
+        private static readonly Square0x64 C8_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("c8"));
+        private static readonly Square0x64 D8_64 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("d8"));
+        private static readonly Square0x88 A8_88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"));
+
+        // Helper to check if any squares in the array are attacked for castling
+        private static bool AreCastlingSquaresAttacked(Board board, Color attacker, params Square0x64[] squares)
+        {
+            // Compute all attack masks for the attacker once
+            var tables = board.Tables;
+            var kingSq = board.FindKingSq64(attacker).Value;
+            ulong pawnAttacks = attacker.IsWhite()
+                ? tables.WhitePawnAttackFrom[kingSq]
+                : tables.BlackPawnAttackFrom[kingSq];
+            ulong knightAttacks = tables.KnightAttackTable[kingSq];
+            ulong kingAttacks = tables.KingAttackTable[kingSq];
+
+            // Use board's current occupancy for sliding attacks
+            ulong bishops = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteBishop) : board.GetPieceBitboard(Piece.BlackBishop);
+            ulong rooks = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteRook) : board.GetPieceBitboard(Piece.BlackRook);
+            ulong queens = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteQueen) : board.GetPieceBitboard(Piece.BlackQueen);
+
+            // Compute sliding attacks from all enemy sliders
+            ulong bishopRays = 0, rookRays = 0;
+            foreach (var sq in BitboardSquares(bishops))
+                bishopRays |= board.BishopAttacks(sq);
+            foreach (var sq in BitboardSquares(rooks))
+                rookRays |= board.RookAttacks(sq);
+            foreach (var sq in BitboardSquares(queens))
+            {
+                bishopRays |= board.BishopAttacks(sq);
+                rookRays |= board.RookAttacks(sq);
+            }
+
+            // Check all squares in one pass
+            foreach (var sq in squares)
+            {
+                int idx = sq.Value;
+                ulong mask = 1UL << idx;
+                if ((pawnAttacks & mask) != 0 ||
+                    (knightAttacks & mask) != 0 ||
+                    (kingAttacks & mask) != 0 ||
+                    (bishopRays & mask) != 0 ||
+                    (rookRays & mask) != 0)
+                {
+                    return true;
+                }
+            }
+            return false;
+
+            // Helper to enumerate set bits in a bitboard
+            static IEnumerable<Square0x64> BitboardSquares(ulong bb)
+            {
+                while (bb != 0)
+                {
+                    int s = BitOperations.TrailingZeroCount(bb);
+                    yield return new Square0x64(s);
+                    bb &= bb - 1;
+                }
+            }
+        }
+
+        private static void GenerateCastling(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
 
@@ -248,38 +319,28 @@ namespace Forklift.Core
                 // White king side: e1,f1,g1 must be safe; f1,g1 empty; rook on h1
                 if ((board.CastlingRights & Board.CastlingRightsFlags.WhiteKing) != 0)
                 {
-                    var f1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("f1"));
-                    var g1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("g1"));
-                    var h1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"));
-
-                    if (board.At((Square0x88)f1) == Piece.Empty &&
-                        board.At((Square0x88)g1) == Piece.Empty &&
-                        board.At(h1) == Piece.WhiteRook &&
-                        !board.IsSquareAttacked(k64, Color.Black) &&
-                        !board.IsSquareAttacked(f1, Color.Black) &&
-                        !board.IsSquareAttacked(g1, Color.Black))
+                    if (board.At((Square0x88)F1_64) == Piece.Empty && board.At((Square0x88)G1_64) == Piece.Empty)
                     {
-                        moves.Add(Board.Move.CastleKingSide(Color.White));
+                        if (board.At(H1_88) == Piece.WhiteRook &&
+                            !AreCastlingSquaresAttacked(board, Color.Black, k64, F1_64, G1_64))
+                        {
+                            moves[moveIndex++] = Board.Move.CastleKingSide(Color.White);
+                        }
                     }
                 }
 
                 // White queen side: b1,c1,d1 must be empty; e1,d1,c1 must be safe; rook on a1
                 if ((board.CastlingRights & Board.CastlingRightsFlags.WhiteQueen) != 0)
                 {
-                    var b1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("b1"));
-                    var c1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("c1"));
-                    var d1 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("d1"));
-                    var a1 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"));
-
-                    if (board.At((Square0x88)b1) == Piece.Empty &&
-                        board.At((Square0x88)c1) == Piece.Empty &&
-                        board.At((Square0x88)d1) == Piece.Empty &&
-                        board.At(a1) == Piece.WhiteRook &&
-                        !board.IsSquareAttacked(k64, Color.Black) &&
-                        !board.IsSquareAttacked(d1, Color.Black) &&
-                        !board.IsSquareAttacked(c1, Color.Black))
+                    if (board.At((Square0x88)B1_64) == Piece.Empty &&
+                    board.At((Square0x88)C1_64) == Piece.Empty &&
+                    board.At((Square0x88)D1_64) == Piece.Empty)
                     {
-                        moves.Add(Board.Move.CastleQueenSide(Color.White));
+                        if (board.At(A1_88) == Piece.WhiteRook &&
+                            !AreCastlingSquaresAttacked(board, Color.Black, k64, D1_64, C1_64))
+                        {
+                            moves[moveIndex++] = Board.Move.CastleQueenSide(Color.White);
+                        }
                     }
                 }
             }
@@ -288,47 +349,36 @@ namespace Forklift.Core
                 // Black king side: e8,f8,g8 must be safe; f8,g8 empty; rook on h8
                 if ((board.CastlingRights & Board.CastlingRightsFlags.BlackKing) != 0)
                 {
-                    var f8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("f8"));
-                    var g8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("g8"));
-                    var h8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"));
-
-                    if (board.At((Square0x88)f8) == Piece.Empty &&
-                        board.At((Square0x88)g8) == Piece.Empty &&
-                        board.At(h8) == Piece.BlackRook &&
-                        !board.IsSquareAttacked(k64, Color.White) &&
-                        !board.IsSquareAttacked(f8, Color.White) &&
-                        !board.IsSquareAttacked(g8, Color.White))
+                    if (board.At((Square0x88)F8_64) == Piece.Empty && board.At((Square0x88)G8_64) == Piece.Empty)
                     {
-                        moves.Add(Board.Move.CastleKingSide(Color.Black));
+                        if (board.At(H8_88) == Piece.BlackRook &&
+                            !AreCastlingSquaresAttacked(board, Color.White, k64, F8_64, G8_64))
+                        {
+                            moves[moveIndex++] = Board.Move.CastleKingSide(Color.Black);
+                        }
                     }
                 }
 
                 // Black queen side: b8,c8,d8 must be empty; e8,d8,c8 must be safe; rook on a8
                 if ((board.CastlingRights & Board.CastlingRightsFlags.BlackQueen) != 0)
                 {
-                    var b8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("b8"));
-                    var c8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("c8"));
-                    var d8 = Squares.ParseAlgebraicTo0x64(new AlgebraicNotation("d8"));
-                    var a8 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"));
-
-                    if (board.At((Square0x88)b8) == Piece.Empty &&
-                        board.At((Square0x88)c8) == Piece.Empty &&
-                        board.At((Square0x88)d8) == Piece.Empty &&
-                        board.At(a8) == Piece.BlackRook &&
-                        !board.IsSquareAttacked(k64, Color.White) &&
-                        !board.IsSquareAttacked(d8, Color.White) &&
-                        !board.IsSquareAttacked(c8, Color.White))
+                    if (board.At((Square0x88)B8_64) == Piece.Empty &&
+                    board.At((Square0x88)C8_64) == Piece.Empty &&
+                    board.At((Square0x88)D8_64) == Piece.Empty)
                     {
-                        moves.Add(Board.Move.CastleQueenSide(Color.Black));
+                        if (board.At(A8_88) == Piece.BlackRook &&
+                            !AreCastlingSquaresAttacked(board, Color.White, k64, D8_64, C8_64))
+                        {
+                            moves[moveIndex++] = Board.Move.CastleQueenSide(Color.Black);
+                        }
                     }
                 }
             }
         }
 
-
         // --- En Passant (from Board.EnPassantFile / availability pre-check) ---------------
 
-        private static void GenerateEnPassant(Board board, IList<Board.Move> moves, Color sideToMove)
+        private static void GenerateEnPassant(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             if (board.EnPassantFile is not FileIndex file) return;
@@ -363,7 +413,7 @@ namespace Forklift.Core
                 var from88 = (Square0x88)fromUnsafe;
                 if (board.At(from88) != mover) continue;
 
-                moves.Add(Move.EnPassant(from88, ep88, mover, captured));
+                moves[moveIndex++] = Move.EnPassant(from88, ep88, mover, captured);
             }
         }
     }

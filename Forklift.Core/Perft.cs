@@ -12,10 +12,10 @@ namespace Forklift.Core
             if (depth == 0) return 1;
 
             long nodes = 0;
-            var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
+            Span<Board.Move> buf = stackalloc Board.Move[256];
+            var span = MoveGeneration.GeneratePseudoLegal(board, buf, board.SideToMove);
 
-            foreach (var mv in moves)
+            foreach (var mv in span)
             {
                 var u = board.MakeMove(mv);
                 // After MakeMove, side to move flipped; the side that just moved must NOT be in check
@@ -31,7 +31,9 @@ namespace Forklift.Core
         public static IReadOnlyList<(string moveUci, long nodes)> Divide(Board b, int depth)
         {
             var acc = new List<(string moveUci, long nodes)>();
-            foreach (var mv in b.GenerateLegal())
+            Span<Board.Move> buf = stackalloc Board.Move[256];
+            var span = b.GenerateLegal(buf);
+            foreach (var mv in span)
             {
                 var u = b.MakeMove(mv);
                 long n = Count(b, depth - 1);
@@ -73,17 +75,15 @@ namespace Forklift.Core
             if (depth == 0)
             {
                 stats.Nodes++;
-                bool hasLegal = false;
-                foreach (var _ in board.GenerateLegal()) { hasLegal = true; break; }
-                if (!hasLegal && board.InCheck(board.SideToMove))
+                if (board.IsCheckmate())
                     stats.Checkmates++;
                 return;
             }
 
-            var moves = new List<Board.Move>(64);
-            MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
+            Span<Board.Move> moveBuffer = stackalloc Board.Move[256];
+            var span = MoveGeneration.GeneratePseudoLegal(board, moveBuffer, board.SideToMove);
 
-            foreach (var mv in moves)
+            foreach (var mv in span)
             {
                 var u = board.MakeMove(mv);
                 bool legal = !board.InCheck(board.SideToMove.Flip());
@@ -126,8 +126,19 @@ namespace Forklift.Core
             var kingSq64 = board.FindKingSq64(checkedSide);
             var attackerSide = checkedSide.Flip();
 
-            ulong attackers = board.AttackersToSquare(kingSq64, attackerSide);
-            return System.Numerics.BitOperations.PopCount(attackers) >= 2;
+            // Early bail: check for non-sliding attackers (knight, pawn, king)
+            ulong knightAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Knight);
+            if (knightAttackers != 0) return true;
+
+            ulong pawnAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Pawn);
+            if (pawnAttackers != 0) return true;
+
+            ulong kingAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.King);
+            if (kingAttackers != 0) return true;
+
+            // Sliding attackers (bishop, rook, queen)
+            ulong slidingAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Bishop | Piece.PieceType.Rook | Piece.PieceType.Queen);
+            return System.Numerics.BitOperations.PopCount(slidingAttackers) >= 2;
         }
 
         private static readonly int[] DIRS_ALL = { +1, -1, +16, -16, +15, +17, -15, -17 };
@@ -158,21 +169,10 @@ namespace Forklift.Core
             if (mv.IsEnPassant)
                 epRemoved = mv.Mover.IsWhite ? (Square0x88)(to88 - 16) : (Square0x88)(to88 + 16);
 
-            // Treat a square as occupied in the "after move" snapshot.
-            bool OccupiedAfter(Square0x88 s)
-            {
-                // EP removes the pawn behind the EP target
-                if (epRemoved.HasValue && s == epRemoved.Value) return false;
-                // we moved off 'from'
-                if (s == from88) return false;
-                // we now occupy 'to' (with either the mover or promotion piece)
-                if (s == to88) return true;
-                // otherwise whatever is on the board now
-                return board.At(s) != Piece.Empty;
-            }
-
-            // Get the piece at a square in the *pre-move* board (used to identify the discovering slider)
-            Piece PieceAtPreMove(Square0x88 s) => board.At(s);
+            // Cache pre-move occupancy for all squares
+            Span<bool> preOcc = stackalloc bool[128];
+            for (int i = 0; i < 128; i++)
+                preOcc[i] = board.At((Square0x88)i) != Piece.Empty;
 
             // Helper: is piece a slider matching direction?
             bool PieceMatchesDir(Piece p, int dir)
@@ -189,7 +189,6 @@ namespace Forklift.Core
             // Check if a candidate destination still blocks the ray between king and slider
             static bool OnOpenSegment(Square0x88 k, Square0x88 s, int dir, Square0x88 q)
             {
-                // march from king toward slider; if we hit q before s, q blocks
                 var cur = (UnsafeSquare0x88)k;
                 while (true)
                 {
@@ -212,7 +211,14 @@ namespace Forklift.Core
                     cur += dir;
                     if (Squares.IsOffboard(cur)) break;
                     var s = (Square0x88)cur;
-                    if (OccupiedAfter(s))
+
+                    // Compute occupancy after the move using cached preOcc and toggles
+                    bool occAfter = preOcc[(int)s];
+                    if (s == from88) occAfter = false;
+                    if (s == to88) occAfter = true;
+                    if (epRemoved.HasValue && s == epRemoved.Value) occAfter = false;
+
+                    if (occAfter)
                     {
                         firstOcc = s;
                         break;
@@ -226,7 +232,7 @@ namespace Forklift.Core
                 // So: BEFORE the move, the first occupied from king along dir must be
                 // either 'from88' or 'epRemoved' (if any). Check that now:
 
-                // Find first occupied BEFORE the move
+                // Find first occupied BEFORE the move using cached preOcc
                 cur = (UnsafeSquare0x88)k88;
                 Square0x88? firstOccBefore = null;
                 while (true)
@@ -235,8 +241,7 @@ namespace Forklift.Core
                     if (Squares.IsOffboard(cur)) break;
                     var s = (Square0x88)cur;
 
-                    bool occBefore = board.At(s) != Piece.Empty;
-                    if (occBefore)
+                    if (preOcc[(int)s])
                     {
                         firstOccBefore = s;
                         break;
@@ -253,7 +258,7 @@ namespace Forklift.Core
 
                 // Now, AFTER the move the first piece must be a same-side slider in this dir.
                 var sliderSq = firstOcc.Value;
-                var sliderPc = PieceAtPreMove(sliderSq); // piece identity doesn’t change by moving the blocker
+                var sliderPc = board.At(sliderSq); // piece identity doesn’t change by moving the blocker
                 if (!PieceMatchesDir(sliderPc, dir)) continue;
 
                 // If we move TO a square that still lies between king and slider along this dir,
