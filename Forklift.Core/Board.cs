@@ -646,16 +646,18 @@ public sealed class Board
             if ((T.BlackPawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
         }
 
-        // Sliders
+        // Sliders (use occupancy-dependent bitboard tables)
+        int bishopIdx = EngineTables.GetSliderAttackIndex((int)t64, OccAll & EngineTables.BishopMasks[(int)t64], Piece.PieceType.Bishop);
         ulong bishopsQueens = byWhite
             ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
             : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
-        if ((BishopAttacks(t64) & bishopsQueens) != 0) return true;
+        if ((T.BishopAttackTable[(int)t64][bishopIdx] & bishopsQueens) != 0) return true;
 
+        int rookIdx = EngineTables.GetSliderAttackIndex((int)t64, OccAll & EngineTables.RookMasks[(int)t64], Piece.PieceType.Rook);
         ulong rooksQueens = byWhite
             ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
             : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
-        if ((RookAttacks(t64) & rooksQueens) != 0) return true;
+        if ((T.RookAttackTable[(int)t64][rookIdx] & rooksQueens) != 0) return true;
 
         return false;
     }
