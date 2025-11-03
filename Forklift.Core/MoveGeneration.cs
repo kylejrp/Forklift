@@ -27,8 +27,11 @@ namespace Forklift.Core
 
             GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
             GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
-            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, RookDirs);
-            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, BishopDirs);
+            // For queens, combine rook and bishop directions to avoid duplicate moves
+            var queenDirs = new int[RookDirs.Length + BishopDirs.Length];
+            RookDirs.CopyTo(queenDirs, 0);
+            BishopDirs.CopyTo(queenDirs, RookDirs.Length);
+            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, queenDirs);
 
             GenerateKingMoves(board, moves, ref moveIndex, sideToMove);
             GenerateCastling(board, moves, ref moveIndex, sideToMove);
@@ -121,34 +124,43 @@ namespace Forklift.Core
         private static void GenerateKnightMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
-            // 0x88 deltas: (+/-2, +/-1) and (+/-1, +/-2)
-            ReadOnlySpan<int> deltas = stackalloc int[] { +33, +31, +18, +14, -14, -18, -31, -33 };
-
             Piece mover = white ? Piece.WhiteKnight : Piece.BlackKnight;
-            ulong bb = board.GetPieceBitboard(mover);
+            ulong knights = board.GetPieceBitboard(mover);
+            ulong occSide = board.GetOccupancy(white ? Color.White : Color.Black);
+            ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
+            ulong occAll = board.GetAllOccupancy();
 
-            while (bb != 0)
+            while (knights != 0)
             {
-                int s64 = BitOperations.TrailingZeroCount(bb);
-                bb &= bb - 1;
+                int s64 = BitOperations.TrailingZeroCount(knights);
+                knights &= knights - 1;
 
                 var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
-                foreach (int d in deltas)
+                ulong attacks = board.Tables.KnightAttackTable[s64];
+
+                // Quiet moves: not occupied by any piece
+                ulong quiets = attacks & ~occAll;
+                ulong captures = attacks & occOpp;
+
+                // Quiet moves
+                ulong q = quiets;
+                while (q != 0)
                 {
-                    var toUnsafe = new UnsafeSquare0x88(from88.Value + d);
-                    if (Squares.IsOffboard(toUnsafe)) continue;
+                    int toS64 = BitOperations.TrailingZeroCount(q);
+                    q &= q - 1;
+                    var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
+                    moves[moveIndex++] = Move.Normal(from88, to88, mover);
+                }
 
-                    var to88 = (Square0x88)toUnsafe;
+                // Captures
+                ulong c = captures;
+                while (c != 0)
+                {
+                    int toS64 = BitOperations.TrailingZeroCount(c);
+                    c &= c - 1;
+                    var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
                     var target = board.At(to88);
-
-                    if (target == Piece.Empty)
-                    {
-                        moves[moveIndex++] = Move.Normal(from88, to88, mover);
-                    }
-                    else if (white != target.IsWhite)
-                    {
-                        moves[moveIndex++] = Move.Capture(from88, to88, mover, target);
-                    }
+                    moves[moveIndex++] = Move.Capture(from88, to88, mover, target);
                 }
             }
         }
@@ -158,39 +170,48 @@ namespace Forklift.Core
         private static void GenerateSliderMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove, Piece piece, int[] dirs)
         {
             bool white = sideToMove.IsWhite();
-            ulong bb = board.GetPieceBitboard(piece);
+            ulong sliders = board.GetPieceBitboard(piece);
+            ulong occAll = board.GetAllOccupancy();
+            ulong occSide = board.GetOccupancy(white ? Color.White : Color.Black);
+            ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
 
-            while (bb != 0)
+            while (sliders != 0)
             {
-                int s64 = BitOperations.TrailingZeroCount(bb);
-                bb &= bb - 1;
+                int s64 = BitOperations.TrailingZeroCount(sliders);
+                sliders &= sliders - 1;
+                var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
 
-                var from = (UnsafeSquare0x88)Squares.ConvertTo0x88Index(new Square0x64(s64));
-
-                foreach (var d in dirs)
+                ulong attacks = piece switch
                 {
-                    var to = from;
-                    while (true)
-                    {
-                        to = new UnsafeSquare0x88(to.Value + d);
-                        if (Squares.IsOffboard(to)) break;
+                    var p when p == Piece.WhiteBishop || p == Piece.BlackBishop => board.BishopAttacks(new Square0x64(s64)),
+                    var p when p == Piece.WhiteRook || p == Piece.BlackRook => board.RookAttacks(new Square0x64(s64)),
+                    var p when p == Piece.WhiteQueen || p == Piece.BlackQueen => board.BishopAttacks(new Square0x64(s64)) | board.RookAttacks(new Square0x64(s64)),
+                    _ => 0UL
+                };
 
-                        var to88 = (Square0x88)to;
-                        var target = board.At(to88);
+                // Quiet moves: not occupied by any piece
+                ulong quiets = attacks & ~occAll;
+                ulong captures = attacks & occOpp;
 
-                        if (target == Piece.Empty)
-                        {
-                            moves[moveIndex++] = Move.Normal((Square0x88)from, to88, piece);
-                            continue;
-                        }
+                // Quiet moves
+                ulong q = quiets;
+                while (q != 0)
+                {
+                    int toS64 = BitOperations.TrailingZeroCount(q);
+                    q &= q - 1;
+                    var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
+                    moves[moveIndex++] = Move.Normal(from88, to88, piece);
+                }
 
-                        if (white != target.IsWhite)
-                        {
-                            moves[moveIndex++] = Move.Capture((Square0x88)from, to88, piece, target);
-                        }
-
-                        break; // stop on first occupied square
-                    }
+                // Captures
+                ulong c = captures;
+                while (c != 0)
+                {
+                    int toS64 = BitOperations.TrailingZeroCount(c);
+                    c &= c - 1;
+                    var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
+                    var target = board.At(to88);
+                    moves[moveIndex++] = Move.Capture(from88, to88, piece, target);
                 }
             }
         }
