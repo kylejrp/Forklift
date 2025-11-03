@@ -47,8 +47,8 @@ namespace Forklift.Testing
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
             // Move white king e1-f1
             var mv = Board.Move.Normal(
-                _("e1"),
-                _("f1"),
+                Sq88("e1"),
+                Sq88("f1"),
                 Piece.WhiteKing
             );
             var u = b.MakeMove(mv);
@@ -64,8 +64,8 @@ namespace Forklift.Testing
 
             // Move white h1 rook away -> should clear K side for white
             var mv = Board.Move.Normal(
-                _("h1"),
-                _("h2"),
+                Sq88("h1"),
+                Sq88("h2"),
                 Piece.WhiteRook
             );
             var u = b.MakeMove(mv);
@@ -74,8 +74,8 @@ namespace Forklift.Testing
 
             // Move white a1 rook away -> should clear Q side for white
             var mv2 = Board.Move.Normal(
-                _("a1"),
-                _("a2"),
+                Sq88("a1"),
+                Sq88("a2"),
                 Piece.WhiteRook
             );
             var u2 = b.MakeMove(mv2);
@@ -83,10 +83,10 @@ namespace Forklift.Testing
             b.UnmakeMove(mv2, u2);
 
             // Capture white h1 rook -> should clear K side for white
-            b.Place(_("h1"), Piece.WhiteRook);
+            b.Place(Sq88("h1"), Piece.WhiteRook);
             var mv3 = Board.Move.Capture(
-                _("g2"),
-                _("h1"),
+                Sq88("g2"),
+                Sq88("h1"),
                 Piece.BlackRook,
                 Piece.WhiteRook
             );
@@ -101,14 +101,14 @@ namespace Forklift.Testing
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
             // Move h1 rook away and back
             var mv1 = Board.Move.Normal(
-                _("h1"),
-                _("h2"),
+                Sq88("h1"),
+                Sq88("h2"),
                 Piece.WhiteRook
             );
             b.MakeMove(mv1);
             var mv2 = Board.Move.Normal(
-                _("h2"),
-                _("h1"),
+                Sq88("h2"),
+                Sq88("h1"),
                 Piece.WhiteRook
             );
             b.MakeMove(mv2);
@@ -121,11 +121,11 @@ namespace Forklift.Testing
             // White king on e1, rook on h1, black bishop on c3 attacking f2 (discovered check if king moves)
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/2b5/R3K2R w KQkq - 0 1");
             // Place a white pawn on f2 to block bishop
-            b.Place(_("f2"), Piece.WhitePawn);
+            b.Place(Sq88("f2"), Piece.WhitePawn);
             // Move pawn away, so bishop attacks f2
             var mv = Board.Move.Normal(
-                _("f2"),
-                _("f3"),
+                Sq88("f2"),
+                Sq88("f3"),
                 Piece.WhitePawn
             );
             b.MakeMove(mv);
