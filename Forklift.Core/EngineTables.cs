@@ -25,7 +25,6 @@ namespace Forklift.Core
         // Magic attack tables: [fromSq][index] -> attacks
         public readonly ulong[][] BishopAttackTable;  // [from][idx] -> attacks
         public readonly ulong[][] RookAttackTable;    // [from][idx] -> attacks
-        public readonly ulong[][] QueenAttackTable;   // [from][idx] -> attacks
 
         public readonly Zobrist Zobrist;
 
@@ -84,7 +83,6 @@ namespace Forklift.Core
             ulong[] blackPawnAttackFrom,
             ulong[][] bishopAttackTable,
             ulong[][] rookAttackTable,
-            ulong[][] queenAttackTable,
             Zobrist zobrist)
         {
             KnightAttackTable = knightAttackTable;
@@ -93,18 +91,23 @@ namespace Forklift.Core
             BlackPawnAttackFrom = blackPawnAttackFrom;
             BishopAttackTable = bishopAttackTable;
             RookAttackTable = rookAttackTable;
-            QueenAttackTable = queenAttackTable;
             Zobrist = zobrist;
         }
 
-        private static readonly EngineTables? _defaultInstance = null;
+        private static readonly Lazy<EngineTables> _defaultInstance = new(() => CreateDefaultInternal());
+
         public static EngineTables CreateDefault(Zobrist? zobrist = null)
         {
-            if (_defaultInstance != null)
+            if (zobrist == null)
             {
-                return _defaultInstance;
+                return _defaultInstance.Value;
             }
+            // If a custom zobrist is provided, build a new instance
+            return CreateDefaultInternal(zobrist);
+        }
 
+        private static EngineTables CreateDefaultInternal(Zobrist? zobrist = null)
+        {
             // 1) Decide which magics we will use (baked vs regenerated)
             EnsureMagicsReady(out var activeBishopMagics, out var activeRookMagics);
             CurrentBishopMagics = activeBishopMagics;
@@ -117,7 +120,6 @@ namespace Forklift.Core
 
             var bishopAttackTable = new ulong[64][];
             var rookAttackTable = new ulong[64][];
-            var queenAttackTable = new ulong[64][];
 
             ReadOnlySpan<int> KNIGHT = stackalloc int[] { +33, +31, +18, +14, -14, -18, -31, -33 };
             ReadOnlySpan<int> KING = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
@@ -205,7 +207,6 @@ namespace Forklift.Core
                     ulong r = i < rLen ? rookAttackTable[(int)t64][i] : 0UL;
                     qTbl[i] = b | r;
                 }
-                queenAttackTable[(int)t64] = qTbl;
             }
 #if DEBUG
             // --- DEBUG SANITY CHECKS ---
@@ -236,12 +237,16 @@ namespace Forklift.Core
                 System.Diagnostics.Debug.Assert(rHas, $"[DEBUG] RookAttackTable empty at square {sq}");
             }
 #endif
-
-            return new EngineTables(
-                knightAttackTable, kingAttackTable,
-                whitePawnAttackFrom, blackPawnAttackFrom,
-                bishopAttackTable, rookAttackTable, queenAttackTable,
+            var inst = new EngineTables(
+                knightAttackTable,
+                kingAttackTable,
+                whitePawnAttackFrom,
+                blackPawnAttackFrom,
+                bishopAttackTable,
+                rookAttackTable,
                 zobrist ?? Zobrist.CreateDeterministic());
+
+            return inst;
         }
 
         // =========================
