@@ -22,9 +22,11 @@ namespace Forklift.Core
         public readonly ulong[] WhitePawnAttackFrom;  // [target64] bitboard of sources
         public readonly ulong[] BlackPawnAttackFrom;  // [target64] bitboard of sources
 
-        // Magic attack tables: [fromSq][index] -> attacks
-        public readonly ulong[][] BishopAttackTable;  // [from][idx] -> attacks
-        public readonly ulong[][] RookAttackTable;    // [from][idx] -> attacks
+        // Packed magic attack tables: [offset[from] + idx] -> attacks
+        public readonly int[] BishopOffsets;
+        public readonly int[] RookOffsets;
+        public readonly ulong[] BishopTable;
+        public readonly ulong[] RookTable;
         public static readonly byte[] BishopIndexBits = new byte[64];
         public static readonly byte[] RookIndexBits = new byte[64];
 
@@ -85,16 +87,20 @@ namespace Forklift.Core
             ulong[] kingAttackTable,
             ulong[] whitePawnAttackFrom,
             ulong[] blackPawnAttackFrom,
-            ulong[][] bishopAttackTable,
-            ulong[][] rookAttackTable,
+            int[] bishopOffsets,
+            ulong[] bishopTable,
+            int[] rookOffsets,
+            ulong[] rookTable,
             Zobrist zobrist)
         {
             KnightAttackTable = knightAttackTable;
             KingAttackTable = kingAttackTable;
             WhitePawnAttackFrom = whitePawnAttackFrom;
             BlackPawnAttackFrom = blackPawnAttackFrom;
-            BishopAttackTable = bishopAttackTable;
-            RookAttackTable = rookAttackTable;
+            BishopOffsets = bishopOffsets;
+            BishopTable = bishopTable;
+            RookOffsets = rookOffsets;
+            RookTable = rookTable;
             Zobrist = zobrist;
         }
 
@@ -122,8 +128,34 @@ namespace Forklift.Core
             var whitePawnAttackFrom = new ulong[64];
             var blackPawnAttackFrom = new ulong[64];
 
-            var bishopAttackTable = new ulong[64][];
-            var rookAttackTable = new ulong[64][];
+            var bishopOffsets = new int[65];
+            var rookOffsets = new int[65];
+            int bishopTotal = 0, rookTotal = 0;
+
+            // Precompute offsets for packed tables
+            for (int sq = 0; sq < 64; sq++)
+            {
+                int bLen = 1 << BitOperations.PopCount(BishopMasks[sq]);
+                int rLen = 1 << BitOperations.PopCount(RookMasks[sq]);
+                bishopOffsets[sq] = bishopTotal;
+                rookOffsets[sq] = rookTotal;
+                bishopTotal += bLen;
+                rookTotal += rLen;
+            }
+            bishopOffsets[64] = bishopTotal;
+            rookOffsets[64] = rookTotal;
+
+            var bishopTable = new ulong[bishopTotal];
+            var rookTable = new ulong[rookTotal];
+
+            // Fill packed tables
+            for (int sq = 0; sq < 64; sq++)
+            {
+                var bArr = GenerateMagicAttackTable(sq, bishop: true, CurrentBishopMagics);
+                var rArr = GenerateMagicAttackTable(sq, bishop: false, CurrentRookMagics);
+                Array.Copy(bArr, 0, bishopTable, bishopOffsets[sq], bArr.Length);
+                Array.Copy(rArr, 0, rookTable, rookOffsets[sq], rArr.Length);
+            }
 
             ReadOnlySpan<int> KNIGHT = stackalloc int[] { +33, +31, +18, +14, -14, -18, -31, -33 };
             ReadOnlySpan<int> KING = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
@@ -195,22 +227,7 @@ namespace Forklift.Core
                 kingAttackTable[(int)t64] = Kmask;
                 whitePawnAttackFrom[(int)t64] = wpmask;
                 blackPawnAttackFrom[(int)t64] = bpmask;
-
-                // Magic tables for sliders (use the ACTIVE magics decided above)
-                bishopAttackTable[(int)t64] = GenerateMagicAttackTable((int)t64, bishop: true, CurrentBishopMagics);
-                rookAttackTable[(int)t64] = GenerateMagicAttackTable((int)t64, bishop: false, CurrentRookMagics);
-
-                // Queen = bishop | rook (by index), padding if sizes differ
-                int bLen = bishopAttackTable[(int)t64].Length;
-                int rLen = rookAttackTable[(int)t64].Length;
-                int qLen = Math.Max(bLen, rLen);
-                var qTbl = new ulong[qLen];
-                for (int i = 0; i < qLen; i++)
-                {
-                    ulong b = i < bLen ? bishopAttackTable[(int)t64][i] : 0UL;
-                    ulong r = i < rLen ? rookAttackTable[(int)t64][i] : 0UL;
-                    qTbl[i] = b | r;
-                }
+                // Queen table logic can be refactored later if needed
             }
 #if DEBUG
             // --- DEBUG SANITY CHECKS ---
@@ -220,25 +237,26 @@ namespace Forklift.Core
             {
                 int bBits = PopCount(BishopMasks[sq]);
                 int rBits = PopCount(RookMasks[sq]);
+                int bOffset = bishopOffsets[sq];
+                int rOffset = rookOffsets[sq];
+                int bLen = 1 << bBits;
+                int rLen = 1 << rBits;
 
                 System.Diagnostics.Debug.Assert(
-                    bishopAttackTable[sq].Length == (1 << bBits),
-                    $"[DEBUG] Bishop table size mismatch at {sq}: expected {1 << bBits}, got {bishopAttackTable[sq].Length}");
+                    bLen == (bishopOffsets[sq + 1] - bishopOffsets[sq]),
+                    $"[DEBUG] Bishop table size mismatch at {sq}: expected {bLen}, got {bishopOffsets[sq + 1] - bishopOffsets[sq]}");
 
                 System.Diagnostics.Debug.Assert(
-                    rookAttackTable[sq].Length == (1 << rBits),
-                    $"[DEBUG] Rook table size mismatch at {sq}: expected {1 << rBits}, got {rookAttackTable[sq].Length}");
+                    rLen == (rookOffsets[sq + 1] - rookOffsets[sq]),
+                    $"[DEBUG] Rook table size mismatch at {sq}: expected {rLen}, got {rookOffsets[sq + 1] - rookOffsets[sq]}");
 
                 bool bHas = false, rHas = false;
-
-                foreach (ulong atk in bishopAttackTable[sq])
-                    if (atk != 0) { bHas = true; break; }
-
-                foreach (ulong atk in rookAttackTable[sq])
-                    if (atk != 0) { rHas = true; break; }
-
-                System.Diagnostics.Debug.Assert(bHas, $"[DEBUG] BishopAttackTable empty at square {sq}");
-                System.Diagnostics.Debug.Assert(rHas, $"[DEBUG] RookAttackTable empty at square {sq}");
+                for (int i = 0; i < bLen; i++)
+                    if (bishopTable[bOffset + i] != 0) { bHas = true; break; }
+                for (int i = 0; i < rLen; i++)
+                    if (rookTable[rOffset + i] != 0) { rHas = true; break; }
+                System.Diagnostics.Debug.Assert(bHas, $"[DEBUG] BishopTable empty at square {sq}");
+                System.Diagnostics.Debug.Assert(rHas, $"[DEBUG] RookTable empty at square {sq}");
             }
 #endif
             var inst = new EngineTables(
@@ -246,10 +264,11 @@ namespace Forklift.Core
                 kingAttackTable,
                 whitePawnAttackFrom,
                 blackPawnAttackFrom,
-                bishopAttackTable,
-                rookAttackTable,
+                bishopOffsets,
+                bishopTable,
+                rookOffsets,
+                rookTable,
                 zobrist ?? Zobrist.CreateDeterministic());
-
             return inst;
         }
 

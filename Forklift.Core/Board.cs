@@ -736,13 +736,13 @@ public sealed class Board
         ulong bishopsQueens = byWhite
             ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
             : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
-        if ((T.BishopAttackTable[(int)t64][bishopIdx] & bishopsQueens) != 0) return true;
+        if ((T.BishopTable[T.BishopOffsets[(int)t64] + bishopIdx] & bishopsQueens) != 0) return true;
 
         int rookIdx = EngineTables.GetSliderAttackIndex((int)t64, OccAll & EngineTables.RookMasks[(int)t64], Piece.PieceType.Rook);
         ulong rooksQueens = byWhite
             ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
             : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
-        if ((T.RookAttackTable[(int)t64][rookIdx] & rooksQueens) != 0) return true;
+        if ((T.RookTable[T.RookOffsets[(int)t64] + rookIdx] & rooksQueens) != 0) return true;
 
         return false;
     }
