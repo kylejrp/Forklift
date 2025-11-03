@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using static Forklift.Core.Board;
 
 namespace Forklift.Core
@@ -10,8 +11,18 @@ namespace Forklift.Core
     /// </summary>
     public static class MoveGeneration
     {
+        // Directions for 0x88 deltas (rook, bishop, king/knight use lookup tables)
         private static readonly int[] RookDirs = { +1, -1, +16, -16 };
         private static readonly int[] BishopDirs = { +15, +17, -15, -17 };
+        private static readonly int[] QueenDirs = { +1, -1, +16, -16, +15, +17, -15, -17 };
+
+        // Pawn capture deltas (0x88)
+        private static readonly int[] WhitePawnCaps = { +15, +17 };
+        private static readonly int[] BlackPawnCaps = { -15, -17 };
+
+        // Promotion piece sets (no per-call array allocation)
+        private static readonly Piece[] WhitePromos = { Piece.WhiteQueen, Piece.WhiteRook, Piece.WhiteBishop, Piece.WhiteKnight };
+        private static readonly Piece[] BlackPromos = { Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight };
 
         public static Move[] GeneratePseudoLegal(Board board, Color sideToMove)
         {
@@ -23,58 +34,68 @@ namespace Forklift.Core
         /// <summary>
         /// Generates all pseudo-legal moves for the current board state.
         /// </summary>
-        /// <param name="board">The chessboard.</param>
-        /// <param name="moves">The list to populate with generated moves.</param>
-        /// <param name="sideToMove">The side to move.</param>
         public static Span<Move> GeneratePseudoLegal(Board board, Span<Move> moves, Color sideToMove)
         {
-            var moveIndex = 0;
+            int w = 0;
 
-            GeneratePawnMoves(board, moves, ref moveIndex, sideToMove);
-            AssertBufferOk(moveIndex, moves.Length, nameof(GeneratePawnMoves));
+            GeneratePawnMoves(board, moves, ref w, sideToMove);
+            AssertBufferOk(w, moves.Length, nameof(GeneratePawnMoves));
 
-            GenerateKnightMoves(board, moves, ref moveIndex, sideToMove);
-            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateKnightMoves));
+            GenerateKnightMoves(board, moves, ref w, sideToMove);
+            AssertBufferOk(w, moves.Length, nameof(GenerateKnightMoves));
 
-            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
-            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateSliderMoves) + " (Bishop)");
-            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
-            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateSliderMoves) + " (Rook)");
-            // For queens, combine rook and bishop directions to avoid duplicate moves
-            var queenDirs = new int[RookDirs.Length + BishopDirs.Length];
-            RookDirs.CopyTo(queenDirs, 0);
-            BishopDirs.CopyTo(queenDirs, RookDirs.Length);
-            GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, queenDirs);
-            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateSliderMoves) + " (Queen)");
+            // Sliders
+            GenerateSliderMoves(board, moves, ref w, sideToMove,
+                sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
+            AssertBufferOk(w, moves.Length, nameof(GenerateSliderMoves) + " (Bishop)");
 
-            GenerateKingMoves(board, moves, ref moveIndex, sideToMove);
-            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateKingMoves));
-            GenerateCastling(board, moves, ref moveIndex, sideToMove);
-            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateCastling));
-            GenerateEnPassant(board, moves, ref moveIndex, sideToMove);
-            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateEnPassant));
+            GenerateSliderMoves(board, moves, ref w, sideToMove,
+                sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
+            AssertBufferOk(w, moves.Length, nameof(GenerateSliderMoves) + " (Rook)");
 
-            return moves[..moveIndex];
+            GenerateSliderMoves(board, moves, ref w, sideToMove,
+                sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, QueenDirs);
+            AssertBufferOk(w, moves.Length, nameof(GenerateSliderMoves) + " (Queen)");
+
+            GenerateKingMoves(board, moves, ref w, sideToMove);
+            AssertBufferOk(w, moves.Length, nameof(GenerateKingMoves));
+
+            GenerateCastling(board, moves, ref w, sideToMove);
+            AssertBufferOk(w, moves.Length, nameof(GenerateCastling));
+
+            GenerateEnPassant(board, moves, ref w, sideToMove);
+            AssertBufferOk(w, moves.Length, nameof(GenerateEnPassant));
+
+            return moves[..w];
         }
 
         [Conditional("DEBUG")]
         static void AssertBufferOk(int index, int length, string context) =>
             Debug.Assert(index <= length, $"Move buffer overflow in {context}: {index}/{length}");
 
-        // --- Pawns (pushes, captures, promotions; EP is generated separately) -------------
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void Emit(ref Span<Move> buffer, ref int w, Move m)
+        {
+            buffer[w++] = m;
+        }
 
-        private static void GeneratePawnMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
+        // --- Pawns (pushes, captures, promotions; EP is generated separately) -------------
+        private static void GeneratePawnMoves(Board board, Span<Move> moves, ref int w, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             Piece pawn = white ? Piece.WhitePawn : Piece.BlackPawn;
             ulong pawns = board.GetPieceBitboard(pawn);
+
+            // Occupancy used for forward-block checks; look it up once.
+            ulong occAll = board.GetAllOccupancy();
 
             while (pawns != 0)
             {
                 int s64 = BitOperations.TrailingZeroCount(pawns);
                 pawns &= pawns - 1;
 
-                var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
+                var from64 = new Square0x64(s64);
+                var from88 = Squares.ConvertTo0x88Index(from64);
                 int rank = from88 >> 4;
 
                 // Forward one
@@ -87,159 +108,135 @@ namespace Forklift.Core
                         // Promotion push
                         if ((white && rank == 6) || (!white && rank == 1))
                         {
-                            foreach (var promo in PromoPieces(sideToMove))
-                                moves[moveIndex++] = Move.PromotionPush(from88, one88, white ? Piece.WhitePawn : Piece.BlackPawn, promo);
+                            var promos = white ? WhitePromos : BlackPromos;
+                            for (int i = 0; i < promos.Length; i++)
+                                Emit(ref moves, ref w, Move.PromotionPush(from88, one88, pawn, promos[i]));
                         }
                         else
                         {
-                            moves[moveIndex++] = Move.Normal(from88, one88, pawn);
+                            Emit(ref moves, ref w, Move.Normal(from88, one88, pawn));
 
-                            // Forward two (double push) from start rank if clear
-                            bool startRank = white ? (rank == 1) : (rank == 6);
-                            if (startRank)
+                            // Double push from start rank (only if square two ahead empty)
+                            if (white ? (rank == 1) : (rank == 6))
                             {
                                 UnsafeSquare0x88 two = white ? (one + 16) : (one - 16);
-                                if (!Squares.IsOffboard(two))
-                                {
-                                    var two88 = (Square0x88)two;
-                                    if (board.At(two88) == Piece.Empty)
-                                        moves[moveIndex++] = Move.Normal(from88, two88, pawn);
-                                }
+                                if (!Squares.IsOffboard(two) && board.At((Square0x88)two) == Piece.Empty)
+                                    Emit(ref moves, ref w, Move.Normal(from88, (Square0x88)two, pawn));
                             }
                         }
                     }
                 }
 
-                // Diagonal captures (no EP here)
-                int[] caps = white ? new[] { +15, +17 } : new[] { -15, -17 };
-                foreach (var d in caps)
+                // Captures (no EP here)
+                var caps = white ? WhitePawnCaps : BlackPawnCaps;
+                for (int i = 0; i < caps.Length; i++)
                 {
-                    var toUnsafe = new UnsafeSquare0x88(from88.Value + d);
+                    var toUnsafe = new UnsafeSquare0x88(from88.Value + caps[i]);
                     if (Squares.IsOffboard(toUnsafe)) continue;
 
                     var to88 = (Square0x88)toUnsafe;
                     var target = board.At(to88);
-                    if (target == Piece.Empty) continue;
-                    if (white == target.IsWhite) continue; // own piece
+                    if (target == Piece.Empty || target.IsWhite == white) continue;
 
                     // Promotion capture
                     if ((white && rank == 6) || (!white && rank == 1))
                     {
-                        foreach (var promo in PromoPieces(sideToMove))
-                            moves[moveIndex++] = Move.PromotionCapture(from88, to88, white ? Piece.WhitePawn : Piece.BlackPawn, target, promo);
+                        var promos = white ? WhitePromos : BlackPromos;
+                        for (int p = 0; p < promos.Length; p++)
+                            Emit(ref moves, ref w, Move.PromotionCapture(from88, to88, pawn, target, promos[p]));
                     }
                     else
                     {
-                        moves[moveIndex++] = Move.Capture(from88, to88, pawn, target);
+                        Emit(ref moves, ref w, Move.Capture(from88, to88, pawn, target));
                     }
                 }
             }
         }
 
-        private static Piece[] PromoPieces(Color sideToMove) => sideToMove.IsWhite()
-            ? new[] { Piece.WhiteQueen, Piece.WhiteRook, Piece.WhiteBishop, Piece.WhiteKnight }
-            : new[] { Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight };
-
         // --- Knights ----------------------------------------------------------------------
-
-        private static void GenerateKnightMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
+        private static void GenerateKnightMoves(Board board, Span<Move> moves, ref int w, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             Piece mover = white ? Piece.WhiteKnight : Piece.BlackKnight;
             ulong knights = board.GetPieceBitboard(mover);
-            ulong occSide = board.GetOccupancy(white ? Color.White : Color.Black);
-            ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
             ulong occAll = board.GetAllOccupancy();
+            ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
 
             while (knights != 0)
             {
                 int s64 = BitOperations.TrailingZeroCount(knights);
                 knights &= knights - 1;
 
-                var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
+                var from64 = new Square0x64(s64);
+                var from88 = Squares.ConvertTo0x88Index(from64);
                 ulong attacks = board.Tables.KnightAttackTable[s64];
 
-                // Quiet moves: not occupied by any piece
-                ulong quiets = attacks & ~occAll;
-                ulong captures = attacks & occOpp;
-
                 // Quiet moves
-                ulong q = quiets;
-                while (q != 0)
+                ulong quiets = attacks & ~occAll;
+                while (quiets != 0)
                 {
-                    int toS64 = BitOperations.TrailingZeroCount(q);
-                    q &= q - 1;
-                    var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
-                    moves[moveIndex++] = Move.Normal(from88, to88, mover);
+                    int toS64 = BitOperations.TrailingZeroCount(quiets);
+                    quiets &= quiets - 1;
+                    Emit(ref moves, ref w, Move.Normal(from88, Squares.ConvertTo0x88Index(new Square0x64(toS64)), mover));
                 }
 
                 // Captures
-                ulong c = captures;
-                while (c != 0)
+                ulong captures = attacks & occOpp;
+                while (captures != 0)
                 {
-                    int toS64 = BitOperations.TrailingZeroCount(c);
-                    c &= c - 1;
+                    int toS64 = BitOperations.TrailingZeroCount(captures);
+                    captures &= captures - 1;
                     var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
-                    var target = board.At(to88);
-                    moves[moveIndex++] = Move.Capture(from88, to88, mover, target);
+                    Emit(ref moves, ref w, Move.Capture(from88, to88, mover, board.At(to88)));
                 }
             }
         }
 
         // --- Sliders (bishops/rooks/queens) ----------------------------------------------
-
-        private static void GenerateSliderMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove, Piece piece, int[] dirs)
+        private static void GenerateSliderMoves(Board board, Span<Move> moves, ref int w, Color sideToMove, Piece piece, int[] dirs /*unused but kept for compatibility*/)
         {
             bool white = sideToMove.IsWhite();
             ulong sliders = board.GetPieceBitboard(piece);
             ulong occAll = board.GetAllOccupancy();
-            ulong occSide = board.GetOccupancy(white ? Color.White : Color.Black);
             ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
 
             while (sliders != 0)
             {
                 int s64 = BitOperations.TrailingZeroCount(sliders);
                 sliders &= sliders - 1;
-                var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
 
-                ulong attacks = piece switch
-                {
-                    var p when p == Piece.WhiteBishop || p == Piece.BlackBishop => board.BishopAttacks(new Square0x64(s64)),
-                    var p when p == Piece.WhiteRook || p == Piece.BlackRook => board.RookAttacks(new Square0x64(s64)),
-                    var p when p == Piece.WhiteQueen || p == Piece.BlackQueen => board.BishopAttacks(new Square0x64(s64)) | board.RookAttacks(new Square0x64(s64)),
-                    _ => 0UL
-                };
+                var from64 = new Square0x64(s64);
+                var from88 = Squares.ConvertTo0x88Index(from64);
 
-                // Quiet moves: not occupied by any piece
-                ulong quiets = attacks & ~occAll;
-                ulong captures = attacks & occOpp;
+                // Use your fast magics/lookup methods; union for queen
+                ulong attacks =
+                    (piece == Piece.WhiteBishop || piece == Piece.BlackBishop) ? board.BishopAttacks(from64) :
+                    (piece == Piece.WhiteRook || piece == Piece.BlackRook) ? board.RookAttacks(from64) :
+                    /* queen */                                                     (board.BishopAttacks(from64) | board.RookAttacks(from64));
 
                 // Quiet moves
-                ulong q = quiets;
-                while (q != 0)
+                ulong quiets = attacks & ~occAll;
+                while (quiets != 0)
                 {
-                    int toS64 = BitOperations.TrailingZeroCount(q);
-                    q &= q - 1;
-                    var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
-                    moves[moveIndex++] = Move.Normal(from88, to88, piece);
+                    int toS64 = BitOperations.TrailingZeroCount(quiets);
+                    quiets &= quiets - 1;
+                    Emit(ref moves, ref w, Move.Normal(from88, Squares.ConvertTo0x88Index(new Square0x64(toS64)), piece));
                 }
 
                 // Captures
-                ulong c = captures;
-                while (c != 0)
+                ulong captures = attacks & occOpp;
+                while (captures != 0)
                 {
-                    int toS64 = BitOperations.TrailingZeroCount(c);
-                    c &= c - 1;
+                    int toS64 = BitOperations.TrailingZeroCount(captures);
+                    captures &= captures - 1;
                     var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
-                    var target = board.At(to88);
-                    moves[moveIndex++] = Move.Capture(from88, to88, piece, target);
+                    Emit(ref moves, ref w, Move.Capture(from88, to88, piece, board.At(to88)));
                 }
             }
         }
 
         // --- King (no castling here; see GenerateCastling) --------------------------------
-
-        private static void GenerateKingMoves(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
+        private static void GenerateKingMoves(Board board, Span<Move> moves, ref int w, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             ReadOnlySpan<int> deltas = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
@@ -251,9 +248,9 @@ namespace Forklift.Core
             int s64 = BitOperations.TrailingZeroCount(bb);
             var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
 
-            foreach (int d in deltas)
+            for (int i = 0; i < deltas.Length; i++)
             {
-                var toUnsafe = new UnsafeSquare0x88(from88.Value + d);
+                var toUnsafe = new UnsafeSquare0x88(from88.Value + deltas[i]);
                 if (Squares.IsOffboard(toUnsafe)) continue;
 
                 var to88 = (Square0x88)toUnsafe;
@@ -261,264 +258,188 @@ namespace Forklift.Core
 
                 if (target == Piece.Empty)
                 {
-                    moves[moveIndex++] = Move.Normal(from88, to88, king);
+                    Emit(ref moves, ref w, Move.Normal(from88, to88, king));
                 }
-                else if (white != target.IsWhite)
+                else if (target.IsWhite != white)
                 {
-                    moves[moveIndex++] = Move.Capture(from88, to88, king, target);
+                    Emit(ref moves, ref w, Move.Capture(from88, to88, king, target));
                 }
             }
         }
 
         // --- Castling (requires empty path + no attacked transit squares) -----------------
-
-        // Precomputed squares for castling
+        // Precomputed 0x64 squares used by castling checks
+        private static readonly Square0x64 E1_64 = Squares.ParseAlgebraicTo0x64("e1");
         private static readonly Square0x64 F1_64 = Squares.ParseAlgebraicTo0x64("f1");
         private static readonly Square0x64 G1_64 = Squares.ParseAlgebraicTo0x64("g1");
-        private static readonly Square0x88 H1_88 = Squares.ParseAlgebraicTo0x88("h1");
-        private static readonly Square0x64 B1_64 = Squares.ParseAlgebraicTo0x64("b1");
-        private static readonly Square0x64 C1_64 = Squares.ParseAlgebraicTo0x64("c1");
         private static readonly Square0x64 D1_64 = Squares.ParseAlgebraicTo0x64("d1");
+        private static readonly Square0x64 C1_64 = Squares.ParseAlgebraicTo0x64("c1");
+        private static readonly Square0x64 B1_64 = Squares.ParseAlgebraicTo0x64("b1");
+        private static readonly Square0x88 H1_88 = Squares.ParseAlgebraicTo0x88("h1");
         private static readonly Square0x88 A1_88 = Squares.ParseAlgebraicTo0x88("a1");
 
+        private static readonly Square0x64 E8_64 = Squares.ParseAlgebraicTo0x64("e8");
         private static readonly Square0x64 F8_64 = Squares.ParseAlgebraicTo0x64("f8");
         private static readonly Square0x64 G8_64 = Squares.ParseAlgebraicTo0x64("g8");
-        private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88("h8");
-        private static readonly Square0x64 B8_64 = Squares.ParseAlgebraicTo0x64("b8");
-        private static readonly Square0x64 C8_64 = Squares.ParseAlgebraicTo0x64("c8");
         private static readonly Square0x64 D8_64 = Squares.ParseAlgebraicTo0x64("d8");
+        private static readonly Square0x64 C8_64 = Squares.ParseAlgebraicTo0x64("c8");
+        private static readonly Square0x64 B8_64 = Squares.ParseAlgebraicTo0x64("b8");
+        private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88("h8");
         private static readonly Square0x88 A8_88 = Squares.ParseAlgebraicTo0x88("a8");
 
-        // Helper to check if any squares in the array are attacked for castling
-        private static bool AreCastlingSquaresAttacked(Board board, Color attacker, params Square0x64[] squares)
-        {
-            // Compute all attack masks for the attacker once
-            var tables = board.Tables;
-            var kingSq = board.FindKingSq64(attacker).Value;
-            ulong pawnAttacks = attacker.IsWhite()
-                ? tables.WhitePawnAttackFrom[kingSq]
-                : tables.BlackPawnAttackFrom[kingSq];
-            ulong knightAttacks = tables.KnightAttackTable[kingSq];
-            ulong kingAttacks = tables.KingAttackTable[kingSq];
-
-            // Use board's current occupancy for sliding attacks
-            ulong bishops = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteBishop) : board.GetPieceBitboard(Piece.BlackBishop);
-            ulong rooks = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteRook) : board.GetPieceBitboard(Piece.BlackRook);
-            ulong queens = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteQueen) : board.GetPieceBitboard(Piece.BlackQueen);
-
-            // Compute sliding attacks from all enemy sliders
-            ulong bishopRays = 0, rookRays = 0;
-            foreach (var sq in BitboardSquares(bishops))
-                bishopRays |= board.BishopAttacks(sq);
-            foreach (var sq in BitboardSquares(rooks))
-                rookRays |= board.RookAttacks(sq);
-            foreach (var sq in BitboardSquares(queens))
-            {
-                bishopRays |= board.BishopAttacks(sq);
-                rookRays |= board.RookAttacks(sq);
-            }
-
-            // Check all squares in one pass
-            foreach (var sq in squares)
-            {
-                int idx = sq.Value;
-                ulong mask = 1UL << idx;
-                if ((pawnAttacks & mask) != 0 ||
-                    (knightAttacks & mask) != 0 ||
-                    (kingAttacks & mask) != 0 ||
-                    (bishopRays & mask) != 0 ||
-                    (rookRays & mask) != 0)
-                {
-                    return true;
-                }
-            }
-            return false;
-
-            // Helper to enumerate set bits in a bitboard
-            static IEnumerable<Square0x64> BitboardSquares(ulong bb)
-            {
-                while (bb != 0)
-                {
-                    int s = BitOperations.TrailingZeroCount(bb);
-                    yield return new Square0x64(s);
-                    bb &= bb - 1;
-                }
-            }
-        }
-
-        private static void GenerateCastling(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
+        private static void GenerateCastling(Board board, Span<Move> moves, ref int w, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
 
+            // King must exist and not be in check now.
             ulong kingBB = board.GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
             if (kingBB == 0) return;
+            if (board.InCheck(sideToMove)) return;
 
-            var k64 = (Square0x64)BitOperations.TrailingZeroCount(kingBB);
-            if (board.InCheck(sideToMove)) return; // cannot castle out of check
-
-            var tables = board.Tables;
+            Color enemy = sideToMove.Flip();
 
             if (white)
             {
-                // White king side: e1,f1,g1 must be safe; f1,g1 empty; rook on h1
-                if ((board.CastlingRights & Board.CastlingRightsFlags.WhiteKing) != 0)
+                // King side: squares f1,g1 empty; e1,f1,g1 not attacked by Black
+                if ((board.CastlingRights & CastlingRightsFlags.WhiteKing) != 0)
                 {
-                    if (board.At((Square0x88)F1_64) == Piece.Empty && board.At((Square0x88)G1_64) == Piece.Empty)
+                    if (board.At((Square0x88)F1_64) == Piece.Empty &&
+                        board.At((Square0x88)G1_64) == Piece.Empty &&
+                        board.At(H1_88) == Piece.WhiteRook &&
+                        !board.IsSquareAttacked(E1_64, enemy) &&
+                        !board.IsSquareAttacked(F1_64, enemy) &&
+                        !board.IsSquareAttacked(G1_64, enemy))
                     {
-                        if (board.At(H1_88) == Piece.WhiteRook)
-                        {
-                            Square0x64[] transit = { k64, F1_64, G1_64 };
-                            if (!AreCastlingSquaresAttackedLocal(board, Color.Black, transit, tables))
-                                moves[moveIndex++] = Board.Move.CastleKingSide(Color.White);
-                        }
+                        Emit(ref moves, ref w, Board.Move.CastleKingSide(Color.White));
                     }
                 }
 
-                // White queen side: b1,c1,d1 must be empty; e1,d1,c1 must be safe; rook on a1
-                if ((board.CastlingRights & Board.CastlingRightsFlags.WhiteQueen) != 0)
+                // Queen side: squares b1,c1,d1 empty; e1,d1,c1 not attacked by Black
+                if ((board.CastlingRights & CastlingRightsFlags.WhiteQueen) != 0)
                 {
                     if (board.At((Square0x88)B1_64) == Piece.Empty &&
-                    board.At((Square0x88)C1_64) == Piece.Empty &&
-                    board.At((Square0x88)D1_64) == Piece.Empty)
+                        board.At((Square0x88)C1_64) == Piece.Empty &&
+                        board.At((Square0x88)D1_64) == Piece.Empty &&
+                        board.At(A1_88) == Piece.WhiteRook &&
+                        !board.IsSquareAttacked(E1_64, enemy) &&
+                        !board.IsSquareAttacked(D1_64, enemy) &&
+                        !board.IsSquareAttacked(C1_64, enemy))
                     {
-                        if (board.At(A1_88) == Piece.WhiteRook)
-                        {
-                            Square0x64[] transit = { k64, D1_64, C1_64 };
-                            if (!AreCastlingSquaresAttackedLocal(board, Color.Black, transit, tables))
-                                moves[moveIndex++] = Board.Move.CastleQueenSide(Color.White);
-                        }
+                        Emit(ref moves, ref w, Board.Move.CastleQueenSide(Color.White));
                     }
                 }
             }
             else
             {
-                // Black king side: e8,f8,g8 must be safe; f8,g8 empty; rook on h8
-                if ((board.CastlingRights & Board.CastlingRightsFlags.BlackKing) != 0)
+                // King side: squares f8,g8 empty; e8,f8,g8 not attacked by White
+                if ((board.CastlingRights & CastlingRightsFlags.BlackKing) != 0)
                 {
-                    if (board.At((Square0x88)F8_64) == Piece.Empty && board.At((Square0x88)G8_64) == Piece.Empty)
+                    if (board.At((Square0x88)F8_64) == Piece.Empty &&
+                        board.At((Square0x88)G8_64) == Piece.Empty &&
+                        board.At(H8_88) == Piece.BlackRook &&
+                        !board.IsSquareAttacked(E8_64, enemy) &&
+                        !board.IsSquareAttacked(F8_64, enemy) &&
+                        !board.IsSquareAttacked(G8_64, enemy))
                     {
-                        if (board.At(H8_88) == Piece.BlackRook)
-                        {
-                            Square0x64[] transit = { k64, F8_64, G8_64 };
-                            if (!AreCastlingSquaresAttackedLocal(board, Color.White, transit, tables))
-                                moves[moveIndex++] = Board.Move.CastleKingSide(Color.Black);
-                        }
+                        Emit(ref moves, ref w, Board.Move.CastleKingSide(Color.Black));
                     }
                 }
 
-                // Black queen side: b8,c8,d8 must be empty; e8,d8,c8 must be safe; rook on a8
-                if ((board.CastlingRights & Board.CastlingRightsFlags.BlackQueen) != 0)
+                // Queen side: squares b8,c8,d8 empty; e8,d8,c8 not attacked by White
+                if ((board.CastlingRights & CastlingRightsFlags.BlackQueen) != 0)
                 {
                     if (board.At((Square0x88)B8_64) == Piece.Empty &&
-                    board.At((Square0x88)C8_64) == Piece.Empty &&
-                    board.At((Square0x88)D8_64) == Piece.Empty)
+                        board.At((Square0x88)C8_64) == Piece.Empty &&
+                        board.At((Square0x88)D8_64) == Piece.Empty &&
+                        board.At(A8_88) == Piece.BlackRook &&
+                        !board.IsSquareAttacked(E8_64, enemy) &&
+                        !board.IsSquareAttacked(D8_64, enemy) &&
+                        !board.IsSquareAttacked(C8_64, enemy))
                     {
-                        if (board.At(A8_88) == Piece.BlackRook)
-                        {
-                            Square0x64[] transit = { k64, D8_64, C8_64 };
-                            if (!AreCastlingSquaresAttackedLocal(board, Color.White, transit, tables))
-                                moves[moveIndex++] = Board.Move.CastleQueenSide(Color.Black);
-                        }
-                    }
-                }
-            }
-
-            // Local attack check using shared tables
-            static bool AreCastlingSquaresAttackedLocal(Board board, Color attacker, Square0x64[] squares, EngineTables tables)
-            {
-                var kingSq = board.FindKingSq64(attacker).Value;
-                ulong pawnAttacks = attacker.IsWhite()
-                    ? tables.WhitePawnAttackFrom[kingSq]
-                    : tables.BlackPawnAttackFrom[kingSq];
-                ulong knightAttacks = tables.KnightAttackTable[kingSq];
-                ulong kingAttacks = tables.KingAttackTable[kingSq];
-
-                ulong bishops = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteBishop) : board.GetPieceBitboard(Piece.BlackBishop);
-                ulong rooks = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteRook) : board.GetPieceBitboard(Piece.BlackRook);
-                ulong queens = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteQueen) : board.GetPieceBitboard(Piece.BlackQueen);
-
-                ulong bishopRays = 0, rookRays = 0;
-                foreach (var sq in BitboardSquares(bishops))
-                    bishopRays |= board.BishopAttacks(sq);
-                foreach (var sq in BitboardSquares(rooks))
-                    rookRays |= board.RookAttacks(sq);
-                foreach (var sq in BitboardSquares(queens))
-                {
-                    bishopRays |= board.BishopAttacks(sq);
-                    rookRays |= board.RookAttacks(sq);
-                }
-
-                foreach (var sq in squares)
-                {
-                    int idx = sq.Value;
-                    ulong mask = 1UL << idx;
-                    if ((pawnAttacks & mask) != 0 ||
-                    (knightAttacks & mask) != 0 ||
-                    (kingAttacks & mask) != 0 ||
-                    (bishopRays & mask) != 0 ||
-                    (rookRays & mask) != 0)
-                    {
-                        return true;
-                    }
-                }
-                return false;
-
-                static IEnumerable<Square0x64> BitboardSquares(ulong bb)
-                {
-                    while (bb != 0)
-                    {
-                        int s = BitOperations.TrailingZeroCount(bb);
-                        yield return new Square0x64(s);
-                        bb &= bb - 1;
+                        Emit(ref moves, ref w, Board.Move.CastleQueenSide(Color.Black));
                     }
                 }
             }
         }
 
-        // --- En Passant (from Board.EnPassantFile / availability pre-check) ---------------
+        /// <summary>
+        /// Fast, target-centric "is square attacked by side?" using precomputed tables
+        /// and current occupancy. Avoids scanning all enemy sliders piece-by-piece.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool IsSquareAttackedFast(Board board, Color attacker, Square0x64 target, ulong occAll)
+        {
+            var t = board.Tables;
+            int idx = target.Value;
 
-        private static void GenerateEnPassant(Board board, Span<Move> moves, ref int moveIndex, Color sideToMove)
+            // Knight / King sources (tables are "attack-from masks keyed by target")
+            ulong knights = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteKnight) : board.GetPieceBitboard(Piece.BlackKnight);
+            if ((t.KnightAttackTable[idx] & knights) != 0) return true;
+
+            ulong king = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteKing) : board.GetPieceBitboard(Piece.BlackKing);
+            if ((t.KingAttackTable[idx] & king) != 0) return true;
+
+            // Pawn sources (separate white/black)
+            if (attacker.IsWhite())
+            {
+                ulong wp = board.GetPieceBitboard(Piece.WhitePawn);
+                if ((t.WhitePawnAttackFrom[idx] & wp) != 0) return true;
+            }
+            else
+            {
+                ulong bp = board.GetPieceBitboard(Piece.BlackPawn);
+                if ((t.BlackPawnAttackFrom[idx] & bp) != 0) return true;
+            }
+
+            // Sliding: compute rays FROM the target and see if any enemy slider sits on them.
+            // This is cheaper than expanding all enemy sliders every time.
+            ulong bishops = attacker.IsWhite()
+                ? (board.GetPieceBitboard(Piece.WhiteBishop) | board.GetPieceBitboard(Piece.WhiteQueen))
+                : (board.GetPieceBitboard(Piece.BlackBishop) | board.GetPieceBitboard(Piece.BlackQueen));
+            if ((board.BishopAttacks(target) & bishops) != 0) return true;
+
+            ulong rooks = attacker.IsWhite()
+                ? (board.GetPieceBitboard(Piece.WhiteRook) | board.GetPieceBitboard(Piece.WhiteQueen))
+                : (board.GetPieceBitboard(Piece.BlackRook) | board.GetPieceBitboard(Piece.BlackQueen));
+            if ((board.RookAttacks(target) & rooks) != 0) return true;
+
+            return false;
+        }
+
+        // --- En Passant (from Board.EnPassantFile / availability pre-check) ---------------
+        private static void GenerateEnPassant(Board board, Span<Move> moves, ref int w, Color sideToMove)
         {
             bool white = sideToMove.IsWhite();
             if (board.EnPassantFile is not FileIndex file) return;
 
-            // Must be the immediate reply after a double-push
+            // Must be the immediate reply after a double push.
             if (!board.EnPassantAvailableFor(sideToMove)) return;
 
             // EP target is the passed-over square:
-            // For white-to-move, target is on rank 6 (index 5); for black-to-move, rank 3 (index 2).
+            // For white-to-move, target is rank 6 (index 5); for black-to-move, rank 3 (index 2).
             int epRank = white ? 5 : 2;
             var ep88 = new Square0x88((epRank << 4) | file.Value);
 
             // The pawn that moved two squares sits behind the EP target
-            var capturedSqUnsafe = white
-                ? new UnsafeSquare0x88(ep88.Value - 16)
-                : new UnsafeSquare0x88(ep88.Value + 16);
-
+            var capturedSqUnsafe = white ? new UnsafeSquare0x88(ep88.Value - 16) : new UnsafeSquare0x88(ep88.Value + 16);
             var captured = white ? Piece.BlackPawn : Piece.WhitePawn;
+
 #if DEBUG
-            // Debug assertion: captured pawn must be present directly behind EP target
             Debug.Assert(!Squares.IsOffboard(capturedSqUnsafe) && board.At((Square0x88)capturedSqUnsafe) == captured,
                 $"En Passant invariant failed: expected {captured} behind EP target at {(Square0x88)capturedSqUnsafe}, got {board.At((Square0x88)capturedSqUnsafe)}");
 #endif
-            if (Squares.IsOffboard(capturedSqUnsafe) || board.At((Square0x88)capturedSqUnsafe) != captured)
-                return;
+            if (Squares.IsOffboard(capturedSqUnsafe) || board.At((Square0x88)capturedSqUnsafe) != captured) return;
 
             // Capturing pawns are adjacent, one rank behind the target
-            var candidates = white
-                ? new[] { new UnsafeSquare0x88(ep88.Value - 15), new UnsafeSquare0x88(ep88.Value - 17) }
-                : new[] { new UnsafeSquare0x88(ep88.Value + 15), new UnsafeSquare0x88(ep88.Value + 17) };
-
+            var leftFrom = white ? new UnsafeSquare0x88(ep88.Value - 15) : new UnsafeSquare0x88(ep88.Value + 15);
+            var rightFrom = white ? new UnsafeSquare0x88(ep88.Value - 17) : new UnsafeSquare0x88(ep88.Value + 17);
             var mover = white ? Piece.WhitePawn : Piece.BlackPawn;
 
-            foreach (var fromUnsafe in candidates)
-            {
-                if (Squares.IsOffboard(fromUnsafe)) continue;
-                var from88 = (Square0x88)fromUnsafe;
-                if (board.At(from88) != mover) continue;
+            if (!Squares.IsOffboard(leftFrom) && board.At((Square0x88)leftFrom) == mover)
+                Emit(ref moves, ref w, Move.EnPassant((Square0x88)leftFrom, ep88, mover, captured));
 
-                moves[moveIndex++] = Move.EnPassant(from88, ep88, mover, captured);
-            }
+            if (!Squares.IsOffboard(rightFrom) && board.At((Square0x88)rightFrom) == mover)
+                Emit(ref moves, ref w, Move.EnPassant((Square0x88)rightFrom, ep88, mover, captured));
         }
     }
 }

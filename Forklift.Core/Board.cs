@@ -707,42 +707,48 @@ public sealed class Board
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal ulong BishopAttacks(Square0x64 sq64) => RayAttacksFromBishop(sq64, OccAll);
 
+    // Board.cs
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsSquareAttacked(Square0x64 t64, Color bySide)
     {
-        var T = Tables; // local alias
-        var byWhite = bySide.IsWhite();
+        var T = Tables;
+        int ti = t64.Value;
+        bool byWhite = bySide.IsWhite();
+        ulong occAll = OccAll; // single load; JIT can keep this in a register
 
         // Knights
         ulong knights = byWhite ? GetPieceBitboard(Piece.WhiteKnight) : GetPieceBitboard(Piece.BlackKnight);
-        if ((T.KnightAttackTable[(int)t64] & knights) != 0) return true;
+        if ((T.KnightAttackTable[ti] & knights) != 0) return true;
 
         // Kings
         ulong kings = byWhite ? GetPieceBitboard(Piece.WhiteKing) : GetPieceBitboard(Piece.BlackKing);
-        if ((T.KingAttackTable[(int)t64] & kings) != 0) return true;
+        if ((T.KingAttackTable[ti] & kings) != 0) return true;
 
-        // Pawns (reverse attack)
+        // Pawns (reverse attack-from masks keyed by target)
         if (byWhite)
         {
-            if ((T.WhitePawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
+            if ((T.WhitePawnAttackFrom[ti] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
         }
         else
         {
-            if ((T.BlackPawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
+            if ((T.BlackPawnAttackFrom[ti] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
         }
 
-        // Sliders (use occupancy-dependent bitboard tables)
-        int bishopIdx = EngineTables.GetSliderAttackIndex((int)t64, OccAll & EngineTables.BishopMasks[(int)t64], Piece.PieceType.Bishop);
-        ulong bishopsQueens = byWhite
+        // Bishop-like
+        ulong bishopOcc = occAll & EngineTables.BishopMasks[ti];
+        int bIdx = EngineTables.GetSliderAttackIndex(ti, bishopOcc, Piece.PieceType.Bishop);
+        ulong bishopLike = byWhite
             ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
             : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
-        if ((T.BishopTable[T.BishopOffsets[(int)t64] + bishopIdx] & bishopsQueens) != 0) return true;
+        if ((T.BishopTable[T.BishopOffsets[ti] + bIdx] & bishopLike) != 0) return true;
 
-        int rookIdx = EngineTables.GetSliderAttackIndex((int)t64, OccAll & EngineTables.RookMasks[(int)t64], Piece.PieceType.Rook);
-        ulong rooksQueens = byWhite
+        // Rook-like
+        ulong rookOcc = occAll & EngineTables.RookMasks[ti];
+        int rIdx = EngineTables.GetSliderAttackIndex(ti, rookOcc, Piece.PieceType.Rook);
+        ulong rookLike = byWhite
             ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
             : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
-        if ((T.RookTable[T.RookOffsets[(int)t64] + rookIdx] & rooksQueens) != 0) return true;
+        if ((T.RookTable[T.RookOffsets[ti] + rIdx] & rookLike) != 0) return true;
 
         return false;
     }
