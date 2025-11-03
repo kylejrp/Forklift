@@ -223,8 +223,8 @@ namespace Forklift.Core
                 ulong rAtt = T.RookTable[T.RookOffsets[ti] + rIdx];
 
                 ulong attacks =
-                    (piece == Piece.WhiteBishop || piece == Piece.BlackBishop) ? bAtt :
-                    (piece == Piece.WhiteRook || piece == Piece.BlackRook) ? rAtt :
+                    (piece.Type == Piece.PieceType.Bishop) ? bAtt :
+                    (piece.Type == Piece.PieceType.Rook) ? rAtt :
                     (bAtt | rAtt);
 
                 // Quiet moves

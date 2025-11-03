@@ -307,7 +307,7 @@ public sealed class Board
         SetEnPassantFile(null);
 
         // --- Halfmove + fullmove
-        bool isPawnMove = (m.Mover == Piece.WhitePawn || m.Mover == Piece.BlackPawn);
+        bool isPawnMove = (m.Mover.Type == Piece.PieceType.Pawn);
         HalfmoveClock = (isPawnMove || undo.Captured != Piece.Empty) ? 0 : (HalfmoveClock + 1);
         if (!SideToMove.IsWhite()) FullmoveNumber++;
 
