@@ -496,6 +496,11 @@ namespace Forklift.Core
                 : new UnsafeSquare0x88(ep88.Value + 16);
 
             var captured = white ? Piece.BlackPawn : Piece.WhitePawn;
+#if DEBUG
+            // Debug assertion: captured pawn must be present directly behind EP target
+            Debug.Assert(!Squares.IsOffboard(capturedSqUnsafe) && board.At((Square0x88)capturedSqUnsafe) == captured,
+                $"En Passant invariant failed: expected {captured} behind EP target at {(Square0x88)capturedSqUnsafe}, got {board.At((Square0x88)capturedSqUnsafe)}");
+#endif
             if (Squares.IsOffboard(capturedSqUnsafe) || board.At((Square0x88)capturedSqUnsafe) != captured)
                 return;
 
