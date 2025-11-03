@@ -7,6 +7,10 @@
     <WarningsAsErrors>FLK001;FLK002;FLK003</WarningsAsErrors>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(FKLIFT_BAKE)'=='true'">
+    <DefineConstants>$(DefineConstants);FKLIFT_BAKE</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Forklift.Analyzers\Forklift.Analyzers.csproj"
       OutputItemType="Analyzer"

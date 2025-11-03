@@ -1041,7 +1041,10 @@ public sealed class Board
     }
 
     // Occupancy helpers (already exposed as properties, but symmetric with the API above)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ulong GetOccupancy(Color side) => side == Color.White ? OccWhite : OccBlack;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ulong GetAllOccupancy() => OccAll;
 
     public bool InCheck(Color side)

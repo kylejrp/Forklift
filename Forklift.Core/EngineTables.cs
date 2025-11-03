@@ -90,161 +90,73 @@ namespace Forklift.Core
 
         private static EngineTables CreateDefaultInternal(Zobrist? zobrist = null)
         {
-            // 1) Decide which magics we will use (baked vs regenerated)
+#if FKLIFT_BAKE
+#warning FKLIFT_BAKE is active in Forklift.Core
+            // Regenerate magics and build packed tables for authoring/bake runs.
             EnsureMagicsReady(out var activeBishopMagics, out var activeRookMagics);
             CurrentBishopMagics = activeBishopMagics;
-            CurrentRookMagics = activeRookMagics;
+            CurrentRookMagics   = activeRookMagics;
 
-            var knightAttackTable = new ulong[64];
-            var kingAttackTable = new ulong[64];
-            var whitePawnAttackFrom = new ulong[64];
-            var blackPawnAttackFrom = new ulong[64];
-
+            // Build offsets
             var bishopOffsets = new int[65];
-            var rookOffsets = new int[65];
+            var rookOffsets   = new int[65];
             int bishopTotal = 0, rookTotal = 0;
-
-            // Precompute offsets for packed tables
             for (int sq = 0; sq < 64; sq++)
             {
                 int bLen = 1 << BishopIndexBits[sq];
                 int rLen = 1 << RookIndexBits[sq];
-                bishopOffsets[sq] = bishopTotal;
-                rookOffsets[sq] = rookTotal;
-                bishopTotal += bLen;
-                rookTotal += rLen;
+                bishopOffsets[sq] = bishopTotal; bishopTotal += bLen;
+                rookOffsets[sq]   = rookTotal;   rookTotal   += rLen;
             }
             bishopOffsets[64] = bishopTotal;
-            rookOffsets[64] = rookTotal;
+            rookOffsets[64]   = rookTotal;
 
             var bishopTable = new ulong[bishopTotal];
-            var rookTable = new ulong[rookTotal];
-
-            // Fill packed tables
+            var rookTable   = new ulong[rookTotal];
             for (int sq = 0; sq < 64; sq++)
             {
-                var bArr = GenerateMagicAttackTable(sq, bishop: true, CurrentBishopMagics);
+                var bArr = GenerateMagicAttackTable(sq, bishop: true,  CurrentBishopMagics);
                 var rArr = GenerateMagicAttackTable(sq, bishop: false, CurrentRookMagics);
                 Array.Copy(bArr, 0, bishopTable, bishopOffsets[sq], bArr.Length);
-                Array.Copy(rArr, 0, rookTable, rookOffsets[sq], rArr.Length);
+                Array.Copy(rArr, 0, rookTable,   rookOffsets[sq],   rArr.Length);
             }
 
-            // Precompute “attack-from” tables (target-centric)
-            ReadOnlySpan<int> KNIGHT = stackalloc int[] { +33, +31, +18, +14, -14, -18, -31, -33 };
-            ReadOnlySpan<int> KING = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
-            const int W_PAWN_L = +15, W_PAWN_R = +17;
-            const int B_PAWN_L = -15, B_PAWN_R = -17;
+            // Build (or optionally bake) attack-from tables:
+            var knightFrom = BuildKnightFrom();
+            var kingFrom   = BuildKingFrom();
+            var wpFrom     = BuildWhitePawnFrom();
+            var bpFrom     = BuildBlackPawnFrom();
 
-            for (UnsafeSquare0x88 t88 = (UnsafeSquare0x88)0; t88.Value < 128; t88++)
-            {
-                if (Squares.IsOffboard(t88)) continue;
-
-                var t64 = (Square0x64)(Square0x88)t88;
-                ulong kmask = 0, Kmask = 0, wpmask = 0, bpmask = 0;
-
-                foreach (int d in KNIGHT)
-                {
-                    var from = new UnsafeSquare0x88(t88.Value - d);
-                    if (!Squares.IsOffboard(from))
-                    {
-                        var s64 = (Square0x64)(Square0x88)from;
-                        kmask |= 1UL << (int)s64;
-                    }
-                }
-
-                foreach (int d in KING)
-                {
-                    var from = new UnsafeSquare0x88(t88.Value - d);
-                    if (!Squares.IsOffboard(from))
-                    {
-                        var s64 = (Square0x64)(Square0x88)from;
-                        Kmask |= 1UL << (int)s64;
-                    }
-                }
-
-                // White pawn attack-from
-                {
-                    var fromL = new UnsafeSquare0x88(t88.Value - W_PAWN_L);
-                    if (!Squares.IsOffboard(fromL))
-                    {
-                        var s64 = (Square0x64)(Square0x88)fromL;
-                        wpmask |= 1UL << (int)s64;
-                    }
-                    var fromR = new UnsafeSquare0x88(t88.Value - W_PAWN_R);
-                    if (!Squares.IsOffboard(fromR))
-                    {
-                        var s64 = (Square0x64)(Square0x88)fromR;
-                        wpmask |= 1UL << (int)s64;
-                    }
-                }
-
-                // Black pawn attack-from
-                {
-                    var fromL = new UnsafeSquare0x88(t88.Value - B_PAWN_L);
-                    if (!Squares.IsOffboard(fromL))
-                    {
-                        var s64 = (Square0x64)(Square0x88)fromL;
-                        bpmask |= 1UL << (int)s64;
-                    }
-                    var fromR = new UnsafeSquare0x88(t88.Value - B_PAWN_R);
-                    if (!Squares.IsOffboard(fromR))
-                    {
-                        var s64 = (Square0x64)(Square0x88)fromR;
-                        bpmask |= 1UL << (int)s64;
-                    }
-                }
-
-                knightAttackTable[(int)t64] = kmask;
-                kingAttackTable[(int)t64] = Kmask;
-                whitePawnAttackFrom[(int)t64] = wpmask;
-                blackPawnAttackFrom[(int)t64] = bpmask;
-            }
-
-#if DEBUG
-            // --- DEBUG SANITY CHECKS ---
-            for (int sq = 0; sq < 64; sq++)
-            {
-                int bBits = BishopIndexBits[sq];
-                int rBits = RookIndexBits[sq];
-                int bLen = 1 << bBits;
-                int rLen = 1 << rBits;
-
-                System.Diagnostics.Debug.Assert(
-                    bLen == (bishopOffsets[sq + 1] - bishopOffsets[sq]),
-                    $"[DEBUG] Bishop table size mismatch at {sq}: expected {bLen}, got {bishopOffsets[sq + 1] - bishopOffsets[sq]}");
-
-                System.Diagnostics.Debug.Assert(
-                    rLen == (rookOffsets[sq + 1] - rookOffsets[sq]),
-                    $"[DEBUG] Rook table size mismatch at {sq}: expected {rLen}, got {rookOffsets[sq + 1] - rookOffsets[sq]}");
-
-                bool bHas = false, rHas = false;
-                for (int i = 0; i < bLen; i++)
-                    if (bishopTable[bishopOffsets[sq] + i] != 0) { bHas = true; break; }
-                for (int i = 0; i < rLen; i++)
-                    if (rookTable[rookOffsets[sq] + i] != 0) { rHas = true; break; }
-                System.Diagnostics.Debug.Assert(bHas, $"[DEBUG] BishopTable empty at square {sq}");
-                System.Diagnostics.Debug.Assert(rHas, $"[DEBUG] RookTable empty at square {sq}");
-            }
-#endif
-
-#if FKLIFT_BAKE
-            // After tables are built and Current*Magics are set:
-            MaybeWriteBakedToFile(
-                bishopOffsets, bishopTable,
-                rookOffsets, rookTable,
-                CurrentBishopMagics, CurrentRookMagics);
-#endif
+            MaybeWriteBakedToFile(bishopOffsets, bishopTable, rookOffsets, rookTable, CurrentBishopMagics, CurrentRookMagics);
 
             return new EngineTables(
-                knightAttackTable,
-                kingAttackTable,
-                whitePawnAttackFrom,
-                blackPawnAttackFrom,
-                bishopOffsets,
-                bishopTable,
-                rookOffsets,
-                rookTable,
+                knightFrom, kingFrom, wpFrom, bpFrom,
+                bishopOffsets, bishopTable,
+                rookOffsets,   rookTable,
                 zobrist ?? Zobrist.CreateDeterministic());
+
+#else
+            // Zero startup work: use baked magics, offsets, and packed tables.
+            CurrentBishopMagics = BishopMagics;
+            CurrentRookMagics = RookMagics;
+
+            // Compute attack-from tables with the per-piece builders (lightweight and deterministic)
+            var knightFrom = BuildKnightFrom();
+            var kingFrom = BuildKingFrom();
+            var wpFrom = BuildWhitePawnFrom();
+            var bpFrom = BuildBlackPawnFrom();
+
+            return new EngineTables(
+                knightFrom,
+                kingFrom,
+                wpFrom,
+                bpFrom,
+                BakedBishopOffsets,
+                BakedBishopTable,
+                BakedRookOffsets,
+                BakedRookTable,
+                zobrist ?? Zobrist.CreateDeterministic());
+#endif
         }
 
         // =========================
@@ -416,61 +328,27 @@ namespace Forklift.Core
                 $"Failed to find magic for {(bishop ? "B" : "R")} sq={sq} after MAX_ATTEMPTS; check masks/numbering.");
         }
 
-        [System.Diagnostics.Conditional("FKLIFT_BAKE")]
-        private static void DumpMagicsToConsole(string name, ulong[] magics)
+        private static void PrecomputeAttackFrom(ulong[] knight, ulong[] king, ulong[] wp, ulong[] bp)
         {
-            var sb = new System.Text.StringBuilder();
-            sb.Append("private static readonly ulong[] ").Append(name).Append(" = [\n    ");
-            for (int i = 0; i < 64; i++)
-            {
-                sb.Append("0x").Append(magics[i].ToString("X16")).Append("UL");
-                sb.Append(i == 63 ? "\n" : (i % 8 == 7 ? ",\n    " : ", "));
-            }
-            sb.Append("];\n");
-            Console.WriteLine(sb.ToString());
-        }
+            ReadOnlySpan<int> KNIGHT = stackalloc[] { +33,+31,+18,+14,-14,-18,-31,-33 };
+            ReadOnlySpan<int> KING   = stackalloc[] { +1,-1,+16,-16,+15,+17,-15,-17 };
+            const int W_L=+15, W_R=+17, B_L=-15, B_R=-17;
 
-        [System.Diagnostics.Conditional("FKLIFT_BAKE")]
-        public static void DumpAttackTablesToConsole(int[] bishopOffsets, ulong[] bishopTable, int[] rookOffsets, ulong[] rookTable)
-        {
-            var sb = new System.Text.StringBuilder();
-            // BishopOffsets
-            sb.Append("private static readonly int[] BishopOffsets = [").Append(bishopOffsets.Length).Append("] {\n    ");
-            for (int i = 0; i < bishopOffsets.Length; i++)
+            for (UnsafeSquare0x88 t88 = (UnsafeSquare0x88)0; t88.Value < 128; t88++)
             {
-                sb.Append(bishopOffsets[i]);
-                sb.Append(i == bishopOffsets.Length - 1 ? "\n" : (i % 8 == 7 ? ",\n    " : ", "));
-            }
-            sb.Append("};\n\n");
+                if (Squares.IsOffboard(t88)) continue;
+                var t64 = (Square0x64)(Square0x88)t88;
 
-            // BishopTable
-            sb.Append("private static readonly ulong[] BishopTable = [").Append(bishopTable.Length).Append("] {\n    ");
-            for (int i = 0; i < bishopTable.Length; i++)
-            {
-                sb.Append("0x").Append(bishopTable[i].ToString("X16")).Append("UL");
-                sb.Append(i == bishopTable.Length - 1 ? "\n" : (i % 4 == 3 ? ",\n    " : ", "));
-            }
-            sb.Append("];\n\n");
+                ulong kmask=0, Kmask=0, wpmask=0, bpmask=0;
+                foreach (var d in KNIGHT){ var f = new UnsafeSquare0x88(t88.Value - d); if (!Squares.IsOffboard(f)) kmask |= 1UL << (int)(Square0x64)(Square0x88)f; }
+                foreach (var d in KING)  { var f = new UnsafeSquare0x88(t88.Value - d); if (!Squares.IsOffboard(f)) Kmask |= 1UL << (int)(Square0x64)(Square0x88)f; }
+                { var f=new UnsafeSquare0x88(t88.Value - W_L); if(!Squares.IsOffboard(f)) wpmask |= 1UL << (int)(Square0x64)(Square0x88)f; }
+                { var f=new UnsafeSquare0x88(t88.Value - W_R); if(!Squares.IsOffboard(f)) wpmask |= 1UL << (int)(Square0x64)(Square0x88)f; }
+                { var f=new UnsafeSquare0x88(t88.Value - B_L); if(!Squares.IsOffboard(f)) bpmask |= 1UL << (int)(Square0x64)(Square0x88)f; }
+                { var f=new UnsafeSquare0x88(t88.Value - B_R); if(!Squares.IsOffboard(f)) bpmask |= 1UL << (int)(Square0x64)(Square0x88)f; }
 
-            // RookOffsets
-            sb.Append("private static readonly int[] RookOffsets = [").Append(rookOffsets.Length).Append("] {\n    ");
-            for (int i = 0; i < rookOffsets.Length; i++)
-            {
-                sb.Append(rookOffsets[i]);
-                sb.Append(i == rookOffsets.Length - 1 ? "\n" : (i % 8 == 7 ? ",\n    " : ", "));
+                knight[(int)t64]=kmask; king[(int)t64]=Kmask; wp[(int)t64]=wpmask; bp[(int)t64]=bpmask;
             }
-            sb.Append("};\n\n");
-
-            // RookTable
-            sb.Append("private static readonly ulong[] RookTable = [").Append(rookTable.Length).Append("] {\n    ");
-            for (int i = 0; i < rookTable.Length; i++)
-            {
-                sb.Append("0x").Append(rookTable[i].ToString("X16")).Append("UL");
-                sb.Append(i == rookTable.Length - 1 ? "\n" : (i % 4 == 3 ? ",\n    " : ", "));
-            }
-            sb.Append("];\n\n");
-
-            Console.WriteLine(sb.ToString());
         }
 #endif
 
@@ -532,17 +410,123 @@ namespace Forklift.Core
             return attacks;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong[] BuildKnightFrom()
+        {
+            // Knight attack-from masks keyed by target (0x64)
+            ReadOnlySpan<int> DELTAS = stackalloc int[] { +33, +31, +18, +14, -14, -18, -31, -33 };
+            var table = new ulong[64];
+
+            for (int t = 0; t < 64; t++)
+            {
+                var t88 = Squares.ConvertTo0x88Index(new Square0x64(t));
+                ulong mask = 0UL;
+
+                for (int i = 0; i < DELTAS.Length; i++)
+                {
+                    var from = new UnsafeSquare0x88(t88.Value - DELTAS[i]);
+                    if (!Squares.IsOffboard(from))
+                    {
+                        var s64 = (Square0x64)(Square0x88)from;
+                        mask |= 1UL << s64.Value;
+                    }
+                }
+                table[t] = mask;
+            }
+            return table;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong[] BuildKingFrom()
+        {
+            // King attack-from masks keyed by target (0x64)
+            ReadOnlySpan<int> DELTAS = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
+            var table = new ulong[64];
+
+            for (int t = 0; t < 64; t++)
+            {
+                var t88 = Squares.ConvertTo0x88Index(new Square0x64(t));
+                ulong mask = 0UL;
+
+                for (int i = 0; i < DELTAS.Length; i++)
+                {
+                    var from = new UnsafeSquare0x88(t88.Value - DELTAS[i]);
+                    if (!Squares.IsOffboard(from))
+                    {
+                        var s64 = (Square0x64)(Square0x88)from;
+                        mask |= 1UL << s64.Value;
+                    }
+                }
+                table[t] = mask;
+            }
+            return table;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong[] BuildWhitePawnFrom()
+        {
+            // For a target t, white pawns that could attack t are at t-15 and t-17 (if on-board)
+            var table = new ulong[64];
+
+            for (int t = 0; t < 64; t++)
+            {
+                var t88 = Squares.ConvertTo0x88Index(new Square0x64(t));
+                ulong mask = 0UL;
+
+                var fromL = new UnsafeSquare0x88(t88.Value - 15);
+                if (!Squares.IsOffboard(fromL))
+                    mask |= 1UL << ((Square0x64)(Square0x88)fromL).Value;
+
+                var fromR = new UnsafeSquare0x88(t88.Value - 17);
+                if (!Squares.IsOffboard(fromR))
+                    mask |= 1UL << ((Square0x64)(Square0x88)fromR).Value;
+
+                table[t] = mask;
+            }
+            return table;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong[] BuildBlackPawnFrom()
+        {
+            // For a target t, black pawns that could attack t are at t+15 and t+17 (if on-board)
+            var table = new ulong[64];
+
+            for (int t = 0; t < 64; t++)
+            {
+                var t88 = Squares.ConvertTo0x88Index(new Square0x64(t));
+                ulong mask = 0UL;
+
+                var fromL = new UnsafeSquare0x88(t88.Value + 15);
+                if (!Squares.IsOffboard(fromL))
+                    mask |= 1UL << ((Square0x64)(Square0x88)fromL).Value;
+
+                var fromR = new UnsafeSquare0x88(t88.Value + 17);
+                if (!Squares.IsOffboard(fromR))
+                    mask |= 1UL << ((Square0x64)(Square0x88)fromR).Value;
+
+                table[t] = mask;
+            }
+            return table;
+        }
+
         // Write baked arrays to a .cs file when FKLIFT_BAKE=1 is set.
         // Optional: FKLIFT_BAKE_PATH overrides the output path (default: EngineTables.Baked.cs)
         private static void MaybeWriteBakedToFile(
-            int[] bishopOffsets, ulong[] /*unused*/ _bishopTable,
-            int[] rookOffsets, ulong[] /*unused*/ _rookTable,
+            int[] bishopOffsets, ulong[] bishopTable,
+            int[] rookOffsets, ulong[] rookTable,
             ulong[] bishopMagics, ulong[] rookMagics)
         {
             string path = Environment.GetEnvironmentVariable("FKLIFT_BAKE_PATH") ?? "EngineTables.Baked.cs";
-            var sb = new System.Text.StringBuilder();
+            var sb = new System.Text.StringBuilder(capacity: 1 << 22); // pre-size a bit (few MB)
 
             // Header
+            sb.AppendLine("// <auto-generated>");
+            sb.AppendLine("// This file was generated by FKLIFT_BAKE. Do not edit by hand.");
+            sb.AppendLine("// It contains baked magics, offsets, and packed attack tables.");
+            sb.AppendLine("// Rebuild with FKLIFT_BAKE=1 to regenerate.");
+            sb.AppendLine("// </auto-generated>");
+            sb.AppendLine();
             sb.AppendLine("#if !FKLIFT_BAKE");
             sb.AppendLine("namespace Forklift.Core");
             sb.AppendLine("{");
@@ -550,58 +534,68 @@ namespace Forklift.Core
             sb.AppendLine("    {");
 
             // Helpers with strict indentation
-            static void DumpU64(System.Text.StringBuilder b, string name, ulong[] data)
+            static void DumpU64(System.Text.StringBuilder b, string name, ulong[] data, int valuesPerLine = 4)
             {
                 const int headerIndent = 8;   // spaces before "private static ..."
                 const int valueIndent = 12;  // spaces before values
-                const int perLine = 4;   // 4 per line for ULONGlists
 
                 string hdrPad = new string(' ', headerIndent);
                 string valPad = new string(' ', valueIndent);
 
                 b.Append(hdrPad).Append("private static readonly ulong[] ").Append(name)
-                 .Append(" = new ulong[64] {").AppendLine();
+                .Append(" = [").AppendLine();
 
                 for (int i = 0; i < data.Length; i++)
                 {
-                    if (i % perLine == 0) b.Append(valPad);
+                    if (i % valuesPerLine == 0) b.Append(valPad);
                     b.Append("0x").Append(data[i].ToString("X16")).Append("UL");
                     if (i != data.Length - 1) b.Append(", ");
-                    if (i % perLine == perLine - 1 || i == data.Length - 1) b.AppendLine();
+                    if (i % valuesPerLine == valuesPerLine - 1 || i == data.Length - 1) b.AppendLine();
                 }
 
-                b.Append(hdrPad).AppendLine("};");
+                b.Append(hdrPad).AppendLine("];");
                 b.AppendLine();
             }
 
-            static void DumpI32(System.Text.StringBuilder b, string name, int[] data)
+            static void DumpI32(System.Text.StringBuilder b, string name, int[] data, int valuesPerLine = 16)
             {
                 const int headerIndent = 8;   // spaces before "private static ..."
                 const int valueIndent = 12;  // spaces before values
-                const int perLine = 16;  // 16 per line for INT lists
 
                 string hdrPad = new string(' ', headerIndent);
                 string valPad = new string(' ', valueIndent);
 
                 b.Append(hdrPad).Append("private static readonly int[] ").Append(name)
-                 .Append(" = new int[").Append(data.Length).Append("] {").AppendLine();
+                .Append(" = [").AppendLine();
 
                 for (int i = 0; i < data.Length; i++)
                 {
-                    if (i % perLine == 0) b.Append(valPad);
+                    if (i % valuesPerLine == 0) b.Append(valPad);
                     b.Append(data[i]);
                     if (i != data.Length - 1) b.Append(", ");
-                    if (i % perLine == perLine - 1 || i == data.Length - 1) b.AppendLine();
+                    if (i % valuesPerLine == valuesPerLine - 1 || i == data.Length - 1) b.AppendLine();
                 }
 
-                b.Append(hdrPad).AppendLine("};");
+                b.Append(hdrPad).AppendLine("];");
                 b.AppendLine();
             }
 
+            // Emit counts as constants (handy sanity checks in DEBUG)
+            sb.AppendLine("        // Packed table totals for sanity checks");
+            sb.Append("        private const int BakedBishopTableTotal = ").Append(bishopTable.Length).AppendLine(";");
+            sb.Append("        private const int BakedRookTableTotal   = ").Append(rookTable.Length).AppendLine(";");
+            sb.AppendLine();
+
+            // Emit arrays
             DumpU64(sb, "BishopMagics", bishopMagics);
             DumpU64(sb, "RookMagics", rookMagics);
+
             DumpI32(sb, "BakedBishopOffsets", bishopOffsets);
             DumpI32(sb, "BakedRookOffsets", rookOffsets);
+
+            // Packed tables (these remove startup work entirely)
+            DumpU64(sb, "BakedBishopTable", bishopTable);
+            DumpU64(sb, "BakedRookTable", rookTable);
 
             // Footer
             sb.AppendLine("    }");
