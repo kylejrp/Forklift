@@ -193,8 +193,12 @@ public readonly struct AlgebraicNotation
     // Private ctor: only the cache builds these.
     private AlgebraicNotation(string value) => Value = value;
 
-    // 64 singletons, indexed by rank*8 + file (rank/file are 0..7)
+    /// <summary>
+    /// 64 singletons, indexed by rank*8 + file (rank/file are 0..7).
+    /// This array is pinned in static storage; do not copy or stack-allocate.
+    /// </summary>
     private static readonly AlgebraicNotation[] Cache = BuildCache();
+
     private static AlgebraicNotation[] BuildCache()
     {
         var arr = new AlgebraicNotation[64];
@@ -207,7 +211,11 @@ public readonly struct AlgebraicNotation
         return arr;
     }
 
-    // Factory: from "e4" style strings (returns cached instance)
+    /// <summary>
+    /// Factory: from "e4" style strings (returns cached instance by ref readonly).
+    /// Do not copy or stack-allocate; always use as ref readonly.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static ref readonly AlgebraicNotation From(string value)
     {
         if (value is null || value.Length != 2) throw new ArgumentException("Invalid algebraic notation.", nameof(value));
@@ -217,13 +225,23 @@ public readonly struct AlgebraicNotation
         return ref Cache[(r << 3) | f];
     }
 
-    // Factories: from square indices (also cached)
+    /// <summary>
+    /// Factory: from Square0x88 (returns cached instance by ref readonly).
+    /// Do not copy or stack-allocate; always use as ref readonly.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static ref readonly AlgebraicNotation From(Square0x88 sq88)
     {
         int f = sq88.Value & 0xF;
         int r = sq88.Value >> 4;
         return ref Cache[(r << 3) | f];
     }
+
+    /// <summary>
+    /// Factory: from Square0x64 (returns cached instance by ref readonly).
+    /// Do not copy or stack-allocate; always use as ref readonly.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static ref readonly AlgebraicNotation From(Square0x64 sq64)
     {
         int idx = sq64.Value; // 0..63
