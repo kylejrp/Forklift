@@ -12,7 +12,7 @@ namespace Forklift.Testing
             var board = BoardFactory.FromFenOrStart("4r3/8/8/8/8/8/4R3/4K3 w - - 0 1");
 
             // Act: Generate all legal moves for the pinned piece (white rook on e2).
-            var fromSquare = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e2"));
+            var fromSquare = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("e2"));
             var legalMoves = board.GenerateLegal()
                                   .Where(move => move.From88.Value == fromSquare.Value)
                                   .ToList();

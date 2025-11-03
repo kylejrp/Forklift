@@ -161,12 +161,12 @@ public sealed class Board
         public static Move EnPassant(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
             => new(from, to, mover, captured, Piece.Empty, MoveKind.EnPassant);
 
-        private static readonly AlgebraicNotation WhiteKingFromAlg = new AlgebraicNotation("e1");
-        private static readonly AlgebraicNotation WhiteKingToKingSideAlg = new AlgebraicNotation("g1");
-        private static readonly AlgebraicNotation WhiteKingToQueenSideAlg = new AlgebraicNotation("c1");
-        private static readonly AlgebraicNotation BlackKingFromAlg = new AlgebraicNotation("e8");
-        private static readonly AlgebraicNotation BlackKingToKingSideAlg = new AlgebraicNotation("g8");
-        private static readonly AlgebraicNotation BlackKingToQueenSideAlg = new AlgebraicNotation("c8");
+        private static readonly AlgebraicNotation WhiteKingFromAlg = AlgebraicNotation.From("e1");
+        private static readonly AlgebraicNotation WhiteKingToKingSideAlg = AlgebraicNotation.From("g1");
+        private static readonly AlgebraicNotation WhiteKingToQueenSideAlg = AlgebraicNotation.From("c1");
+        private static readonly AlgebraicNotation BlackKingFromAlg = AlgebraicNotation.From("e8");
+        private static readonly AlgebraicNotation BlackKingToKingSideAlg = AlgebraicNotation.From("g8");
+        private static readonly AlgebraicNotation BlackKingToQueenSideAlg = AlgebraicNotation.From("c8");
 
         public static Move CastleKingSide(Color side)
         {
@@ -240,16 +240,16 @@ public sealed class Board
 
 
     // Hoisted castling squares for performance
-    private static readonly Square0x88 WhiteKingFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1"));
-    private static readonly Square0x88 WhiteKingSideRookFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"));
-    private static readonly Square0x88 WhiteKingSideRookTo88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f1"));
-    private static readonly Square0x88 WhiteQueenSideRookFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"));
-    private static readonly Square0x88 WhiteQueenSideRookTo88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d1"));
-    private static readonly Square0x88 BlackKingFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8"));
-    private static readonly Square0x88 BlackKingSideRookFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"));
-    private static readonly Square0x88 BlackKingSideRookTo88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f8"));
-    private static readonly Square0x88 BlackQueenSideRookFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"));
-    private static readonly Square0x88 BlackQueenSideRookTo88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d8"));
+    private static readonly Square0x88 WhiteKingFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("e1"));
+    private static readonly Square0x88 WhiteKingSideRookFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h1"));
+    private static readonly Square0x88 WhiteKingSideRookTo88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("f1"));
+    private static readonly Square0x88 WhiteQueenSideRookFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("a1"));
+    private static readonly Square0x88 WhiteQueenSideRookTo88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("d1"));
+    private static readonly Square0x88 BlackKingFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("e8"));
+    private static readonly Square0x88 BlackKingSideRookFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h8"));
+    private static readonly Square0x88 BlackKingSideRookTo88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("f8"));
+    private static readonly Square0x88 BlackQueenSideRookFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("a8"));
+    private static readonly Square0x88 BlackQueenSideRookTo88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("d8"));
 
     public Undo MakeMove(in Move m)
     {
@@ -1085,8 +1085,8 @@ public sealed class Board
             return null;
 
         // Parse squares
-        var fromAlg = new AlgebraicNotation(uci.Substring(0, 2));
-        var toAlg = new AlgebraicNotation(uci.Substring(2, 2));
+        var fromAlg = AlgebraicNotation.From(uci.Substring(0, 2));
+        var toAlg = AlgebraicNotation.From(uci.Substring(2, 2));
         var fromSq = Squares.ParseAlgebraicTo0x88(fromAlg);
         var toSq = Squares.ParseAlgebraicTo0x88(toAlg);
 

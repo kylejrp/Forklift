@@ -144,7 +144,7 @@ namespace Forklift.Testing
         [MemberData(nameof(ValidSquareValues))]
         public void Comprehensive_Algebraic_To_0x64(int idx)
         {
-            var algebraic = new AlgebraicNotation(KnownGoodAlgebraic[idx]);
+            var algebraic = AlgebraicNotation.From(KnownGoodAlgebraic[idx]);
             var square64 = Squares.ParseAlgebraicTo0x64(algebraic);
             Assert.Equal(idx, square64.Value);
         }
@@ -162,7 +162,7 @@ namespace Forklift.Testing
         [MemberData(nameof(ValidSquareValues))]
         public void Comprehensive_Algebraic_To_0x88(int idx)
         {
-            var algebraic = new AlgebraicNotation(KnownGoodAlgebraic[idx]);
+            var algebraic = AlgebraicNotation.From(KnownGoodAlgebraic[idx]);
             var square88 = Squares.ParseAlgebraicTo0x88(algebraic);
             Assert.Equal(KnownGoodSquare0x88[idx].Value, square88.Value);
         }
@@ -181,7 +181,7 @@ namespace Forklift.Testing
         [MemberData(nameof(ValidSquareValues))]
         public void RoundTrip_Algebraic_To_0x64_Back(int idx)
         {
-            var algebraic = new AlgebraicNotation(KnownGoodAlgebraic[idx]);
+            var algebraic = AlgebraicNotation.From(KnownGoodAlgebraic[idx]);
             var to64 = Squares.ParseAlgebraicTo0x64(algebraic);
             var back = Squares.ToAlgebraic(to64);
             Assert.Equal(KnownGoodAlgebraic[idx], back.Value);
@@ -191,7 +191,7 @@ namespace Forklift.Testing
         [MemberData(nameof(ValidSquareValues))]
         public void RoundTrip_Algebraic_To_0x88_Back(int idx)
         {
-            var algebraic = new AlgebraicNotation(KnownGoodAlgebraic[idx]);
+            var algebraic = AlgebraicNotation.From(KnownGoodAlgebraic[idx]);
             var to88 = Squares.ParseAlgebraicTo0x88(algebraic);
             var back = Squares.ToAlgebraic(to88);
             Assert.Equal(KnownGoodAlgebraic[idx], back.Value);
