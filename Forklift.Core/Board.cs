@@ -264,6 +264,18 @@ public sealed class Board
         Square0x88? CastleRookTo88);
 
 
+    // Hoisted castling squares for performance
+    private static readonly Square0x88 WhiteKingFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1"));
+    private static readonly Square0x88 WhiteKingSideRookFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"));
+    private static readonly Square0x88 WhiteKingSideRookTo88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f1"));
+    private static readonly Square0x88 WhiteQueenSideRookFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"));
+    private static readonly Square0x88 WhiteQueenSideRookTo88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d1"));
+    private static readonly Square0x88 BlackKingFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8"));
+    private static readonly Square0x88 BlackKingSideRookFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"));
+    private static readonly Square0x88 BlackKingSideRookTo88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f8"));
+    private static readonly Square0x88 BlackQueenSideRookFrom88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"));
+    private static readonly Square0x88 BlackQueenSideRookTo88 = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d8"));
+
     public Undo MakeMove(in Move m)
     {
 #if DEBUG
@@ -323,24 +335,24 @@ public sealed class Board
         // own rook moved from corner
         if (m.Mover == Piece.WhiteRook)
         {
-            if (m.From88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"))) newCR &= ~CastlingRightsFlags.WhiteQueen;
-            if (m.From88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"))) newCR &= ~CastlingRightsFlags.WhiteKing;
+            if (m.From88 == WhiteQueenSideRookFrom88) newCR &= ~CastlingRightsFlags.WhiteQueen;
+            if (m.From88 == WhiteKingSideRookFrom88) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
         if (m.Mover == Piece.BlackRook)
         {
-            if (m.From88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"))) newCR &= ~CastlingRightsFlags.BlackQueen;
-            if (m.From88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"))) newCR &= ~CastlingRightsFlags.BlackKing;
+            if (m.From88 == BlackQueenSideRookFrom88) newCR &= ~CastlingRightsFlags.BlackQueen;
+            if (m.From88 == BlackKingSideRookFrom88) newCR &= ~CastlingRightsFlags.BlackKing;
         }
         // captured rook on its corner
         if (undo.Captured == Piece.WhiteRook)
         {
-            if (m.To88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"))) newCR &= ~CastlingRightsFlags.WhiteQueen;
-            if (m.To88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"))) newCR &= ~CastlingRightsFlags.WhiteKing;
+            if (m.To88 == WhiteQueenSideRookFrom88) newCR &= ~CastlingRightsFlags.WhiteQueen;
+            if (m.To88 == WhiteKingSideRookFrom88) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
         if (undo.Captured == Piece.BlackRook)
         {
-            if (m.To88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"))) newCR &= ~CastlingRightsFlags.BlackQueen;
-            if (m.To88 == Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"))) newCR &= ~CastlingRightsFlags.BlackKing;
+            if (m.To88 == BlackQueenSideRookFrom88) newCR &= ~CastlingRightsFlags.BlackQueen;
+            if (m.To88 == BlackKingSideRookFrom88) newCR &= ~CastlingRightsFlags.BlackKing;
         }
         if (newCR != CastlingRights) SetCastlingRights(newCR); // toggles ZKey appropriately
 
@@ -370,26 +382,26 @@ public sealed class Board
             {
                 if (m.Kind == MoveKind.CastleKing)
                 {
-                    rFrom = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h1"));
-                    rTo = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f1"));
+                    rFrom = WhiteKingSideRookFrom88;
+                    rTo = WhiteKingSideRookTo88;
                 }
                 else
                 {
-                    rFrom = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a1"));
-                    rTo = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d1"));
+                    rFrom = WhiteQueenSideRookFrom88;
+                    rTo = WhiteQueenSideRookTo88;
                 }
             }
             else
             {
                 if (m.Kind == MoveKind.CastleKing)
                 {
-                    rFrom = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("h8"));
-                    rTo = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("f8"));
+                    rFrom = BlackKingSideRookFrom88;
+                    rTo = BlackKingSideRookTo88;
                 }
                 else
                 {
-                    rFrom = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("a8"));
-                    rTo = Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("d8"));
+                    rFrom = BlackQueenSideRookFrom88;
+                    rTo = BlackQueenSideRookTo88;
                 }
             }
 
