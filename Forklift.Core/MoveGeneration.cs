@@ -11,18 +11,24 @@ namespace Forklift.Core
     /// </summary>
     public static class MoveGeneration
     {
-        // Directions for 0x88 deltas (rook, bishop, king/knight use lookup tables)
+        // Restore direction arrays for slider move generation
         private static readonly int[] RookDirs = { +1, -1, +16, -16 };
         private static readonly int[] BishopDirs = { +15, +17, -15, -17 };
         private static readonly int[] QueenDirs = { +1, -1, +16, -16, +15, +17, -15, -17 };
 
-        // Pawn capture deltas (0x88)
-        private static readonly int[] WhitePawnCaps = { +15, +17 };
-        private static readonly int[] BlackPawnCaps = { -15, -17 };
-
-        // Promotion piece sets (no per-call array allocation)
-        private static readonly Piece[] WhitePromos = { Piece.WhiteQueen, Piece.WhiteRook, Piece.WhiteBishop, Piece.WhiteKnight };
-        private static readonly Piece[] BlackPromos = { Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight };
+        // Precomputed pawn move tables
+        private static readonly int[] PawnPushDelta = { +16, -16 }; // [White, Black]
+        private static readonly int[] PawnDoublePushDelta = { +32, -32 }; // [White, Black]
+        private static readonly int[][] PawnCaptureDeltas = new int[][] {
+            new int[] { +15, +17 }, // White
+            new int[] { -15, -17 }  // Black
+        };
+        private static readonly int[] PromotionRank = { 6, 1 }; // [White, Black]
+        private static readonly int[] DoublePushStartRank = { 1, 6 }; // [White, Black]
+        private static readonly Piece[][] PromotionPieces = new Piece[][] {
+            new Piece[] { Piece.WhiteQueen, Piece.WhiteRook, Piece.WhiteBishop, Piece.WhiteKnight },
+            new Piece[] { Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight }
+        };
 
         public static Move[] GeneratePseudoLegal(Board board, Color sideToMove)
         {
@@ -82,44 +88,38 @@ namespace Forklift.Core
         // --- Pawns (pushes, captures, promotions; EP is generated separately) -------------
         private static void GeneratePawnMoves(Board board, Span<Move> moves, ref int w, Color sideToMove)
         {
-            bool white = sideToMove.IsWhite();
-            Piece pawn = white ? Piece.WhitePawn : Piece.BlackPawn;
+            int colorIdx = sideToMove.IsWhite() ? 0 : 1;
+            Piece pawn = colorIdx == 0 ? Piece.WhitePawn : Piece.BlackPawn;
             ulong pawns = board.GetPieceBitboard(pawn);
-
-            // Occupancy used for forward-block checks; look it up once.
             ulong occAll = board.GetAllOccupancy();
 
             while (pawns != 0)
             {
                 int s64 = BitOperations.TrailingZeroCount(pawns);
                 pawns &= pawns - 1;
-
                 var from64 = new Square0x64(s64);
                 var from88 = Squares.ConvertTo0x88Index(from64);
                 int rank = from88 >> 4;
 
                 // Forward one
-                UnsafeSquare0x88 one = white ? from88 + 16 : from88 - 16;
+                UnsafeSquare0x88 one = from88 + PawnPushDelta[colorIdx];
                 if (!Squares.IsOffboard(one))
                 {
                     var one88 = (Square0x88)one;
                     if (board.At(one88) == Piece.Empty)
                     {
-                        // Promotion push
-                        if ((white && rank == 6) || (!white && rank == 1))
+                        if (rank == PromotionRank[colorIdx])
                         {
-                            var promos = white ? WhitePromos : BlackPromos;
-                            for (int i = 0; i < promos.Length; i++)
-                                Emit(ref moves, ref w, Move.PromotionPush(from88, one88, pawn, promos[i]));
+                            foreach (var promo in PromotionPieces[colorIdx])
+                                Emit(ref moves, ref w, Move.PromotionPush(from88, one88, pawn, promo));
                         }
                         else
                         {
                             Emit(ref moves, ref w, Move.Normal(from88, one88, pawn));
-
-                            // Double push from start rank (only if square two ahead empty)
-                            if (white ? (rank == 1) : (rank == 6))
+                            // Double push from start rank (lookup table)
+                            if (rank == DoublePushStartRank[colorIdx])
                             {
-                                UnsafeSquare0x88 two = white ? (one + 16) : (one - 16);
+                                UnsafeSquare0x88 two = one + PawnPushDelta[colorIdx];
                                 if (!Squares.IsOffboard(two) && board.At((Square0x88)two) == Piece.Empty)
                                     Emit(ref moves, ref w, Move.Normal(from88, (Square0x88)two, pawn));
                             }
@@ -128,22 +128,18 @@ namespace Forklift.Core
                 }
 
                 // Captures (no EP here)
-                var caps = white ? WhitePawnCaps : BlackPawnCaps;
+                var caps = PawnCaptureDeltas[colorIdx];
                 for (int i = 0; i < caps.Length; i++)
                 {
                     var toUnsafe = new UnsafeSquare0x88(from88.Value + caps[i]);
                     if (Squares.IsOffboard(toUnsafe)) continue;
-
                     var to88 = (Square0x88)toUnsafe;
                     var target = board.At(to88);
-                    if (target == Piece.Empty || target.IsWhite == white) continue;
-
-                    // Promotion capture
-                    if ((white && rank == 6) || (!white && rank == 1))
+                    if (target == Piece.Empty || target.IsWhite == (colorIdx == 0)) continue;
+                    if (rank == PromotionRank[colorIdx])
                     {
-                        var promos = white ? WhitePromos : BlackPromos;
-                        for (int p = 0; p < promos.Length; p++)
-                            Emit(ref moves, ref w, Move.PromotionCapture(from88, to88, pawn, target, promos[p]));
+                        foreach (var promo in PromotionPieces[colorIdx])
+                            Emit(ref moves, ref w, Move.PromotionCapture(from88, to88, pawn, target, promo));
                     }
                     else
                     {
