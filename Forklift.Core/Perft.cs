@@ -195,6 +195,19 @@ namespace Forklift.Core
             for (int i = 0; i < 128; i++)
                 preOcc[i] = board.At((Square0x88)i) != Piece.Empty;
 
+            // Cache post-move occupancy as a bitboard (0x88 squares mapped to bits 0..63)
+            ulong occAfter = board.GetAllOccupancy();
+            // Toggle from88 (remove), to88 (add), epRemoved (remove if present)
+            int from64 = (int)(Square0x64)Squares.ConvertTo0x64Index(from88);
+            int to64 = (int)(Square0x64)Squares.ConvertTo0x64Index(to88);
+            occAfter &= ~(1UL << from64);
+            occAfter |= (1UL << to64);
+            if (epRemoved.HasValue)
+            {
+                int ep64 = (int)(Square0x64)Squares.ConvertTo0x64Index(epRemoved.Value);
+                occAfter &= ~(1UL << ep64);
+            }
+
             // Helper: is piece a slider matching direction?
             bool PieceMatchesDir(Piece p, int dir)
             {
@@ -224,7 +237,7 @@ namespace Forklift.Core
             // Scan from the opponent king outward along all 8 rays.
             foreach (int dir in DIRS_ALL)
             {
-                // Walk until first occupied AFTER the move
+                // Walk until first occupied AFTER the move using bitboard
                 var cur = (UnsafeSquare0x88)k88;
                 Square0x88? firstOcc = null;
                 while (true)
@@ -232,14 +245,8 @@ namespace Forklift.Core
                     cur += dir;
                     if (Squares.IsOffboard(cur)) break;
                     var s = (Square0x88)cur;
-
-                    // Compute occupancy after the move using cached preOcc and toggles
-                    bool occAfter = preOcc[(int)s];
-                    if (s == from88) occAfter = false;
-                    if (s == to88) occAfter = true;
-                    if (epRemoved.HasValue && s == epRemoved.Value) occAfter = false;
-
-                    if (occAfter)
+                    int s64 = (int)(Square0x64)Squares.ConvertTo0x64Index(s);
+                    if ((occAfter & (1UL << s64)) != 0)
                     {
                         firstOcc = s;
                         break;
@@ -279,7 +286,7 @@ namespace Forklift.Core
 
                 // Now, AFTER the move the first piece must be a same-side slider in this dir.
                 var sliderSq = firstOcc.Value;
-                var sliderPc = board.At(sliderSq); // piece identity doesn’t change by moving the blocker
+                var sliderPc = board.At(sliderSq); // mailbox read only once
                 if (!PieceMatchesDir(sliderPc, dir)) continue;
 
                 // If we move TO a square that still lies between king and slider along this dir,
