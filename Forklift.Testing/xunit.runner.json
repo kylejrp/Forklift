@@ -1,0 +1,7 @@
+{
+  "diagnosticMessages": true,
+  "preEnumerateTheories": true,
+  "parallelizeTestCollections": true,
+  "maxParallelThreads": 0,
+  "longRunningTestSeconds": 5
+}

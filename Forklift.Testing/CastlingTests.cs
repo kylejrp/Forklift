@@ -19,27 +19,24 @@ namespace Forklift.Testing
         public void CannotCastleThroughCheck_Or_WhileInCheck(string fen, bool canCastleQueenSide, bool canCastleKingSide)
         {
             var b = BoardFactory.FromFenOrStart(fen);
+            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
+            var moves = b.GenerateLegal(buf);
 
-            var legals = b.GenerateLegal().ToList();
+            bool foundKingSide = false, foundQueenSide = false;
+            for (int i = 0; i < moves.Length; i++)
+            {
+                ref readonly var m = ref moves[i];
+                if (m.Mover == Piece.WhiteKing)
+                {
+                    foundKingSide |= m.Kind == Board.MoveKind.CastleKing;
+                    foundQueenSide |= m.Kind == Board.MoveKind.CastleQueen;
+                }
+            }
 
-            if (canCastleKingSide)
-            {
-                legals.Should().Contain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleKing);
-            }
-            else
-            {
-                legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleKing);
-            }
-
-            if (canCastleQueenSide)
-            {
-                legals.Should().Contain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleQueen);
-            }
-            else
-            {
-                legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleQueen);
-            }
+            foundKingSide.Should().Be(canCastleKingSide);
+            foundQueenSide.Should().Be(canCastleQueenSide);
         }
+
 
         [Fact]
         public void CastlingRightsClear_When_KingMoves()

@@ -13,14 +13,26 @@ namespace Forklift.Testing
             return b.WhiteKingCount == 1 && b.BlackKingCount == 1;
         }
 
-        [Property(MaxTest = 100)]
+        [Property(MaxTest = 100, EndSize = 60)]
         public bool LegalMovesNeverLeaveKingInCheck(BoardGen.LegalPosition pos)
         {
             var b = pos.Value;
-            foreach (var mv in b.GenerateLegal())
+
+            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
+            var moves = b.GenerateLegal(buf);
+
+            // Optional micro-guard for pathological positions:
+            // if (moves.Length > 64) return true;
+
+            for (int i = 0; i < moves.Length; i++)
             {
+                var mv = moves[i];
                 var u = b.MakeMove(mv);
+
+                // This check duplicates the generator’s legality filter.
+                // Keep if you explicitly want to *verify* the invariant; comment out for speed.
                 bool ok = !b.InCheck(b.SideToMove.Flip());
+
                 b.UnmakeMove(mv, u);
                 if (!ok) return false;
             }

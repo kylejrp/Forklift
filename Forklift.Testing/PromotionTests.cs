@@ -8,12 +8,20 @@ namespace Forklift.Testing
         [Fact]
         public void Promotion_Generates_AllFour_Pieces()
         {
-            // White pawn on a7, empty a8 -> 4 promotion pushes
             var b = BoardFactory.FromFenOrStart("8/P7/8/8/8/8/8/7k w - - 0 1");
-            var promos = b.GenerateLegal().Where(m => m.Kind == Board.MoveKind.Promotion).ToList();
-            promos.Select(m => m.Promotion).Should().BeEquivalentTo(
+            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
+            var moves = b.GenerateLegal(buf);
+
+            Span<Piece> found = stackalloc Piece[4];
+            int n = 0;
+            for (int i = 0; i < moves.Length; i++)
+                if (moves[i].Kind == Board.MoveKind.Promotion)
+                    found[n++] = moves[i].Promotion;
+
+            found[..n].ToArray().Should().BeEquivalentTo(
                 new[] { Piece.WhiteQueen, Piece.WhiteRook, Piece.WhiteBishop, Piece.WhiteKnight });
         }
+
 
         [Fact]
         public void PromotionCapture_Generates_AllFour_Pieces()
