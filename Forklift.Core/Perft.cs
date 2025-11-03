@@ -28,9 +28,28 @@ namespace Forklift.Core
             return nodes;
         }
 
-        public static IReadOnlyList<(string moveUci, long nodes)> Divide(Board b, int depth)
+        public struct DivideMove
         {
-            var acc = new List<(string moveUci, long nodes)>();
+            public byte From88;
+            public byte To88;
+            public Piece Promotion; // Piece.Empty if no promotion
+            public long Nodes;
+
+            public string MoveUci
+            {
+                get
+                {
+                    var fromAlg = Squares.ToAlgebraic((Square0x88)From88).Value;
+                    var toAlg = Squares.ToAlgebraic((Square0x88)To88).Value;
+                    string promo = Promotion != Piece.Empty ? char.ToLower(Piece.ToFENChar((Piece)Promotion)).ToString() : string.Empty;
+                    return fromAlg + toAlg + promo;
+                }
+            }
+        }
+
+        public static IReadOnlyList<DivideMove> Divide(Board b, int depth)
+        {
+            var acc = new List<DivideMove>();
             Span<Board.Move> buf = stackalloc Board.Move[256];
             var span = b.GenerateLegal(buf);
             foreach (var mv in span)
@@ -39,13 +58,15 @@ namespace Forklift.Core
                 long n = Count(b, depth - 1);
                 b.UnmakeMove(mv, u);
 
-                var fromAlg = Squares.ToAlgebraic(mv.From88).Value;
-                var toAlg = Squares.ToAlgebraic(mv.To88).Value;
-                string promo = mv.Promotion != Piece.Empty ? char.ToLower(Piece.ToFENChar(mv.Promotion)).ToString() : string.Empty;
-
-                acc.Add((fromAlg + toAlg + promo, n));
+                acc.Add(new DivideMove
+                {
+                    From88 = (byte)mv.From88,
+                    To88 = (byte)mv.To88,
+                    Promotion = mv.Promotion,
+                    Nodes = n
+                });
             }
-            acc.Sort((a, b) => b.nodes.CompareTo(a.nodes));
+            acc.Sort((a, b) => b.Nodes.CompareTo(a.Nodes));
             return acc;
         }
 

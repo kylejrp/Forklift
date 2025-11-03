@@ -27,7 +27,7 @@ namespace Forklift.Testing
             long total = Perft.Count(b, depth);
 
             var divide = Perft.Divide(b, depth);
-            divide.Sum(kv => kv.nodes).Should().Be(total);
+            divide.Sum(kv => kv.Nodes).Should().Be(total);
         }
 
         [Theory]
@@ -152,7 +152,7 @@ namespace Forklift.Testing
             var divide = Perft.Divide(b, depth);
 
             // Verify that the sum of nodes matches the total count
-            long totalNodes = divide.Sum(kv => kv.nodes);
+            long totalNodes = divide.Sum(kv => kv.Nodes);
             long expectedTotal = Perft.Count(b, depth);
 
             totalNodes.Should().Be(expectedTotal);
@@ -160,7 +160,7 @@ namespace Forklift.Testing
             // Optionally, log the divide output for debugging
             foreach (var kv in divide)
             {
-                System.Diagnostics.Debug.WriteLine($"Move: {kv.moveUci}, Nodes: {kv.nodes}");
+                System.Diagnostics.Debug.WriteLine($"Move: {kv.MoveUci}, Nodes: {kv.Nodes}");
             }
         }
 
