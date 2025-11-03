@@ -356,6 +356,8 @@ namespace Forklift.Core
             var k64 = (Square0x64)BitOperations.TrailingZeroCount(kingBB);
             if (board.InCheck(sideToMove)) return; // cannot castle out of check
 
+            var tables = board.Tables;
+
             if (white)
             {
                 // White king side: e1,f1,g1 must be safe; f1,g1 empty; rook on h1
@@ -363,10 +365,11 @@ namespace Forklift.Core
                 {
                     if (board.At((Square0x88)F1_64) == Piece.Empty && board.At((Square0x88)G1_64) == Piece.Empty)
                     {
-                        if (board.At(H1_88) == Piece.WhiteRook &&
-                            !AreCastlingSquaresAttacked(board, Color.Black, k64, F1_64, G1_64))
+                        if (board.At(H1_88) == Piece.WhiteRook)
                         {
-                            moves[moveIndex++] = Board.Move.CastleKingSide(Color.White);
+                            Square0x64[] transit = { k64, F1_64, G1_64 };
+                            if (!AreCastlingSquaresAttackedLocal(board, Color.Black, transit, tables))
+                                moves[moveIndex++] = Board.Move.CastleKingSide(Color.White);
                         }
                     }
                 }
@@ -378,10 +381,11 @@ namespace Forklift.Core
                     board.At((Square0x88)C1_64) == Piece.Empty &&
                     board.At((Square0x88)D1_64) == Piece.Empty)
                     {
-                        if (board.At(A1_88) == Piece.WhiteRook &&
-                            !AreCastlingSquaresAttacked(board, Color.Black, k64, D1_64, C1_64))
+                        if (board.At(A1_88) == Piece.WhiteRook)
                         {
-                            moves[moveIndex++] = Board.Move.CastleQueenSide(Color.White);
+                            Square0x64[] transit = { k64, D1_64, C1_64 };
+                            if (!AreCastlingSquaresAttackedLocal(board, Color.Black, transit, tables))
+                                moves[moveIndex++] = Board.Move.CastleQueenSide(Color.White);
                         }
                     }
                 }
@@ -393,10 +397,11 @@ namespace Forklift.Core
                 {
                     if (board.At((Square0x88)F8_64) == Piece.Empty && board.At((Square0x88)G8_64) == Piece.Empty)
                     {
-                        if (board.At(H8_88) == Piece.BlackRook &&
-                            !AreCastlingSquaresAttacked(board, Color.White, k64, F8_64, G8_64))
+                        if (board.At(H8_88) == Piece.BlackRook)
                         {
-                            moves[moveIndex++] = Board.Move.CastleKingSide(Color.Black);
+                            Square0x64[] transit = { k64, F8_64, G8_64 };
+                            if (!AreCastlingSquaresAttackedLocal(board, Color.White, transit, tables))
+                                moves[moveIndex++] = Board.Move.CastleKingSide(Color.Black);
                         }
                     }
                 }
@@ -408,11 +413,63 @@ namespace Forklift.Core
                     board.At((Square0x88)C8_64) == Piece.Empty &&
                     board.At((Square0x88)D8_64) == Piece.Empty)
                     {
-                        if (board.At(A8_88) == Piece.BlackRook &&
-                            !AreCastlingSquaresAttacked(board, Color.White, k64, D8_64, C8_64))
+                        if (board.At(A8_88) == Piece.BlackRook)
                         {
-                            moves[moveIndex++] = Board.Move.CastleQueenSide(Color.Black);
+                            Square0x64[] transit = { k64, D8_64, C8_64 };
+                            if (!AreCastlingSquaresAttackedLocal(board, Color.White, transit, tables))
+                                moves[moveIndex++] = Board.Move.CastleQueenSide(Color.Black);
                         }
+                    }
+                }
+            }
+
+            // Local attack check using shared tables
+            static bool AreCastlingSquaresAttackedLocal(Board board, Color attacker, Square0x64[] squares, EngineTables tables)
+            {
+                var kingSq = board.FindKingSq64(attacker).Value;
+                ulong pawnAttacks = attacker.IsWhite()
+                    ? tables.WhitePawnAttackFrom[kingSq]
+                    : tables.BlackPawnAttackFrom[kingSq];
+                ulong knightAttacks = tables.KnightAttackTable[kingSq];
+                ulong kingAttacks = tables.KingAttackTable[kingSq];
+
+                ulong bishops = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteBishop) : board.GetPieceBitboard(Piece.BlackBishop);
+                ulong rooks = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteRook) : board.GetPieceBitboard(Piece.BlackRook);
+                ulong queens = attacker.IsWhite() ? board.GetPieceBitboard(Piece.WhiteQueen) : board.GetPieceBitboard(Piece.BlackQueen);
+
+                ulong bishopRays = 0, rookRays = 0;
+                foreach (var sq in BitboardSquares(bishops))
+                    bishopRays |= board.BishopAttacks(sq);
+                foreach (var sq in BitboardSquares(rooks))
+                    rookRays |= board.RookAttacks(sq);
+                foreach (var sq in BitboardSquares(queens))
+                {
+                    bishopRays |= board.BishopAttacks(sq);
+                    rookRays |= board.RookAttacks(sq);
+                }
+
+                foreach (var sq in squares)
+                {
+                    int idx = sq.Value;
+                    ulong mask = 1UL << idx;
+                    if ((pawnAttacks & mask) != 0 ||
+                    (knightAttacks & mask) != 0 ||
+                    (kingAttacks & mask) != 0 ||
+                    (bishopRays & mask) != 0 ||
+                    (rookRays & mask) != 0)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+
+                static IEnumerable<Square0x64> BitboardSquares(ulong bb)
+                {
+                    while (bb != 0)
+                    {
+                        int s = BitOperations.TrailingZeroCount(bb);
+                        yield return new Square0x64(s);
+                        bb &= bb - 1;
                     }
                 }
             }
