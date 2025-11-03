@@ -208,11 +208,24 @@ namespace Forklift.Core
                 var from64 = new Square0x64(s64);
                 var from88 = Squares.ConvertTo0x88Index(from64);
 
-                // Use your fast magics/lookup methods; union for queen
+                var T = board.Tables;
+                int ti = from64.Value;
+                ulong occ = board.GetAllOccupancy();
+
+                // Bishop-like
+                ulong bMaskOcc = occ & EngineTables.BishopMasks[ti];
+                int bIdx = EngineTables.GetSliderAttackIndex(ti, bMaskOcc, Piece.PieceType.Bishop);
+                ulong bAtt = T.BishopTable[T.BishopOffsets[ti] + bIdx];
+
+                // Rook-like
+                ulong rMaskOcc = occ & EngineTables.RookMasks[ti];
+                int rIdx = EngineTables.GetSliderAttackIndex(ti, rMaskOcc, Piece.PieceType.Rook);
+                ulong rAtt = T.RookTable[T.RookOffsets[ti] + rIdx];
+
                 ulong attacks =
-                    (piece == Piece.WhiteBishop || piece == Piece.BlackBishop) ? board.BishopAttacks(from64) :
-                    (piece == Piece.WhiteRook || piece == Piece.BlackRook) ? board.RookAttacks(from64) :
-                    /* queen */                                                     (board.BishopAttacks(from64) | board.RookAttacks(from64));
+                    (piece == Piece.WhiteBishop || piece == Piece.BlackBishop) ? bAtt :
+                    (piece == Piece.WhiteRook || piece == Piece.BlackRook) ? rAtt :
+                    (bAtt | rAtt);
 
                 // Quiet moves
                 ulong quiets = attacks & ~occAll;
