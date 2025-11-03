@@ -88,38 +88,6 @@ public sealed class Board
     }
 
     /// <summary>
-    /// Clears the board and sets it to the standard starting position.
-    /// </summary>
-    public void ClearAndSetStart()
-    {
-        Array.Fill(mailbox, (sbyte)Piece.Empty);
-        Array.Fill(pieceBB, 0UL);
-        OccWhite = OccBlack = OccAll = 0;
-        SideToMove = Color.White;
-        CastlingRights = CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen | CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen;
-        EnPassantFile = null;
-        HalfmoveClock = 0;
-        FullmoveNumber = 1;
-        ZKey = 0UL;
-
-        // Place start position pieces
-        PlaceStartingPieces();
-        UpdateZobristFull(); // compute from scratch once; use incremental changes thereafter
-    }
-
-    private void PlaceStartingPieces()
-    {
-        // Use direct algebraic notation placement, no change needed here as Place(AlgebraicNotation, Piece) is efficient
-        Place(new AlgebraicNotation("a1"), Piece.WhiteRook); Place(new AlgebraicNotation("b1"), Piece.WhiteKnight); Place(new AlgebraicNotation("c1"), Piece.WhiteBishop); Place(new AlgebraicNotation("d1"), Piece.WhiteQueen);
-        Place(new AlgebraicNotation("e1"), Piece.WhiteKing); Place(new AlgebraicNotation("f1"), Piece.WhiteBishop); Place(new AlgebraicNotation("g1"), Piece.WhiteKnight); Place(new AlgebraicNotation("h1"), Piece.WhiteRook);
-        for (char f = 'a'; f <= 'h'; f++) Place(new AlgebraicNotation($"{f}2"), Piece.WhitePawn);
-
-        for (char f = 'a'; f <= 'h'; f++) Place(new AlgebraicNotation($"{f}7"), Piece.BlackPawn);
-        Place(new AlgebraicNotation("a8"), Piece.BlackRook); Place(new AlgebraicNotation("b8"), Piece.BlackKnight); Place(new AlgebraicNotation("c8"), Piece.BlackBishop); Place(new AlgebraicNotation("d8"), Piece.BlackQueen);
-        Place(new AlgebraicNotation("e8"), Piece.BlackKing); Place(new AlgebraicNotation("f8"), Piece.BlackBishop); Place(new AlgebraicNotation("g8"), Piece.BlackKnight); Place(new AlgebraicNotation("h8"), Piece.BlackRook);
-    }
-
-    /// <summary>
     /// Gets the piece at the specified square.
     /// </summary>
     /// <param name="sq88">The square in 0x88 format.</param>
@@ -193,17 +161,24 @@ public sealed class Board
         public static Move EnPassant(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
             => new(from, to, mover, captured, Piece.Empty, MoveKind.EnPassant);
 
+        private static readonly AlgebraicNotation WhiteKingFromAlg = new AlgebraicNotation("e1");
+        private static readonly AlgebraicNotation WhiteKingToKingSideAlg = new AlgebraicNotation("g1");
+        private static readonly AlgebraicNotation WhiteKingToQueenSideAlg = new AlgebraicNotation("c1");
+        private static readonly AlgebraicNotation BlackKingFromAlg = new AlgebraicNotation("e8");
+        private static readonly AlgebraicNotation BlackKingToKingSideAlg = new AlgebraicNotation("g8");
+        private static readonly AlgebraicNotation BlackKingToQueenSideAlg = new AlgebraicNotation("c8");
+
         public static Move CastleKingSide(Color side)
         {
-            var from = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8"));
-            var to = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("g8"));
+            var from = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(WhiteKingFromAlg) : Squares.ParseAlgebraicTo0x88(BlackKingFromAlg);
+            var to = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(WhiteKingToKingSideAlg) : Squares.ParseAlgebraicTo0x88(BlackKingToKingSideAlg);
             return new(from, to, side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleKing);
         }
 
         public static Move CastleQueenSide(Color side)
         {
-            var from = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("e8"));
-            var to = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c1")) : Squares.ParseAlgebraicTo0x88(new AlgebraicNotation("c8"));
+            var from = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(WhiteKingFromAlg) : Squares.ParseAlgebraicTo0x88(BlackKingFromAlg);
+            var to = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(WhiteKingToQueenSideAlg) : Squares.ParseAlgebraicTo0x88(BlackKingToQueenSideAlg);
             return new(from, to, side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleQueen);
         }
 
