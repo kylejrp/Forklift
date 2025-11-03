@@ -74,7 +74,7 @@ public sealed class Board
     public int WhiteKingCount => BitOperations.PopCount(GetPieceBitboard(Piece.WhiteKing));
     public int BlackKingCount => BitOperations.PopCount(GetPieceBitboard(Piece.BlackKing));
 
-    public bool KeepTrackOfRepetitions { get; set; } = true;
+    public bool KeepTrackOfHistory { get; set; } = true;
 
     public const int MoveBufferMax = 256;
 
@@ -296,9 +296,12 @@ public sealed class Board
             CastleRookFrom88: null,
             CastleRookTo88: null);
 
-        // Track move history
-        _moveHistory.Add(m);
-        _undoHistory.Add(undo);
+        if (KeepTrackOfHistory)
+        {
+            // Track move history
+            _moveHistory.Add(m);
+            _undoHistory.Add(undo);
+        }
 
         // --- Clear old EP key
         SetEnPassantFile(null);
@@ -442,7 +445,7 @@ public sealed class Board
         SideToMove = SideToMove.Flip();
 
         // Repetition bookkeeping
-        if (KeepTrackOfRepetitions)
+        if (KeepTrackOfHistory)
         {
             _hashStack.Push(ZKey);
             if (_repCounts.TryGetValue(ZKey, out var c)) _repCounts[ZKey] = c + 1;
@@ -458,7 +461,7 @@ public sealed class Board
         if (_hashStack.Count > 0)
         {
             var keyAfterMove = _hashStack.Pop();
-            if (KeepTrackOfRepetitions && _repCounts.TryGetValue(keyAfterMove, out var c))
+            if (KeepTrackOfHistory && _repCounts.TryGetValue(keyAfterMove, out var c))
             {
                 if (c <= 1) _repCounts.Remove(keyAfterMove);
                 else _repCounts[keyAfterMove] = c - 1;
@@ -1105,7 +1108,7 @@ public sealed class Board
     /// </summary>
     public bool IsThreefoldRepetitionDraw()
     {
-        return KeepTrackOfRepetitions && _repCounts.TryGetValue(ZKey, out var count) && count >= 3;
+        return KeepTrackOfHistory && _repCounts.TryGetValue(ZKey, out var count) && count >= 3;
     }
 
     /// <summary>

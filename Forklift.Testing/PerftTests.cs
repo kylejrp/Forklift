@@ -88,7 +88,7 @@ namespace Forklift.Testing
             long expectedCheckmates)
         {
             var b = BoardFactory.FromFenOrStart(fen);
-            b.KeepTrackOfRepetitions = false;
+            b.KeepTrackOfHistory = false;
             var stats = Perft.Statistics(b, depth);
 
             stats.Nodes.Should().Be(expectedNodes, $"Nodes at depth {depth}");
@@ -121,7 +121,7 @@ namespace Forklift.Testing
             long expectedCheckmates)
         {
             var b = BoardFactory.FromFenOrStart(fen);
-            b.KeepTrackOfRepetitions = false;
+            b.KeepTrackOfHistory = false;
             var stats = Perft.Statistics(b, depth);
 
             stats.Nodes.Should().Be(expectedNodes, $"Nodes at depth {depth}");
