@@ -587,16 +587,52 @@ public sealed class Board
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ulong RayAttacksFrom(Square0x64 sq64, ulong occ, ReadOnlySpan<int> directions)
+    private static ulong RayAttacksFromRook(Square0x64 sq64, ulong occ)
     {
         ulong attacks = 0;
         Square0x88 sq88 = (Square0x88)sq64;
-        foreach (int d in directions)
+        // +1 (right)
         {
             UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
             while (true)
             {
-                t += d;
+                t += 1;
+                if (Squares.IsOffboard(t)) break;
+                Square0x64 t64 = (Square0x64)t;
+                attacks |= 1UL << (int)t64;
+                if (((occ >> (int)t64) & 1UL) != 0) break;
+            }
+        }
+        // -1 (left)
+        {
+            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            while (true)
+            {
+                t -= 1;
+                if (Squares.IsOffboard(t)) break;
+                Square0x64 t64 = (Square0x64)t;
+                attacks |= 1UL << (int)t64;
+                if (((occ >> (int)t64) & 1UL) != 0) break;
+            }
+        }
+        // +16 (up)
+        {
+            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            while (true)
+            {
+                t += 16;
+                if (Squares.IsOffboard(t)) break;
+                Square0x64 t64 = (Square0x64)t;
+                attacks |= 1UL << (int)t64;
+                if (((occ >> (int)t64) & 1UL) != 0) break;
+            }
+        }
+        // -16 (down)
+        {
+            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            while (true)
+            {
+                t -= 16;
                 if (Squares.IsOffboard(t)) break;
                 Square0x64 t64 = (Square0x64)t;
                 attacks |= 1UL << (int)t64;
@@ -607,11 +643,67 @@ public sealed class Board
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal ulong RookAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, RookDirections);
+    private static ulong RayAttacksFromBishop(Square0x64 sq64, ulong occ)
+    {
+        ulong attacks = 0;
+        Square0x88 sq88 = (Square0x88)sq64;
+        // +15 (up-left)
+        {
+            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            while (true)
+            {
+                t += 15;
+                if (Squares.IsOffboard(t)) break;
+                Square0x64 t64 = (Square0x64)t;
+                attacks |= 1UL << (int)t64;
+                if (((occ >> (int)t64) & 1UL) != 0) break;
+            }
+        }
+        // +17 (up-right)
+        {
+            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            while (true)
+            {
+                t += 17;
+                if (Squares.IsOffboard(t)) break;
+                Square0x64 t64 = (Square0x64)t;
+                attacks |= 1UL << (int)t64;
+                if (((occ >> (int)t64) & 1UL) != 0) break;
+            }
+        }
+        // -15 (down-right)
+        {
+            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            while (true)
+            {
+                t -= 15;
+                if (Squares.IsOffboard(t)) break;
+                Square0x64 t64 = (Square0x64)t;
+                attacks |= 1UL << (int)t64;
+                if (((occ >> (int)t64) & 1UL) != 0) break;
+            }
+        }
+        // -17 (down-left)
+        {
+            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            while (true)
+            {
+                t -= 17;
+                if (Squares.IsOffboard(t)) break;
+                Square0x64 t64 = (Square0x64)t;
+                attacks |= 1UL << (int)t64;
+                if (((occ >> (int)t64) & 1UL) != 0) break;
+            }
+        }
+        return attacks;
+    }
+
+    internal ulong RookAttacks(Square0x64 sq64) => RayAttacksFromRook(sq64, OccAll);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal ulong BishopAttacks(Square0x64 sq64) => RayAttacksFrom(sq64, OccAll, BishopDirections);
+    internal ulong BishopAttacks(Square0x64 sq64) => RayAttacksFromBishop(sq64, OccAll);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsSquareAttacked(Square0x64 t64, Color bySide)
     {
         var T = Tables; // local alias
