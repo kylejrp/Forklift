@@ -1,4 +1,7 @@
-﻿namespace Forklift.Core;
+﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
+
+namespace Forklift.Core;
 
 public readonly struct UnsafeSquare0x64
 {
@@ -39,7 +42,7 @@ public readonly struct UnsafeSquare0x64
 
     public override string ToString()
     {
-        string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraic(new Square0x64(Value)).Value : string.Empty;
+        string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraicString(new Square0x64(Value)) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x64 {Value})" : $"{algebraic} (0x64 {Value})";
     }
 }
@@ -86,7 +89,7 @@ public readonly struct Square0x64
 
     public override string ToString()
     {
-        string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraic(this).Value : string.Empty;
+        string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraicString(this) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x64 {Value})" : $"{algebraic} (0x64 {Value})";
     }
 }
@@ -114,7 +117,7 @@ public readonly struct UnsafeSquare0x88
 
     public override string ToString()
     {
-        string algebraic = ((Value & 0x88) == 0) ? Squares.ToAlgebraic(new Square0x88(Value)).Value : string.Empty;
+        string algebraic = ((Value & 0x88) == 0) ? Squares.ToAlgebraicString(new Square0x88(Value)) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x88 {Value})" : $"{algebraic} (0x88 {Value})";
     }
 
@@ -177,7 +180,7 @@ public readonly struct Square0x88
 
     public override string ToString()
     {
-        string algebraic = ((Value & 0x88) == 0) ? Squares.ToAlgebraic(this).Value : string.Empty;
+        string algebraic = ((Value & 0x88) == 0) ? Squares.ToAlgebraicString(this) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x88 {Value})" : $"{algebraic} (0x88 {Value})";
     }
 }
@@ -190,14 +193,9 @@ public readonly struct AlgebraicNotation
 {
     public string Value { get; }
 
-    // Private ctor: only the cache builds these.
-    private AlgebraicNotation(string value) => Value = value;
+    private AlgebraicNotation(string v) { Value = v; }
 
-    /// <summary>
-    /// 64 singletons, indexed by rank*8 + file (rank/file are 0..7).
-    /// This array is pinned in static storage; do not copy or stack-allocate.
-    /// </summary>
-    private static readonly AlgebraicNotation[] Cache = BuildCache();
+    private static readonly AlgebraicNotation[] cache = BuildCache();
 
     private static AlgebraicNotation[] BuildCache()
     {
@@ -205,48 +203,26 @@ public readonly struct AlgebraicNotation
         for (int r = 0; r < 8; r++)
             for (int f = 0; f < 8; f++)
             {
-                var s = new string(new[] { (char)('a' + f), (char)('1' + r) });
-                arr[(r << 3) | f] = new AlgebraicNotation(s);
+                int idx = r * 8 + f;
+                string s = string.Intern($"{(char)('a' + f)}{(char)('1' + r)}");
+                arr[idx] = new AlgebraicNotation(s);
             }
         return arr;
     }
 
-    /// <summary>
-    /// Factory: from "e4" style strings (returns cached instance by ref readonly).
-    /// Do not copy or stack-allocate; always use as ref readonly.
-    /// </summary>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    public static ref readonly AlgebraicNotation From(string value)
-    {
-        if (value is null || value.Length != 2) throw new ArgumentException("Invalid algebraic notation.", nameof(value));
-        int f = value[0] - 'a';
-        int r = value[1] - '1';
-        if ((uint)f > 7 || (uint)r > 7) throw new ArgumentException("Invalid algebraic notation.", nameof(value));
-        return ref Cache[(r << 3) | f];
-    }
+    private static int Index(char f, char r) => (r - '1') * 8 + (f - 'a');
 
-    /// <summary>
-    /// Factory: from Square0x88 (returns cached instance by ref readonly).
-    /// Do not copy or stack-allocate; always use as ref readonly.
-    /// </summary>
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    public static ref readonly AlgebraicNotation From(Square0x88 sq88)
-    {
-        int f = sq88.Value & 0xF;
-        int r = sq88.Value >> 4;
-        return ref Cache[(r << 3) | f];
-    }
+    public static AlgebraicNotation From(ReadOnlySpan<char> alg)
+        => cache[Index(alg[0], alg[1])];
 
-    /// <summary>
-    /// Factory: from Square0x64 (returns cached instance by ref readonly).
-    /// Do not copy or stack-allocate; always use as ref readonly.
-    /// </summary>
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    public static ref readonly AlgebraicNotation From(Square0x64 sq64)
-    {
-        int idx = sq64.Value; // 0..63
-        return ref Cache[idx];
-    }
+    public static AlgebraicNotation From(string alg) => From(alg.AsSpan());
+
+    public static AlgebraicNotation From(Square0x88 sq88)
+        => cache[((sq88.Value >> 4) * 8) + (sq88.Value & 0xF)];
+
+    public static AlgebraicNotation From(Square0x64 sq64)
+        => cache[sq64.Value];
 
     public override string ToString() => Value;
 }
@@ -254,45 +230,65 @@ public readonly struct AlgebraicNotation
 
 public static class Squares
 {
+
+    // ------------------------------------------------------------
+    // Tiny test-friendly helpers (alloc-free via AsSpan):
+    // S88/S64 let you write S88("e4") instead of verbose chains.
+    // ------------------------------------------------------------
+    [DebuggerStepThrough, MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Square0x88 S88(string alg) => ParseAlgebraicTo0x88(alg.AsSpan());
+    [DebuggerStepThrough, MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Square0x64 S64(string alg) => ParseAlgebraicTo0x64(alg.AsSpan());
+
+
+    // Precompute both encodings for all 64 squares.
+    private static readonly Square0x64[] s64ByIndex = new Square0x64[64];
+    private static readonly Square0x88[] s88ByIndex = new Square0x88[64];
+    private static readonly string[] algByIndex = new string[64]; // interned literals
+
+    static Squares()
+    {
+        for (int r = 0; r < 8; r++)
+            for (int f = 0; f < 8; f++)
+            {
+                int idx = r * 8 + f;
+                s64ByIndex[idx] = new Square0x64(idx);
+                s88ByIndex[idx] = new Square0x88((r << 4) | f);
+                algByIndex[idx] = string.Intern($"{(char)('a' + f)}{(char)('1' + r)}");
+            }
+    }
+
     public static bool IsOffboard(UnsafeSquare0x88 square) => (square.Value & 0x88) != 0;
 
     public static Square0x64 ConvertTo0x64Index(Square0x88 square)
-        => new Square0x64((square.Value & 0xF) + ((square.Value >> 4) * 8));
+        => s64ByIndex[(square.Value & 0xF) + ((square.Value >> 4) * 8)];
 
     public static Square0x88 ConvertTo0x88Index(Square0x64 square)
-        => new Square0x88(((square.Value >> 3) << 4) | (square.Value & 7));
+        => s88ByIndex[square.Value];
 
-    public static Square0x64 ParseAlgebraicTo0x64(string algebraic)
+    // Fast parse from span (no allocation)
+    public static Square0x64 ParseAlgebraicTo0x64(ReadOnlySpan<char> alg)
     {
-        ref readonly var a = ref AlgebraicNotation.From(algebraic);
-        int f = a.Value[0] - 'a';
-        int r = a.Value[1] - '1';
-        return new Square0x64(r * 8 + f);
+        char f = alg[0], r = alg[1];
+        return s64ByIndex[((r - '1') * 8) + (f - 'a')];
     }
 
-    public static Square0x64 ParseAlgebraicTo0x64(AlgebraicNotation a)
+    public static Square0x88 ParseAlgebraicTo0x88(ReadOnlySpan<char> alg)
     {
-        int f = a.Value[0] - 'a';
-        int r = a.Value[1] - '1';
-        return new Square0x64(r * 8 + f);
+        char f = alg[0], r = alg[1];
+        return s88ByIndex[((r - '1') * 8) + (f - 'a')];
     }
 
-    public static Square0x88 ParseAlgebraicTo0x88(string algebraic)
-    {
-        ref readonly var a = ref AlgebraicNotation.From(algebraic);
-        int f = a.Value[0] - 'a';
-        int r = a.Value[1] - '1';
-        return new Square0x88((r << 4) | f);
-    }
+    // String overloads stay for convenience (calls span)
+    public static Square0x64 ParseAlgebraicTo0x64(string alg) => ParseAlgebraicTo0x64(alg.AsSpan());
+    public static Square0x88 ParseAlgebraicTo0x88(string alg) => ParseAlgebraicTo0x88(alg.AsSpan());
 
-    public static Square0x88 ParseAlgebraicTo0x88(AlgebraicNotation a)
-    {
-        int f = a.Value[0] - 'a';
-        int r = a.Value[1] - '1';
-        return new Square0x88((r << 4) | f);
-    }
+    // Reverse mapping (no allocation: returns the interned string)
+    public static string ToAlgebraicString(Square0x64 s64) => algByIndex[s64.Value];
+    public static string ToAlgebraicString(Square0x88 s88)
+        => algByIndex[((s88.Value >> 4) * 8) + (s88.Value & 0xF)];
 
-    // No string interpolation here—just return the interned instance
-    public static AlgebraicNotation ToAlgebraic(Square0x88 square) => AlgebraicNotation.From(square);
-    public static AlgebraicNotation ToAlgebraic(Square0x64 square) => AlgebraicNotation.From(square);
+    // For convenience, keep AlgebraicNotation for UI/logging/tests
+    public static AlgebraicNotation ToAlgebraic(Square0x88 s) => AlgebraicNotation.From(ToAlgebraicString(s));
+    public static AlgebraicNotation ToAlgebraic(Square0x64 s) => AlgebraicNotation.From(ToAlgebraicString(s));
 }

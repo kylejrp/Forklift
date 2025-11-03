@@ -1,5 +1,6 @@
 ﻿using FluentAssertions;
 using Forklift.Core;
+using static Forklift.Testing.TestHelpers;
 
 namespace Forklift.Testing
 {
@@ -46,8 +47,8 @@ namespace Forklift.Testing
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
             // Move white king e1-f1
             var mv = Board.Move.Normal(
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("e1")),
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("f1")),
+                _("e1"),
+                _("f1"),
                 Piece.WhiteKing
             );
             var u = b.MakeMove(mv);
@@ -63,8 +64,8 @@ namespace Forklift.Testing
 
             // Move white h1 rook away -> should clear K side for white
             var mv = Board.Move.Normal(
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h1")),
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h2")),
+                _("h1"),
+                _("h2"),
                 Piece.WhiteRook
             );
             var u = b.MakeMove(mv);
@@ -73,8 +74,8 @@ namespace Forklift.Testing
 
             // Move white a1 rook away -> should clear Q side for white
             var mv2 = Board.Move.Normal(
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("a1")),
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("a2")),
+                _("a1"),
+                _("a2"),
                 Piece.WhiteRook
             );
             var u2 = b.MakeMove(mv2);
@@ -82,10 +83,10 @@ namespace Forklift.Testing
             b.UnmakeMove(mv2, u2);
 
             // Capture white h1 rook -> should clear K side for white
-            b.Place(Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h1")), Piece.WhiteRook);
+            b.Place(_("h1"), Piece.WhiteRook);
             var mv3 = Board.Move.Capture(
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("g2")),
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h1")),
+                _("g2"),
+                _("h1"),
                 Piece.BlackRook,
                 Piece.WhiteRook
             );
@@ -100,14 +101,14 @@ namespace Forklift.Testing
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
             // Move h1 rook away and back
             var mv1 = Board.Move.Normal(
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h1")),
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h2")),
+                _("h1"),
+                _("h2"),
                 Piece.WhiteRook
             );
             b.MakeMove(mv1);
             var mv2 = Board.Move.Normal(
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h2")),
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h1")),
+                _("h2"),
+                _("h1"),
                 Piece.WhiteRook
             );
             b.MakeMove(mv2);
@@ -120,11 +121,11 @@ namespace Forklift.Testing
             // White king on e1, rook on h1, black bishop on c3 attacking f2 (discovered check if king moves)
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/2b5/R3K2R w KQkq - 0 1");
             // Place a white pawn on f2 to block bishop
-            b.Place(Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("f2")), Piece.WhitePawn);
+            b.Place(_("f2"), Piece.WhitePawn);
             // Move pawn away, so bishop attacks f2
             var mv = Board.Move.Normal(
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("f2")),
-                Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("f3")),
+                _("f2"),
+                _("f3"),
                 Piece.WhitePawn
             );
             b.MakeMove(mv);

@@ -101,7 +101,7 @@ public sealed class Board
     /// </summary>
     /// <param name="algebraic">The square in algebraic notation (e.g., "e4").</param>
     /// <param name="pc">The piece to place.</param>
-    public void Place(AlgebraicNotation algebraic, Piece pc) => Place(Squares.ParseAlgebraicTo0x88(algebraic), pc);
+    public void Place(string algebraic, Piece pc) => Place(Squares.ParseAlgebraicTo0x88(algebraic), pc);
 
     /// <summary>
     /// Places a piece on the board at the specified square.
@@ -163,24 +163,24 @@ public sealed class Board
         public static Move EnPassant(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
             => new(from, to, mover, captured, Piece.Empty, MoveKind.EnPassant);
 
-        private static readonly AlgebraicNotation WhiteKingFromAlg = AlgebraicNotation.From("e1");
-        private static readonly AlgebraicNotation WhiteKingToKingSideAlg = AlgebraicNotation.From("g1");
-        private static readonly AlgebraicNotation WhiteKingToQueenSideAlg = AlgebraicNotation.From("c1");
-        private static readonly AlgebraicNotation BlackKingFromAlg = AlgebraicNotation.From("e8");
-        private static readonly AlgebraicNotation BlackKingToKingSideAlg = AlgebraicNotation.From("g8");
-        private static readonly AlgebraicNotation BlackKingToQueenSideAlg = AlgebraicNotation.From("c8");
+        private static readonly Square0x88 WhiteKingFrom88 = Squares.ParseAlgebraicTo0x88("e1".AsSpan());
+        private static readonly Square0x88 WhiteKingToKingSide88 = Squares.ParseAlgebraicTo0x88("g1".AsSpan());
+        private static readonly Square0x88 WhiteKingToQueenSide88 = Squares.ParseAlgebraicTo0x88("c1".AsSpan());
+        private static readonly Square0x88 BlackKingFrom88 = Squares.ParseAlgebraicTo0x88("e8".AsSpan());
+        private static readonly Square0x88 BlackKingToKingSide88 = Squares.ParseAlgebraicTo0x88("g8".AsSpan());
+        private static readonly Square0x88 BlackKingToQueenSide88 = Squares.ParseAlgebraicTo0x88("c8".AsSpan());
 
         public static Move CastleKingSide(Color side)
         {
-            var from = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(WhiteKingFromAlg) : Squares.ParseAlgebraicTo0x88(BlackKingFromAlg);
-            var to = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(WhiteKingToKingSideAlg) : Squares.ParseAlgebraicTo0x88(BlackKingToKingSideAlg);
+            var from = side.IsWhite() ? WhiteKingFrom88 : BlackKingFrom88;
+            var to = side.IsWhite() ? WhiteKingToKingSide88 : BlackKingToKingSide88;
             return new(from, to, side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleKing);
         }
 
         public static Move CastleQueenSide(Color side)
         {
-            var from = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(WhiteKingFromAlg) : Squares.ParseAlgebraicTo0x88(BlackKingFromAlg);
-            var to = side.IsWhite() ? Squares.ParseAlgebraicTo0x88(WhiteKingToQueenSideAlg) : Squares.ParseAlgebraicTo0x88(BlackKingToQueenSideAlg);
+            var from = side.IsWhite() ? WhiteKingFrom88 : BlackKingFrom88;
+            var to = side.IsWhite() ? WhiteKingToQueenSide88 : BlackKingToQueenSide88;
             return new(from, to, side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleQueen);
         }
 
@@ -219,8 +219,8 @@ public sealed class Board
 
         public override string ToString()
         {
-            string fromAlg = Squares.ToAlgebraic(From88).Value;
-            string toAlg = Squares.ToAlgebraic(To88).Value;
+            string fromAlg = Squares.ToAlgebraicString(From88);
+            string toAlg = Squares.ToAlgebraicString(To88);
             string promoStr = IsPromotion ? $"={Promotion}" : string.Empty;
             string captureStr = IsCapture ? "x" : "-";
             return $"{fromAlg}{captureStr}{toAlg}{promoStr}";
@@ -241,17 +241,21 @@ public sealed class Board
         Square0x88? CastleRookTo88);
 
 
-    // Hoisted castling squares for performance
-    private static readonly Square0x88 WhiteKingFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("e1"));
-    private static readonly Square0x88 WhiteKingSideRookFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h1"));
-    private static readonly Square0x88 WhiteKingSideRookTo88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("f1"));
-    private static readonly Square0x88 WhiteQueenSideRookFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("a1"));
-    private static readonly Square0x88 WhiteQueenSideRookTo88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("d1"));
-    private static readonly Square0x88 BlackKingFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("e8"));
-    private static readonly Square0x88 BlackKingSideRookFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h8"));
-    private static readonly Square0x88 BlackKingSideRookTo88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("f8"));
-    private static readonly Square0x88 BlackQueenSideRookFrom88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("a8"));
-    private static readonly Square0x88 BlackQueenSideRookTo88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("d8"));
+    // Hoisted castling squares for performance (span-based, no AlgebraicNotation)
+    private static readonly Square0x88 E1 = Squares.ParseAlgebraicTo0x88("e1".AsSpan());
+    private static readonly Square0x88 G1 = Squares.ParseAlgebraicTo0x88("g1".AsSpan());
+    private static readonly Square0x88 C1 = Squares.ParseAlgebraicTo0x88("c1".AsSpan());
+    private static readonly Square0x88 H1 = Squares.ParseAlgebraicTo0x88("h1".AsSpan());
+    private static readonly Square0x88 F1 = Squares.ParseAlgebraicTo0x88("f1".AsSpan());
+    private static readonly Square0x88 A1 = Squares.ParseAlgebraicTo0x88("a1".AsSpan());
+    private static readonly Square0x88 D1 = Squares.ParseAlgebraicTo0x88("d1".AsSpan());
+    private static readonly Square0x88 E8 = Squares.ParseAlgebraicTo0x88("e8".AsSpan());
+    private static readonly Square0x88 G8 = Squares.ParseAlgebraicTo0x88("g8".AsSpan());
+    private static readonly Square0x88 C8 = Squares.ParseAlgebraicTo0x88("c8".AsSpan());
+    private static readonly Square0x88 H8 = Squares.ParseAlgebraicTo0x88("h8".AsSpan());
+    private static readonly Square0x88 F8 = Squares.ParseAlgebraicTo0x88("f8".AsSpan());
+    private static readonly Square0x88 A8 = Squares.ParseAlgebraicTo0x88("a8".AsSpan());
+    private static readonly Square0x88 D8 = Squares.ParseAlgebraicTo0x88("d8".AsSpan());
 
     public Undo MakeMove(in Move m)
     {
@@ -312,24 +316,24 @@ public sealed class Board
         // own rook moved from corner
         if (m.Mover == Piece.WhiteRook)
         {
-            if (m.From88 == WhiteQueenSideRookFrom88) newCR &= ~CastlingRightsFlags.WhiteQueen;
-            if (m.From88 == WhiteKingSideRookFrom88) newCR &= ~CastlingRightsFlags.WhiteKing;
+            if (m.From88 == A1) newCR &= ~CastlingRightsFlags.WhiteQueen;
+            if (m.From88 == H1) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
         if (m.Mover == Piece.BlackRook)
         {
-            if (m.From88 == BlackQueenSideRookFrom88) newCR &= ~CastlingRightsFlags.BlackQueen;
-            if (m.From88 == BlackKingSideRookFrom88) newCR &= ~CastlingRightsFlags.BlackKing;
+            if (m.From88 == A8) newCR &= ~CastlingRightsFlags.BlackQueen;
+            if (m.From88 == H8) newCR &= ~CastlingRightsFlags.BlackKing;
         }
         // captured rook on its corner
         if (undo.Captured == Piece.WhiteRook)
         {
-            if (m.To88 == WhiteQueenSideRookFrom88) newCR &= ~CastlingRightsFlags.WhiteQueen;
-            if (m.To88 == WhiteKingSideRookFrom88) newCR &= ~CastlingRightsFlags.WhiteKing;
+            if (m.To88 == A1) newCR &= ~CastlingRightsFlags.WhiteQueen;
+            if (m.To88 == H1) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
         if (undo.Captured == Piece.BlackRook)
         {
-            if (m.To88 == BlackQueenSideRookFrom88) newCR &= ~CastlingRightsFlags.BlackQueen;
-            if (m.To88 == BlackKingSideRookFrom88) newCR &= ~CastlingRightsFlags.BlackKing;
+            if (m.To88 == A8) newCR &= ~CastlingRightsFlags.BlackQueen;
+            if (m.To88 == H8) newCR &= ~CastlingRightsFlags.BlackKing;
         }
         if (newCR != CastlingRights) SetCastlingRights(newCR); // toggles ZKey appropriately
 
@@ -359,26 +363,26 @@ public sealed class Board
             {
                 if (m.Kind == MoveKind.CastleKing)
                 {
-                    rFrom = WhiteKingSideRookFrom88;
-                    rTo = WhiteKingSideRookTo88;
+                    rFrom = H1;
+                    rTo = F1;
                 }
                 else
                 {
-                    rFrom = WhiteQueenSideRookFrom88;
-                    rTo = WhiteQueenSideRookTo88;
+                    rFrom = A1;
+                    rTo = D1;
                 }
             }
             else
             {
                 if (m.Kind == MoveKind.CastleKing)
                 {
-                    rFrom = BlackKingSideRookFrom88;
-                    rTo = BlackKingSideRookTo88;
+                    rFrom = H8;
+                    rTo = F8;
                 }
                 else
                 {
-                    rFrom = BlackQueenSideRookFrom88;
-                    rTo = BlackQueenSideRookTo88;
+                    rFrom = A8;
+                    rTo = D8;
                 }
             }
 
@@ -1175,42 +1179,44 @@ public sealed class Board
     /// </summary>
     public Move? ParseUCIMove(string uci)
     {
-        if (string.IsNullOrWhiteSpace(uci) || (uci.Length != 4 && uci.Length != 5))
-            return null;
+        if (uci is null) return null;
 
-        // Parse squares
-        var fromAlg = AlgebraicNotation.From(uci.Substring(0, 2));
-        var toAlg = AlgebraicNotation.From(uci.Substring(2, 2));
-        var fromSq = Squares.ParseAlgebraicTo0x88(fromAlg);
-        var toSq = Squares.ParseAlgebraicTo0x88(toAlg);
+        // Work on a span (no Substring/allocations)
+        ReadOnlySpan<char> s = uci.AsSpan();
+        // (Optional) accept surrounding whitespace with span trim:
+        s = s.Trim();
 
-        // promotion chosen from side-to-move
+        if (s.Length != 4 && s.Length != 5) return null;
+
+        // Parse squares directly from spans
+        var fromSq = Squares.ParseAlgebraicTo0x88(s.Slice(0, 2));
+        var toSq = Squares.ParseAlgebraicTo0x88(s.Slice(2, 2));
+
+        // Promotion (if any)
         Piece promotion = Piece.Empty;
-        if (uci.Length == 5)
-        {
-            char promoChar = uci[4];
-            promotion = Piece.FromPromotionChar(promoChar, SideToMove);
-        }
+        if (s.Length == 5)
+            promotion = Piece.FromPromotionChar(s[4], SideToMove); // case-insensitive, uses side to choose color
 
-        // match
-        foreach (var move in GenerateLegal())
+        // Scan legal moves without allocating
+        Span<Move> buf = stackalloc Move[64];
+        var legalSpan = GenerateLegal(buf);
+
+        for (int i = 0; i < legalSpan.Length; i++)
         {
-            if (move.From88 == fromSq && move.To88 == toSq)
+            ref readonly var m = ref legalSpan[i];
+            if (m.From88 == fromSq && m.To88 == toSq)
             {
-                var movePromo = move.Promotion;
-
-                if (uci.Length == 5)
-                {
-                    if (movePromo == promotion) return move;
-                }
-                else
-                {
-                    if (movePromo == Piece.Empty) return move;
-                }
+                // If UCI included a promo, it must match; otherwise require no-promo move
+                bool promoOk = promotion == Piece.Empty ? m.Promotion == Piece.Empty
+                                                        : m.Promotion == promotion;
+                if (promoOk)
+                    return m;
             }
         }
+
         return null;
     }
+
 
     /// <summary>
     /// Parses and applies a UCI move string if legal. Returns true if move was made.

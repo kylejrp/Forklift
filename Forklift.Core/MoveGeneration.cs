@@ -273,21 +273,21 @@ namespace Forklift.Core
         // --- Castling (requires empty path + no attacked transit squares) -----------------
 
         // Precomputed squares for castling
-        private static readonly Square0x64 F1_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("f1"));
-        private static readonly Square0x64 G1_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("g1"));
-        private static readonly Square0x88 H1_88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h1"));
-        private static readonly Square0x64 B1_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("b1"));
-        private static readonly Square0x64 C1_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("c1"));
-        private static readonly Square0x64 D1_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("d1"));
-        private static readonly Square0x88 A1_88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("a1"));
+        private static readonly Square0x64 F1_64 = Squares.ParseAlgebraicTo0x64("f1");
+        private static readonly Square0x64 G1_64 = Squares.ParseAlgebraicTo0x64("g1");
+        private static readonly Square0x88 H1_88 = Squares.ParseAlgebraicTo0x88("h1");
+        private static readonly Square0x64 B1_64 = Squares.ParseAlgebraicTo0x64("b1");
+        private static readonly Square0x64 C1_64 = Squares.ParseAlgebraicTo0x64("c1");
+        private static readonly Square0x64 D1_64 = Squares.ParseAlgebraicTo0x64("d1");
+        private static readonly Square0x88 A1_88 = Squares.ParseAlgebraicTo0x88("a1");
 
-        private static readonly Square0x64 F8_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("f8"));
-        private static readonly Square0x64 G8_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("g8"));
-        private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("h8"));
-        private static readonly Square0x64 B8_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("b8"));
-        private static readonly Square0x64 C8_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("c8"));
-        private static readonly Square0x64 D8_64 = Squares.ParseAlgebraicTo0x64(AlgebraicNotation.From("d8"));
-        private static readonly Square0x88 A8_88 = Squares.ParseAlgebraicTo0x88(AlgebraicNotation.From("a8"));
+        private static readonly Square0x64 F8_64 = Squares.ParseAlgebraicTo0x64("f8");
+        private static readonly Square0x64 G8_64 = Squares.ParseAlgebraicTo0x64("g8");
+        private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88("h8");
+        private static readonly Square0x64 B8_64 = Squares.ParseAlgebraicTo0x64("b8");
+        private static readonly Square0x64 C8_64 = Squares.ParseAlgebraicTo0x64("c8");
+        private static readonly Square0x64 D8_64 = Squares.ParseAlgebraicTo0x64("d8");
+        private static readonly Square0x88 A8_88 = Squares.ParseAlgebraicTo0x88("a8");
 
         // Helper to check if any squares in the array are attacked for castling
         private static bool AreCastlingSquaresAttacked(Board board, Color attacker, params Square0x64[] squares)

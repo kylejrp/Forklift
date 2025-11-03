@@ -39,8 +39,8 @@ namespace Forklift.Core
             {
                 get
                 {
-                    var fromAlg = Squares.ToAlgebraic((Square0x88)From88).Value;
-                    var toAlg = Squares.ToAlgebraic((Square0x88)To88).Value;
+                    var fromAlg = Squares.ToAlgebraicString((Square0x88)From88);
+                    var toAlg = Squares.ToAlgebraicString((Square0x88)To88);
                     string promo = Promotion != Piece.Empty ? char.ToLower(Piece.ToFENChar((Piece)Promotion)).ToString() : string.Empty;
                     return fromAlg + toAlg + promo;
                 }

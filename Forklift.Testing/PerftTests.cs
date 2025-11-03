@@ -186,7 +186,7 @@ namespace Forklift.Testing
                     bool blackInCheck = board.InCheck(Color.Black);
 
                     var k64Black = board.FindKingSq64(Color.Black);
-                    var kAlg = Squares.ToAlgebraic((Square0x88)k64Black).Value;
+                    var kAlg = Squares.ToAlgebraicString((Square0x88)k64Black);
 
                     // High-level breakdown from your Board.AttackerBreakdown
                     var breakdown = board.AttackerBreakdownBool(k64Black, byWhite: true);
@@ -248,7 +248,7 @@ EnPassantFile              = {(board.EnPassantFile?.ToString() ?? "null")}
 
         private static string ToUci(Board.Move m)
         {
-            var s = Squares.ToAlgebraic(m.From88).Value + Squares.ToAlgebraic(m.To88).Value;
+            var s = ToAlgebraicString(m.From88) + ToAlgebraicString(m.To88);
             if (m.Promotion != Piece.Empty)
             {
                 s += m.Promotion.PromotionChar;
@@ -263,7 +263,7 @@ EnPassantFile              = {(board.EnPassantFile?.ToString() ?? "null")}
             {
                 int s = BitOperations.TrailingZeroCount(mask);
                 mask &= mask - 1;
-                list.Add(Squares.ToAlgebraic((Square0x64)s).Value);
+                list.Add(ToAlgebraicString((Square0x64)s));
             }
             return list.ToArray();
         }
