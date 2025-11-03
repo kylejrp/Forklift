@@ -11,11 +11,6 @@ namespace Forklift.Core
     /// </summary>
     public static class MoveGeneration
     {
-        // Precomputed arrays for squares to check for attacks during castling
-        private static readonly Square0x64[] WhiteKingSidePath = { E1_64, F1_64, G1_64 };
-        private static readonly Square0x64[] WhiteQueenSidePath = { E1_64, D1_64, C1_64 };
-        private static readonly Square0x64[] BlackKingSidePath = { E8_64, F8_64, G8_64 };
-        private static readonly Square0x64[] BlackQueenSidePath = { E8_64, D8_64, C8_64 };
         // Restore direction arrays for slider move generation
         private static readonly int[] RookDirs = { +1, -1, +16, -16 };
         private static readonly int[] BishopDirs = { +15, +17, -15, -17 };
