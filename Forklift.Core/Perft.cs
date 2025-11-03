@@ -1,32 +1,54 @@
 ﻿using System.Collections;
-using Forklift.Core;
-using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Numerics;
 
 namespace Forklift.Core
 {
     public static class Perft
     {
-        public static long Count(Board board, int depth)
-        {
-            if (depth == 0) return 1;
+        // ---------------------------
+        // Public API
+        // ---------------------------
 
-            long nodes = 0;
+        public static long Count(Board board, int depth, bool parallelRoot = false)
+        {
+            if (!parallelRoot || depth <= 1)
+                return PerftSerial(board, depth);
+
+            // Root-split: generate once, then parallelize per root move
             Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
             var span = MoveGeneration.GeneratePseudoLegal(board, buf, board.SideToMove);
 
-            foreach (var mv in span)
-            {
-                var u = board.MakeMove(mv);
-                // After MakeMove, side to move flipped; the side that just moved must NOT be in check
-                bool legal = !board.InCheck(board.SideToMove.Flip());
-                if (legal)
-                    nodes += Count(board, depth - 1);
-                board.UnmakeMove(mv, u);
-            }
+            // MATERIALIZE to avoid capturing a Span<T> in the lambda
+            var moves = span.ToArray();
 
-            return nodes;
+            long total = 0;
+
+            System.Threading.Tasks.Parallel.For<long>(
+                fromInclusive: 0,
+                toExclusive: moves.Length,
+                localInit: static () => 0L,
+                body: (i, _state, local) =>
+                {
+                    var mv = moves[i];
+                    var bc = board.Copy();
+                    var u = bc.MakeMove(mv);
+
+                    // Filter illegals cheaply after making the move
+                    if (!bc.InCheck(bc.SideToMove.Flip()))
+                    {
+                        local += PerftSerial(bc, depth - 1);
+                    }
+
+                    bc.UnmakeMove(mv, u);
+                    return local;
+                },
+                localFinally: localSum => System.Threading.Interlocked.Add(ref total, localSum)
+            );
+
+            return total;
         }
+
 
         public struct DivideMove
         {
@@ -47,27 +69,62 @@ namespace Forklift.Core
             }
         }
 
-        public static IReadOnlyList<DivideMove> Divide(Board b, int depth)
+        /// <summary>
+        /// Root "divide" breakdown (move -> subtree nodes). 
+        /// Set parallelRoot=true to parallelize per root move; set sort=true to sort by nodes desc.
+        /// </summary>
+        public static IReadOnlyList<DivideMove> Divide(Board b, int depth, bool parallelRoot = false, bool sort = false)
         {
-            var acc = new List<DivideMove>();
             Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
+            // For divide, use legal move list at the root for clean output
             var span = b.GenerateLegal(buf);
-            foreach (var mv in span)
-            {
-                var u = b.MakeMove(mv);
-                long n = Count(b, depth - 1);
-                b.UnmakeMove(mv, u);
+            var moves = span.ToArray(); // <-- materialize; avoid capturing Span<T> in lambda
 
-                acc.Add(new DivideMove
+            var results = new DivideMove[moves.Length];
+
+            if (!parallelRoot || depth <= 1)
+            {
+                for (int i = 0; i < moves.Length; i++)
                 {
-                    From88 = (byte)mv.From88,
-                    To88 = (byte)mv.To88,
-                    Promotion = mv.Promotion,
-                    Nodes = n
+                    var mv = moves[i];
+                    var u = b.MakeMove(mv);
+                    long n = PerftSerial(b, depth - 1);
+                    b.UnmakeMove(mv, u);
+
+                    results[i] = new DivideMove
+                    {
+                        From88 = (byte)mv.From88,
+                        To88 = (byte)mv.To88,
+                        Promotion = mv.Promotion,
+                        Nodes = n
+                    };
+                }
+            }
+            else
+            {
+                System.Threading.Tasks.Parallel.For(0, moves.Length, i =>
+                {
+                    var mv = moves[i];
+                    var bc = b.Copy();
+                    var u = bc.MakeMove(mv);
+                    long n = PerftSerial(bc, depth - 1);
+                    bc.UnmakeMove(mv, u);
+
+                    // independent slots; safe to write in parallel
+                    results[i] = new DivideMove
+                    {
+                        From88 = (byte)mv.From88,
+                        To88 = (byte)mv.To88,
+                        Promotion = mv.Promotion,
+                        Nodes = n
+                    };
                 });
             }
-            acc.Sort((a, b) => b.Nodes.CompareTo(a.Nodes));
-            return acc;
+
+            if (sort)
+                Array.Sort(results, (a, b2) => b2.Nodes.CompareTo(a.Nodes));
+
+            return results;
         }
 
 
@@ -84,14 +141,99 @@ namespace Forklift.Core
             public long Checkmates;
         }
 
-        public static PerftStatistics Statistics(Board board, int depth)
+        /// <summary>
+        /// Extended stats. Set parallelRoot=true to parallelize only the root.
+        /// </summary>
+        public static PerftStatistics Statistics(Board board, int depth, bool parallelRoot = false)
         {
-            var stats = new PerftStatistics();
-            StatisticsImpl(board, depth, ref stats);
-            return stats;
+            if (!parallelRoot || depth <= 1)
+            {
+                var s = new PerftStatistics();
+                StatisticsImplSerial(board, depth, ref s);
+                return s;
+            }
+
+            // Root-split stats: generate once; combine per-branch using thread-local accumulation
+            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
+            var span = MoveGeneration.GeneratePseudoLegal(board, buf, board.SideToMove);
+            var moves = span.ToArray(); // <-- materialize
+
+            var total = new PerftStatistics();
+
+            System.Threading.Tasks.Parallel.For<PerftStatistics>(
+                fromInclusive: 0,
+                toExclusive: moves.Length,
+                localInit: static () => default,
+                body: (i, _state, local) =>
+                {
+                    var mv = moves[i];
+                    var bc = board.Copy();
+                    var u = bc.MakeMove(mv);
+
+                    // legality filter on the child
+                    if (!bc.InCheck(bc.SideToMove.Flip()))
+                    {
+                        var s = new PerftStatistics();
+                        StatisticsImplSerial(bc, depth - 1, ref s);
+
+                        // accumulate into thread-local
+                        local.Nodes += s.Nodes;
+                        local.Captures += s.Captures;
+                        local.EnPassant += s.EnPassant;
+                        local.Castles += s.Castles;
+                        local.Promotions += s.Promotions;
+                        local.Checks += s.Checks;
+                        local.DiscoveryChecks += s.DiscoveryChecks;
+                        local.DoubleChecks += s.DoubleChecks;
+                        local.Checkmates += s.Checkmates;
+                    }
+
+                    bc.UnmakeMove(mv, u);
+                    return local;
+                },
+                localFinally: local =>
+                {
+                    // one set of atomics per shard
+                    System.Threading.Interlocked.Add(ref total.Nodes, local.Nodes);
+                    System.Threading.Interlocked.Add(ref total.Captures, local.Captures);
+                    System.Threading.Interlocked.Add(ref total.EnPassant, local.EnPassant);
+                    System.Threading.Interlocked.Add(ref total.Castles, local.Castles);
+                    System.Threading.Interlocked.Add(ref total.Promotions, local.Promotions);
+                    System.Threading.Interlocked.Add(ref total.Checks, local.Checks);
+                    System.Threading.Interlocked.Add(ref total.DiscoveryChecks, local.DiscoveryChecks);
+                    System.Threading.Interlocked.Add(ref total.DoubleChecks, local.DoubleChecks);
+                    System.Threading.Interlocked.Add(ref total.Checkmates, local.Checkmates);
+                });
+
+            return total;
         }
 
-        private static void StatisticsImpl(Board board, int depth, ref PerftStatistics stats)
+
+        // ---------------------------
+        // Serial workers
+        // ---------------------------
+
+        private static long PerftSerial(Board board, int depth)
+        {
+            if (depth == 0) return 1;
+
+            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
+            var span = MoveGeneration.GeneratePseudoLegal(board, buf, board.SideToMove);
+
+            long nodes = 0;
+            foreach (var mv in span)
+            {
+                var u = board.MakeMove(mv);
+                bool legal = !board.InCheck(board.SideToMove.Flip());
+                if (legal)
+                    nodes += PerftSerial(board, depth - 1);
+                board.UnmakeMove(mv, u);
+            }
+
+            return nodes;
+        }
+
+        private static void StatisticsImplSerial(Board board, int depth, ref PerftStatistics stats)
         {
             if (depth == 0)
             {
@@ -113,7 +255,6 @@ namespace Forklift.Core
                     if (depth == 1)
                     {
                         if (mv.IsCapture) stats.Captures++;
-
                         if (mv.IsEnPassant) stats.EnPassant++;
                         if (mv.IsCastle) stats.Castles++;
                         if (mv.Promotion != Piece.Empty) stats.Promotions++;
@@ -130,24 +271,25 @@ namespace Forklift.Core
                             stats.DoubleChecks++;
                     }
 
-                    StatisticsImpl(board, depth - 1, ref stats);
+                    StatisticsImplSerial(board, depth - 1, ref stats);
                 }
 
                 board.UnmakeMove(mv, u);
             }
         }
 
-        // Simplest and correct in a legal perft tree.
+        // ---------------------------
+        // Existing helpers (kept as-is)
+        // ---------------------------
+
         internal static bool IsDoubleCheck(Board board)
         {
-            // Post-move: board.SideToMove is the side that may be in check.
             var checkedSide = board.SideToMove;
             if (!board.InCheck(checkedSide)) return false;
 
             var kingSq64 = board.FindKingSq64(checkedSide);
             var attackerSide = checkedSide.Flip();
 
-            // Early bail: check for non-sliding attackers (knight, pawn, king)
             ulong knightAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Knight);
             if (knightAttackers != 0) return true;
 
@@ -157,13 +299,11 @@ namespace Forklift.Core
             ulong kingAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.King);
             if (kingAttackers != 0) return true;
 
-            // Sliding attackers (bishop, rook, queen)
             ulong slidingAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Bishop | Piece.PieceType.Rook | Piece.PieceType.Queen);
-            return System.Numerics.BitOperations.PopCount(slidingAttackers) >= 2;
+            return BitOperations.PopCount(slidingAttackers) >= 2;
         }
 
         private static readonly int[] DIRS_ALL = { +1, -1, +16, -16, +15, +17, -15, -17 };
-
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static bool IsRookDir(int d) => d == +1 || d == -1 || d == +16 || d == -16;
@@ -173,31 +313,24 @@ namespace Forklift.Core
 
         public static bool IsDiscoveryCheck(Board board, in Board.Move mv)
         {
-            // Side that just moved (pre-move state)
             var us = mv.Mover.IsWhite ? Color.White : Color.Black;
             var them = us.Flip();
 
-            // Opponent king (target of any check we’d be “discovering”)
             Square0x64 k64 = board.FindKingSq64(them);
             Square0x88 k88 = Squares.ConvertTo0x88Index(k64);
 
-            // Pre-move squares
             Square0x88 from88 = mv.From88;
             Square0x88 to88 = mv.To88;
 
-            // En-passant captured pawn square (present before move; gone after move)
             Square0x88? epRemoved = null;
             if (mv.IsEnPassant)
                 epRemoved = mv.Mover.IsWhite ? (Square0x88)(to88 - 16) : (Square0x88)(to88 + 16);
 
-            // Cache pre-move occupancy for all squares
             Span<bool> preOcc = stackalloc bool[128];
             for (int i = 0; i < 128; i++)
                 preOcc[i] = board.At((Square0x88)i) != Piece.Empty;
 
-            // Cache post-move occupancy as a bitboard (0x88 squares mapped to bits 0..63)
             ulong occAfter = board.GetAllOccupancy();
-            // Toggle from88 (remove), to88 (add), epRemoved (remove if present)
             int from64 = (int)(Square0x64)Squares.ConvertTo0x64Index(from88);
             int to64 = (int)(Square0x64)Squares.ConvertTo0x64Index(to88);
             occAfter &= ~(1UL << from64);
@@ -208,19 +341,17 @@ namespace Forklift.Core
                 occAfter &= ~(1UL << ep64);
             }
 
-            // Helper: is piece a slider matching direction?
             bool PieceMatchesDir(Piece p, int dir)
             {
                 if (p == Piece.Empty) return false;
                 bool pWhite = p.IsWhite;
-                if (pWhite != us.IsWhite()) return false; // slider must be ours
+                if (pWhite != us.IsWhite()) return false;
 
                 if (IsRookDir(dir)) return p == Piece.WhiteRook || p == Piece.BlackRook || p == Piece.WhiteQueen || p == Piece.BlackQueen;
                 if (IsBishopDir(dir)) return p == Piece.WhiteBishop || p == Piece.BlackBishop || p == Piece.WhiteQueen || p == Piece.BlackQueen;
                 return false;
             }
 
-            // Check if a candidate destination still blocks the ray between king and slider
             static bool OnOpenSegment(Square0x88 k, Square0x88 s, int dir, Square0x88 q)
             {
                 var cur = (UnsafeSquare0x88)k;
@@ -229,15 +360,13 @@ namespace Forklift.Core
                     cur += dir;
                     if (Squares.IsOffboard(cur)) return false;
                     var c = (Square0x88)cur;
-                    if (c == q) return true;   // q lies between king and slider
-                    if (c == s) return false;  // reached the slider without seeing q
+                    if (c == q) return true;
+                    if (c == s) return false;
                 }
             }
 
-            // Scan from the opponent king outward along all 8 rays.
             foreach (int dir in DIRS_ALL)
             {
-                // Walk until first occupied AFTER the move using bitboard
                 var cur = (UnsafeSquare0x88)k88;
                 Square0x88? firstOcc = null;
                 while (true)
@@ -254,13 +383,6 @@ namespace Forklift.Core
                 }
                 if (firstOcc is null) continue;
 
-                // For a genuine discovery, the *first* occupied square after the move
-                // must be the *revealed slider*; and BEFORE the move the first block
-                // must have been either the mover's from-square or the EP-captured pawn.
-                // So: BEFORE the move, the first occupied from king along dir must be
-                // either 'from88' or 'epRemoved' (if any). Check that now:
-
-                // Find first occupied BEFORE the move using cached preOcc
                 cur = (UnsafeSquare0x88)k88;
                 Square0x88? firstOccBefore = null;
                 while (true)
@@ -277,34 +399,24 @@ namespace Forklift.Core
                 }
                 if (firstOccBefore is null) continue;
 
-                // It must have been blocked by the thing we remove (from or EP-captured)
                 bool wasBlockedByMoverOrEP =
                     firstOccBefore.Value == from88 ||
                     (epRemoved.HasValue && firstOccBefore.Value == epRemoved.Value);
 
                 if (!wasBlockedByMoverOrEP) continue;
 
-                // Now, AFTER the move the first piece must be a same-side slider in this dir.
                 var sliderSq = firstOcc.Value;
-                var sliderPc = board.At(sliderSq); // mailbox read only once
+                var sliderPc = board.At(sliderSq);
                 if (!PieceMatchesDir(sliderPc, dir)) continue;
 
-                // If we move TO a square that still lies between king and slider along this dir,
-                // we still block the line => NOT a discovery.
                 if (OnOpenSegment(k88, sliderSq, dir, to88)) continue;
-
-                // Also, if the move CAPTURES the slider, it’s obviously not a discovery.
                 if (mv.IsCapture && sliderSq == mv.To88) continue;
 
-                // All criteria satisfied → discovered check.
                 return true;
             }
 
             return false;
         }
-
-
-        // --- helpers ---
 
         // Returns true and the 0x88 step (+/-1, +/-16, +/-15, +/-17) if squares are aligned; false otherwise.
         private static bool TryStepBetween(int from88, int to88, out int step)

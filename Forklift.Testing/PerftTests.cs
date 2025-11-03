@@ -24,9 +24,9 @@ namespace Forklift.Testing
         public void PerftDivide_Shows_Which_FirstMove_Is_Wrong(string fenOrStart, int depth)
         {
             var b = BoardFactory.FromFenOrStart(fenOrStart);
-            long total = Perft.Count(b, depth);
+            long total = Perft.Count(b, depth, parallelRoot: true);
 
-            var divide = Perft.Divide(b, depth);
+            var divide = Perft.Divide(b, depth, parallelRoot: true);
             divide.Sum(kv => kv.Nodes).Should().Be(total);
         }
 
@@ -41,7 +41,7 @@ namespace Forklift.Testing
         public void Perft_Count_Should_Match_Expected_Values(string fenOrStart, int depth, long expectedNodes)
         {
             var b = BoardFactory.FromFenOrStart(fenOrStart);
-            long nodes = Perft.Count(b, depth);
+            long nodes = Perft.Count(b, depth, parallelRoot: true);
             nodes.Should().Be(expectedNodes);
         }
 
@@ -89,7 +89,7 @@ namespace Forklift.Testing
         {
             var b = BoardFactory.FromFenOrStart(fen);
             b.KeepTrackOfHistory = false;
-            var stats = Perft.Statistics(b, depth);
+            var stats = Perft.Statistics(b, depth, parallelRoot: true);
 
             stats.Nodes.Should().Be(expectedNodes, $"Nodes at depth {depth}");
             stats.Captures.Should().Be(expectedCaptures, $"Captures at depth {depth}");
@@ -122,7 +122,7 @@ namespace Forklift.Testing
         {
             var b = BoardFactory.FromFenOrStart(fen);
             b.KeepTrackOfHistory = false;
-            var stats = Perft.Statistics(b, depth);
+            var stats = Perft.Statistics(b, depth, parallelRoot: true);
 
             stats.Nodes.Should().Be(expectedNodes, $"Nodes at depth {depth}");
             stats.Captures.Should().Be(expectedCaptures, $"Captures at depth {depth}");
@@ -139,7 +139,7 @@ namespace Forklift.Testing
         public void Perft_Count_Should_Handle_Specific_Positions(string fen, int depth, long expectedNodes)
         {
             var b = BoardFactory.FromFenOrStart(fen);
-            long nodes = Perft.Count(b, depth);
+            long nodes = Perft.Count(b, depth, parallelRoot: true);
 
             nodes.Should().Be(expectedNodes);
         }
@@ -149,11 +149,11 @@ namespace Forklift.Testing
         public void Perft_Divide_Should_Match_Expected_Values(string fenOrStart, int depth)
         {
             var b = BoardFactory.FromFenOrStart(fenOrStart);
-            var divide = Perft.Divide(b, depth);
+            var divide = Perft.Divide(b, depth, parallelRoot: true);
 
             // Verify that the sum of nodes matches the total count
             long totalNodes = divide.Sum(kv => kv.Nodes);
-            long expectedTotal = Perft.Count(b, depth);
+            long expectedTotal = Perft.Count(b, depth, parallelRoot: true);
 
             totalNodes.Should().Be(expectedTotal);
 

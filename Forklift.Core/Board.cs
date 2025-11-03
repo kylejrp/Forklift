@@ -12,6 +12,37 @@ namespace Forklift.Core;
 /// </summary>
 public sealed class Board
 {
+    /// <summary>
+    /// Creates a deep copy of the board suitable for parallel search threads.
+    /// Shared tables are reused, all mutable state is copied.
+    /// </summary>
+    public Board Copy()
+    {
+        var copy = new Board(this.Tables);
+        Array.Copy(this.mailbox, copy.mailbox, this.mailbox.Length);
+        Array.Copy(this.pieceBB, copy.pieceBB, this.pieceBB.Length);
+        copy.OccWhite = this.OccWhite;
+        copy.OccBlack = this.OccBlack;
+        copy.OccAll = this.OccAll;
+        copy._sideToMove = this._sideToMove;
+        copy.CastlingRights = this.CastlingRights;
+        copy.EnPassantFile = this.EnPassantFile;
+        copy.HalfmoveClock = this.HalfmoveClock;
+        copy.FullmoveNumber = this.FullmoveNumber;
+        copy.ZKey = this.ZKey;
+        copy.KeepTrackOfHistory = this.KeepTrackOfHistory;
+        foreach (var kvp in this._repCounts)
+            copy._repCounts[kvp.Key] = kvp.Value;
+        foreach (var hash in this._hashStack)
+            copy._hashStack.Push(hash);
+        if (KeepTrackOfHistory)
+        {
+            copy._moveHistory.AddRange(this._moveHistory);
+            copy._undoHistory.AddRange(this._undoHistory);
+        }
+        return copy;
+    }
+
     [Flags]
     public enum CastlingRightsFlags
     {
