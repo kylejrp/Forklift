@@ -25,6 +25,8 @@ namespace Forklift.Core
         // Magic attack tables: [fromSq][index] -> attacks
         public readonly ulong[][] BishopAttackTable;  // [from][idx] -> attacks
         public readonly ulong[][] RookAttackTable;    // [from][idx] -> attacks
+        public static readonly byte[] BishopIndexBits = new byte[64];
+        public static readonly byte[] RookIndexBits = new byte[64];
 
         public readonly Zobrist Zobrist;
 
@@ -69,6 +71,8 @@ namespace Forklift.Core
             {
                 BishopMasks[sq] = GenerateBishopMask(sq);
                 RookMasks[sq] = GenerateRookMask(sq);
+                BishopIndexBits[sq] = (byte)BitOperations.PopCount(BishopMasks[sq]);
+                RookIndexBits[sq] = (byte)BitOperations.PopCount(RookMasks[sq]);
             }
         }
 
@@ -259,8 +263,8 @@ namespace Forklift.Core
             bool bishop = type == Piece.PieceType.Bishop;
             ulong mask = bishop ? BishopMasks[sq] : RookMasks[sq];
             ulong magic = bishop ? CurrentBishopMagics[sq] : CurrentRookMagics[sq];
-            int bits = PopCount(mask);
-            return MagicIndex(occ, mask, magic, bits);
+            int bits = bishop ? BishopIndexBits[sq] : RookIndexBits[sq];
+            return (int)(((occ & mask) * magic) >> (64 - bits));
         }
 
         // =========================
