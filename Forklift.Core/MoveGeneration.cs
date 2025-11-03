@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Diagnostics;
 using System.Numerics;
 using static Forklift.Core.Board;
 
@@ -30,22 +31,35 @@ namespace Forklift.Core
             var moveIndex = 0;
 
             GeneratePawnMoves(board, moves, ref moveIndex, sideToMove);
+            AssertBufferOk(moveIndex, moves.Length, nameof(GeneratePawnMoves));
+
             GenerateKnightMoves(board, moves, ref moveIndex, sideToMove);
+            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateKnightMoves));
 
             GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
+            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateSliderMoves) + " (Bishop)");
             GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
+            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateSliderMoves) + " (Rook)");
             // For queens, combine rook and bishop directions to avoid duplicate moves
             var queenDirs = new int[RookDirs.Length + BishopDirs.Length];
             RookDirs.CopyTo(queenDirs, 0);
             BishopDirs.CopyTo(queenDirs, RookDirs.Length);
             GenerateSliderMoves(board, moves, ref moveIndex, sideToMove, sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, queenDirs);
+            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateSliderMoves) + " (Queen)");
 
             GenerateKingMoves(board, moves, ref moveIndex, sideToMove);
+            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateKingMoves));
             GenerateCastling(board, moves, ref moveIndex, sideToMove);
+            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateCastling));
             GenerateEnPassant(board, moves, ref moveIndex, sideToMove);
+            AssertBufferOk(moveIndex, moves.Length, nameof(GenerateEnPassant));
 
             return moves[..moveIndex];
         }
+
+        [Conditional("DEBUG")]
+        static void AssertBufferOk(int index, int length, string context) =>
+            Debug.Assert(index <= length, $"Move buffer overflow in {context}: {index}/{length}");
 
         // --- Pawns (pushes, captures, promotions; EP is generated separately) -------------
 
