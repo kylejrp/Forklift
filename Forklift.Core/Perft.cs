@@ -12,7 +12,7 @@ namespace Forklift.Core
             if (depth == 0) return 1;
 
             long nodes = 0;
-            Span<Board.Move> buf = stackalloc Board.Move[256];
+            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
             var span = MoveGeneration.GeneratePseudoLegal(board, buf, board.SideToMove);
 
             foreach (var mv in span)
@@ -50,7 +50,7 @@ namespace Forklift.Core
         public static IReadOnlyList<DivideMove> Divide(Board b, int depth)
         {
             var acc = new List<DivideMove>();
-            Span<Board.Move> buf = stackalloc Board.Move[256];
+            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
             var span = b.GenerateLegal(buf);
             foreach (var mv in span)
             {
@@ -101,7 +101,7 @@ namespace Forklift.Core
                 return;
             }
 
-            Span<Board.Move> moveBuffer = stackalloc Board.Move[256];
+            Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
             var span = MoveGeneration.GeneratePseudoLegal(board, moveBuffer, board.SideToMove);
 
             foreach (var mv in span)

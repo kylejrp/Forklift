@@ -12,6 +12,13 @@ namespace Forklift.Core
         private static readonly int[] RookDirs = { +1, -1, +16, -16 };
         private static readonly int[] BishopDirs = { +15, +17, -15, -17 };
 
+        public static Move[] GeneratePseudoLegal(Board board, Color sideToMove)
+        {
+            Span<Move> moves = stackalloc Move[MoveBufferMax];
+            var span = GeneratePseudoLegal(board, moves, sideToMove);
+            return span.ToArray();
+        }
+
         /// <summary>
         /// Generates all pseudo-legal moves for the current board state.
         /// </summary>

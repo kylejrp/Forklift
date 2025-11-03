@@ -76,6 +76,8 @@ public sealed class Board
 
     public bool KeepTrackOfRepetitions { get; set; } = true;
 
+    public const int MoveBufferMax = 256;
+
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Board"/> class.
@@ -530,7 +532,7 @@ public sealed class Board
     /// <returns>An array of legal moves</returns>
     public Move[] GenerateLegal()
     {
-        Span<Move> moveBuffer = stackalloc Move[256];
+        Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
         var legalSpan = GenerateLegal(moveBuffer);
         Move[] result = legalSpan.ToArray();
         return result;
@@ -553,7 +555,7 @@ public sealed class Board
 
     public bool HasAnyLegalMoves()
     {
-        Span<Move> moveBuffer = stackalloc Move[256];
+        Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
         var pseudo = MoveGeneration.GeneratePseudoLegal(this, moveBuffer, SideToMove);
 
         foreach (var mv in pseudo)
@@ -571,7 +573,7 @@ public sealed class Board
     /// </summary>
     public Move[] GeneratePseudoLegal()
     {
-        Span<Move> moves = stackalloc Move[256];
+        Span<Move> moves = stackalloc Move[MoveBufferMax];
         MoveGeneration.GeneratePseudoLegal(this, moves, SideToMove);
         return moves.ToArray();
     }

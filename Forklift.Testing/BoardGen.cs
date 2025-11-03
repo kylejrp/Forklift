@@ -115,7 +115,7 @@ namespace Forklift.Testing
 
         private static bool HasAnyLegalMove(Board b)
         {
-            Span<Board.Move> moves = stackalloc Board.Move[256];
+            Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
             var span = MoveGeneration.GeneratePseudoLegal(b, moves, b.SideToMove);
             foreach (var mv in span)
             {
@@ -129,7 +129,7 @@ namespace Forklift.Testing
 
         private static bool TryPickRandomLegalMove(Board b, Random rng, out Board.Move move)
         {
-            Span<Board.Move> pseudo = stackalloc Board.Move[256];
+            Span<Board.Move> pseudo = stackalloc Board.Move[Board.MoveBufferMax];
             var span = MoveGeneration.GeneratePseudoLegal(b, pseudo, b.SideToMove);
             if (span.Length == 0) { move = default; return false; }
 
