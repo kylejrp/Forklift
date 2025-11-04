@@ -51,8 +51,7 @@ public static class Program
     {
         var p = Args.Parse(args);
 
-        // New: optional preset and helpers
-        string preset = p.Get("--preset", "");   // quick | ci | deep
+        string preset = p.Get("--preset", "quick"); // quick | ci | deep
         bool skipCorr = p.Has("--skipCorrectness");
         int sampleN = p.Get("--positions", 0); // 0 = use all positions
 
@@ -62,10 +61,20 @@ public static class Program
         int repeat = p.Get("--repeat", 3);
         int warmup = p.Get("--warmup", 1);
         bool json = p.Has("--json");
-        string? outFile = p.Get<string?>("--out", null);
-        int? threads = p.Get<int?>("--threads", null);
+        string? outFile = p.Get<string?>("--out", null); int? threads = null;
+        if (p.Has("--threads"))
+        {
+            try
+            {
+                // Accept both "--threads=1" and "--threads 1"
+                var t = p.Get("--threads", -1); // int fallback ensures T=int
+                if (t > 0) threads = t; // treat 0/negatives as "default"
+            }
+            catch { /* leave as null */ }
+        }
         bool hiPrio = p.Has("--highPriority");
         bool keepHist = p.Has("--keepHistory");
+        int? affinity = p.Has("--affinity") ? p.Get("--affinity", 0) : null;
 
         switch (preset.ToLowerInvariant())
         {
@@ -78,14 +87,14 @@ public static class Program
                 break;
 
             case "ci":
-                if (!p.Has("--suite")) suite = "minimal";
+                if (!p.Has("--suite")) suite = "fast";
                 if (!p.Has("--depth")) depth = 4;
-                if (!p.Has("--repeat")) repeat = 3;
+                if (!p.Has("--repeat")) repeat = 5;
                 if (!p.Has("--warmup")) warmup = 1;
                 break;
 
             case "deep":
-                if (!p.Has("--suite")) suite = "fast";
+                if (!p.Has("--suite")) suite = "full";
                 if (!p.Has("--depth")) depth = 5;
                 if (!p.Has("--repeat")) repeat = 5;
                 if (!p.Has("--warmup")) warmup = 1;
@@ -108,76 +117,103 @@ public static class Program
             positions = positions.OrderBy(_ => rng.Next()).Take(sampleN).ToList();
 
         TrySetProcessPriority(hiPrio);
+        try
+        {
+            if (affinity is int mask && mask != 0)
+                Process.GetCurrentProcess().ProcessorAffinity = (IntPtr)mask;
+        }
+        catch { /* ignore */ }
         ForceGC();
 
         var results = new List<BenchResult>(positions.Count);
         long totalNodes = 0;
         double totalMs = 0;
-
-        foreach (var (name, entry) in positions)
+        var oldMode = System.Runtime.GCSettings.LatencyMode;
+        System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
+        try
         {
-            // Respect skipCorrectness
-            if (!skipCorr && entry.ExpectedByDepth.TryGetValue(depth, out var expected))
+            foreach (var (name, entry) in positions)
             {
-                LogWithLocalTimestamp($"[INFO] Correctness check for '{name}' depth {depth}...");
-                var b0 = BoardFactory.FromFenOrStart(entry.FenOrStart);
-                b0.KeepTrackOfHistory = keepHist;
-                long nodes0 = Perft.Count(b0, depth, parallelRoot: true, maxThreads: threads);
-                if (nodes0 != expected)
-                    ErrorWithLocalTimestamp($"[FAIL] {name} depth {depth}: expected {expected}, got {nodes0}");
-                else
-                    LogWithLocalTimestamp($"[PASS] {name} depth {depth}: {nodes0} nodes");
+                // Respect skipCorrectness
+                if (!skipCorr && entry.ExpectedByDepth.TryGetValue(depth, out var expected))
+                {
+                    LogWithLocalTimestamp($"[INFO] Correctness check for '{name}' depth {depth}...");
+                    var b0 = BoardFactory.FromFenOrStart(entry.FenOrStart);
+                    b0.KeepTrackOfHistory = keepHist;
+                    long nodes0 = Perft.Count(b0, depth, parallelRoot: true, maxThreads: threads);
+                    if (nodes0 != expected)
+                        ErrorWithLocalTimestamp($"[FAIL] {name} depth {depth}: expected {expected}, got {nodes0}");
+                    else
+                        LogWithLocalTimestamp($"[PASS] {name} depth {depth}: {nodes0} nodes");
+                }
+
+                // warmups (unmeasured)
+                for (int i = 0; i < warmup; i++)
+                {
+                    var wb = BoardFactory.FromFenOrStart(entry.FenOrStart);
+                    wb.KeepTrackOfHistory = keepHist;
+                    _ = Perft.Count(wb, Math.Min(depth, 3), parallelRoot: true, maxThreads: threads);
+                }
+
+                // repeats (measured)
+                var measurements = new List<(long Nodes, double Ms, double Nps)>(repeat);
+                for (int r = 0; r < repeat; r++)
+                {
+                    var b = BoardFactory.FromFenOrStart(entry.FenOrStart);
+                    b.KeepTrackOfHistory = keepHist;
+
+                    var sw = Stopwatch.StartNew();
+                    var stats = Perft.Statistics(b, depth, parallelRoot: true, maxThreads: threads);
+                    sw.Stop();
+
+                    var secs = Math.Max(1e-9, sw.Elapsed.TotalSeconds);
+                    measurements.Add((stats.Nodes, sw.Elapsed.TotalMilliseconds, stats.Nodes / secs));
+                }
+
+                var nodesMed = Median(measurements.Select(x => (double)x.Nodes));
+                var msMed = Median(measurements.Select(x => x.Ms));
+                var npsMed = Median(measurements.Select(x => x.Nps));
+
+                totalNodes += (long)nodesMed;
+                totalMs += msMed;
+
+                results.Add(new BenchResult(
+                    Name: name,
+                    Fen: entry.FenOrStart,
+                    Depth: depth,
+                    NodesMedian: (long)nodesMed,
+                    ElapsedMsMedian: msMed,
+                    NpsMedian: npsMed,
+                    Repeats: repeat
+                ));
             }
-
-            // warmups (unmeasured)
-            for (int i = 0; i < warmup; i++)
-            {
-                var wb = BoardFactory.FromFenOrStart(entry.FenOrStart);
-                wb.KeepTrackOfHistory = keepHist;
-                _ = Perft.Count(wb, Math.Min(depth, 3), parallelRoot: true, maxThreads: threads);
-            }
-
-            // repeats (measured)
-            var measurements = new List<(long Nodes, double Ms, double Nps)>(repeat);
-            for (int r = 0; r < repeat; r++)
-            {
-                var b = BoardFactory.FromFenOrStart(entry.FenOrStart);
-                b.KeepTrackOfHistory = keepHist;
-
-                var sw = Stopwatch.StartNew();
-                var stats = Perft.Statistics(b, depth, parallelRoot: true, maxThreads: threads);
-                sw.Stop();
-
-                var secs = Math.Max(1e-9, sw.Elapsed.TotalSeconds);
-                measurements.Add((stats.Nodes, sw.Elapsed.TotalMilliseconds, stats.Nodes / secs));
-            }
-
-            var nodesMed = Median(measurements.Select(x => (double)x.Nodes));
-            var msMed = Median(measurements.Select(x => x.Ms));
-            var npsMed = Median(measurements.Select(x => x.Nps));
-
-            totalNodes += (long)nodesMed;
-            totalMs += msMed;
-
-            results.Add(new BenchResult(
-                Name: name,
-                Fen: entry.FenOrStart,
-                Depth: depth,
-                NodesMedian: (long)nodesMed,
-                ElapsedMsMedian: msMed,
-                NpsMedian: npsMed,
-                Repeats: repeat
-            ));
+        }
+        finally
+        {
+            System.Runtime.GCSettings.LatencyMode = oldMode;
         }
 
         var aggregateSecs = totalMs / 1000.0;
         var aggregateNps = totalNodes / Math.Max(1e-9, aggregateSecs);
 
+        var runId = Guid.NewGuid().ToString();
+
+        static string GetFileSha256(string path)
+        {
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            using var fs = File.OpenRead(path);
+            return Convert.ToHexString(sha.ComputeHash(fs));
+        }
+
+        var benchmarkAssemblyHash = GetFileSha256(typeof(Program).Assembly.Location);
+        var coreAssemblyHash = GetFileSha256(typeof(Perft).Assembly.Location);
+
         var summary = new BenchSummary(
             Suite: suite, Depth: depth, Repeat: repeat, Warmup: warmup,
             KeepHistory: keepHist, Threads: threads > 0 ? threads : (int?)null,
             TimestampUtc: DateTime.UtcNow, Results: results,
-            TotalNodes: totalNodes, TotalElapsedMs: totalMs, AggregateNps: aggregateNps
+            TotalNodes: totalNodes, TotalElapsedMs: totalMs, AggregateNps: aggregateNps,
+            RunId: runId, Argv: args, BenchmarkAssemblyHash: benchmarkAssemblyHash, CoreAssemblyHash: coreAssemblyHash
         );
 
         if (json)
@@ -229,7 +265,7 @@ public static class Program
     private record SuiteEntry(string FenOrStart, Dictionary<int, long> ExpectedByDepth);
     private record BenchResult(string Name, string Fen, int Depth, long NodesMedian, double ElapsedMsMedian, double NpsMedian, int Repeats);
     private record BenchSummary(string Suite, int Depth, int Repeat, int Warmup, bool KeepHistory, int? Threads, DateTime TimestampUtc,
-        List<BenchResult> Results, long TotalNodes, double TotalElapsedMs, double AggregateNps);
+        List<BenchResult> Results, long TotalNodes, double TotalElapsedMs, double AggregateNps, string RunId, string[]? Argv, string? BenchmarkAssemblyHash, string? CoreAssemblyHash);
 
     // --- Very small flag parser (---k v / ---k=v / boolean switches) ---
     private sealed class Args
