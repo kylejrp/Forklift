@@ -1,6 +1,7 @@
 # -------------------------
 # eval.ps1 (header)
 # -------------------------
+[CmdletBinding()]
 param(
   [string]$MainRef = "origin/main",
   [string]$Configuration = "Release",
@@ -34,8 +35,64 @@ if ($PSVersionTable.PSEdition -ne 'Core') {
   exit $LASTEXITCODE
 }
 
-
 $ErrorActionPreference = "Stop"
+$VerbosePreference = if ($PSBoundParameters.ContainsKey('Verbose')) { 'Continue' } else { 'SilentlyContinue' }
+
+function Show-StageProgress([string]$activity, [string]$status, [int]$percent) {
+  # Write-Progress collapses automatically in PS7; keep it lightweight
+  Write-Progress -Activity $activity -Status $status -PercentComplete $percent
+}
+
+function Run-Quiet {
+  param(
+    [scriptblock]$Cmd,
+    [string]$LogPath
+  )
+  $out = & $Cmd 2>&1
+  $out | Out-File $LogPath -Encoding utf8
+  if ($VerbosePreference -eq 'Continue') { $out }
+}
+
+function Colorize([double]$pct) {
+  if ($null -eq $pct) { return @{Color = 'Yellow'; Tag = ' ? ' } }
+  if ($pct -ge 0.5) { return @{Color = 'Green'; Tag = '↑ ' } }
+  if ($pct -le -0.5) { return @{Color = 'Red'; Tag = '↓ ' } }
+  return @{Color = 'Yellow'; Tag = '→ ' }
+}
+
+function Bar([double]$pct) {
+  # ASCII bar from -15%..+15%, 31 columns, center at zero
+  $span = 15.0
+  $p = [math]::Max(-$span, [math]::Min($span, $pct))
+  $cols = 31
+  $mid = [int][math]::Floor($cols / 2)
+  $pos = $mid + [int][math]::Round(($p / $span) * $mid)
+
+  $chars = New-Object char[] $cols
+  for ($i = 0; $i -lt $cols; $i++) { $chars[$i] = ' ' }
+  $chars[$mid] = '|'
+  if ($pos -gt $mid) {
+    for ($i = $mid + 1; $i -le $pos; $i++) { $chars[$i] = '█' }
+  }
+  elseif ($pos -lt $mid) {
+    for ($i = $pos; $i -lt $mid; $i++) { $chars[$i] = '█' }
+  }
+  -join $chars
+}
+
+function PrintDeltaLine {
+  param(
+    [string]$Name,
+    [string]$BaseStr,
+    [string]$CandStr,
+    [double]$Pct
+  )
+  $sty = Colorize $Pct
+  $bar = Bar $Pct
+  $pctStr = "{0,7:N3}%" -f $Pct
+  $line = "{0,-14} {1,14} → {2,14}   {3}  {4}" -f $Name, $BaseStr, $CandStr, $pctStr, $bar
+  Write-Host $line -ForegroundColor $sty.Color
+}
 
 # --- Preset → default mappings (you can tweak later)
 switch ($Preset) {
@@ -86,21 +143,23 @@ Ensure-Dir $evalRoot; Ensure-Dir $outRoot; Ensure-Dir $logsRoot
 try { $baseCommit = (git rev-parse $MainRef).Trim() } catch { $baseCommit = (git rev-parse HEAD).Trim() }
 $baseShort = ShortHash $baseCommit
 $candidateLabel = "WORKTREE"
-
-Write-Host "Baseline: $baseCommit"
-Write-Host "Candidate: $candidateLabel (uncommitted)"
+$baseSubject = (git show -s --format=%s $baseCommit).Trim()
+Write-Host ("Baseline: {0} — {1}" -f $baseCommit, $baseSubject)
+Write-Host "Candidate: WORKTREE (uncommitted)"
 
 # --- Baseline worktree
+Show-StageProgress "Setup" "Preparing baseline worktree" 10
 if (Test-Path $baseWT) {
   $existing = (git -C $baseWT rev-parse HEAD).Trim()
   if ($existing -ne $baseCommit) {
-    git worktree remove --force $baseWT
-    git worktree add --detach $baseWT $baseCommit
+    Run-Quiet { git worktree remove --force --quiet $baseWT } (Join-Path $logsRoot "worktree-remove.log")
+    Run-Quiet { git worktree add --detach --quiet $baseWT $baseCommit } (Join-Path $logsRoot "worktree-add.log")
   }
 }
 else {
-  git worktree add --detach $baseWT $baseCommit
+  Run-Quiet { git worktree add --detach --quiet $baseWT $baseCommit } (Join-Path $logsRoot "worktree-add.log")
 }
+
 
 # --- Build flags
 $msbuildFlags = @(
@@ -113,26 +172,24 @@ $msbuildFlags = @(
 # --- Build baseline (Core + Benchmark) from clean worktree
 Ensure-Dir $baseCoreOut; Ensure-Dir $benchOut
 
-Write-Host "`n=== Build baseline Forklift.Core @$baseShort ==="
-dotnet build (Join-Path $baseWT "Forklift.Core/Forklift.Core.csproj") @msbuildFlags "/p:OutputPath=$baseCoreOut" `
-| Tee-Object -FilePath (Join-Path $logsRoot "build-baseline-core.log")
+Show-StageProgress "Build" "Baseline Forklift.Core" 25
+Run-Quiet { dotnet build (Join-Path $baseWT "Forklift.Core/Forklift.Core.csproj") @msbuildFlags "/p:OutputPath=$baseCoreOut" } (Join-Path $logsRoot "build-baseline-core.log")
 
-Write-Host "`n=== Build Forklift.Benchmark (current working tree) ==="
-dotnet build (Join-Path $repo "Forklift.Benchmark/Forklift.Benchmark.csproj") @msbuildFlags "/p:OutputPath=$benchOut" `
-| Tee-Object -FilePath (Join-Path $logsRoot "build-bench.log")
+Show-StageProgress "Build" "Benchmark (working tree)" 40
+Run-Quiet { dotnet build (Join-Path $repo "Forklift.Benchmark/Forklift.Benchmark.csproj") @msbuildFlags "/p:OutputPath=$benchOut" } (Join-Path $logsRoot "build-bench.log")
 
 
 # --- Build candidate Forklift.Core from working tree
 Ensure-Dir $candCoreOut
-Write-Host "`n=== Build candidate Forklift.Core @WORKTREE ==="
-dotnet build (Join-Path $repo "Forklift.Core/Forklift.Core.csproj") @msbuildFlags "/p:OutputPath=$candCoreOut" `
-| Tee-Object -FilePath (Join-Path $logsRoot "build-candidate-core.log")
+Show-StageProgress "Build" "Candidate Forklift.Core" 55
+Run-Quiet { dotnet build (Join-Path $repo "Forklift.Core/Forklift.Core.csproj") @msbuildFlags "/p:OutputPath=$candCoreOut" } (Join-Path $logsRoot "build-candidate-core.log")
 
 # --- Prepare run folders using the SAME benchmark bits; swap Core dll
 if (Test-Path $runA) { Remove-Item $runA -Recurse -Force }
 if (Test-Path $runB) { Remove-Item $runB -Recurse -Force }
-Copy-Item $benchOut $runA -Recurse
-Copy-Item $benchOut $runB -Recurse
+Ensure-Dir $runA; Ensure-Dir $runB
+Copy-Item -Path (Join-Path $benchOut '*') -Destination $runA -Recurse -Force
+Copy-Item -Path (Join-Path $benchOut '*') -Destination $runB -Recurse -Force
 
 $baseCoreDll = Get-ChildItem -Path $baseCoreOut -Recurse -Filter "Forklift.Core.dll" | Select-Object -First 1
 $candCoreDll = Get-ChildItem -Path $candCoreOut -Recurse -Filter "Forklift.Core.dll" | Select-Object -First 1
@@ -180,19 +237,33 @@ function Invoke-BenchJson([string]$dir, [string]$label) {
   finally { Pop-Location }
 }
 
-Write-Host "`n=== Run BASELINE ==="
+Show-StageProgress "Run" "Baseline benchmark" 70
 $base = Invoke-BenchJson -dir $runA -label "baseline"
 
-Write-Host "`n=== Run CANDIDATE ==="
+Show-StageProgress "Run" "Candidate benchmark" 85
 $cand = Invoke-BenchJson -dir $runB -label "candidate"
 
 # --- Compute deltas (Aggregate over the suite)
+Show-StageProgress "Summarize" "Computing deltas" 95
 $nodesDeltaPct = Pct $base.TotalNodes $cand.TotalNodes
 $timeDeltaPct = Pct $base.TotalElapsedMs $cand.TotalElapsedMs
 $npsDeltaPct = Pct $base.AggregateNps $cand.AggregateNps
 
 # --- Persist results
+Write-Host ""
+
+# Pretty console deltas (quiet, aligned, rounded)
+PrintDeltaLine "Nodes"        ($base.TotalNodes.ToString("N0"))            ($cand.TotalNodes.ToString("N0"))            $nodesDeltaPct
+PrintDeltaLine "Elapsed (ms)" ($base.TotalElapsedMs.ToString("N2"))        ($cand.TotalElapsedMs.ToString("N2"))        $timeDeltaPct
+PrintDeltaLine "NPS"          ([math]::Round($base.AggregateNps, 0).ToString("N0")) ([math]::Round($cand.AggregateNps, 0).ToString("N0")) $npsDeltaPct
+
+Write-Progress -Activity "Done" -Completed
+
+# Also keep the Markdown + JSON artifacts
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$jsonPath = Join-Path $evalRoot "result-$stamp.json"
+$mdPath = Join-Path $evalRoot "result-$stamp.md"
+
 $jsonOut = @{
   BaselineCommit = $baseCommit
   Candidate      = $candidateLabel
@@ -200,7 +271,7 @@ $jsonOut = @{
   Depth          = $Depth
   Repeat         = $Repeat
   Warmup         = $Warmup
-  Threads        = ($Threads -gt 0) ? $Threads : $null
+  Threads        = if ($Threads -gt 0) { $Threads } else { $null }
   KeepHistory    = [bool]$KeepHistory
   HighPriority   = [bool]$HighPriority
   Baseline       = $base.Raw
@@ -211,71 +282,68 @@ $jsonOut = @{
     NpsPct     = $npsDeltaPct
   }
   TimestampUtc   = (Get-Date).ToUniversalTime().ToString("o")
-} | ConvertTo-Json -Depth 6
+}
+$jsonOut | ConvertTo-Json -Depth 6 | Out-File $jsonPath -Encoding utf8
 
-$jsonPath = Join-Path $evalRoot "result-$stamp.json"
-$jsonOut | Out-File $jsonPath -Encoding utf8
-
-$mdPath = Join-Path $evalRoot "result-$stamp.md"
+$threadsLabel = if ($Threads -gt 0) { "$Threads" } else { "default" }
 $md = @"
 # Forklift Perf A/B — $stamp
 
 **Baseline**: `$baseCommit`  
 **Candidate**: `$candidateLabel` (working tree)
 
-**Suite**: `$Suite`  **Depth**: `$Depth`  **Repeat**: `$Repeat`  **Warmup**: `$Warmup`  **Threads**: `$((($Threads -gt 0) ? $Threads : 'default'))`
+**Suite**: `$Suite`  **Depth**: `$Depth`  **Repeat**: `$Repeat`  **Warmup**: `$Warmup`  **Threads**: `$threadsLabel`
 
-| Metric       | Baseline            | Candidate           | Δ % |
-|-------------:|--------------------:|--------------------:|----:|
+| Metric       | Baseline | Candidate | Δ % |
+|-------------:|---------:|----------:|----:|
 | Nodes        | $($base.TotalNodes) | $($cand.TotalNodes) | $nodesDeltaPct |
 | Elapsed (ms) | $([math]::Round($base.TotalElapsedMs,2)) | $([math]::Round($cand.TotalElapsedMs,2)) | $timeDeltaPct |
 | NPS          | $([math]::Round($base.AggregateNps,0)) | $([math]::Round($cand.AggregateNps,0)) | $npsDeltaPct |
 
 Per-position medians:
-| Position | Nodes | ms | NPS |
-|---------:|------:|---:|----:|
+| Position | Nodes (B → C) | ms (B → C) | NPS (B → C) |
+|---------:|---------------:|-----------:|------------:|
 "@
 
-# Join on position name order from baseline summary to print both sets neatly
-$basePos = @{}
-foreach ($r in $base.Raw.Results) { $basePos[$r.Name] = $r }
-$candPos = @{}
-foreach ($r in $cand.Raw.Results) { $candPos[$r.Name] = $r }
-
-foreach ($name in $basePos.Keys) {
-  $br = $basePos[$name]; $cr = $candPos[$name]
+# rows
+foreach ($br in $base.Raw.Results) {
+  $name = $br.Name
+  $cr = $cand.Raw.Results | Where-Object Name -eq $name
   $md += ("| {0} | {1} → {2} | {3} → {4} | {5} → {6} |`n" -f
     $name,
-    ($br.NodesMedian), ($cr.NodesMedian),
-    ([math]::Round($br.ElapsedMsMedian, 0)), ([math]::Round($cr.ElapsedMsMedian, 0)),
+    $br.NodesMedian, $cr.NodesMedian,
+    ([math]::Round($br.ElapsedMsMedian, 2)), ([math]::Round($cr.ElapsedMsMedian, 2)),
     ([math]::Round($br.NpsMedian, 0)), ([math]::Round($cr.NpsMedian, 0)))
 }
+
 
 $md += @"
 
 Logs & artifacts:
-- JSON: `$($jsonPath)`
-- Baseline build logs: `.eval/logs/build-baseline-core.log`, `.eval/logs/build-baseline-bench.log`
+- JSON: `$jsonPath`
+- Baseline build logs: `.eval/logs/build-baseline-core.log`
+- Benchmark build logs: `.eval/logs/build-bench.log`
 - Candidate build logs: `.eval/logs/build-candidate-core.log`
 - Runs: `.eval/logs/run-baseline.log`, `.eval/logs/run-candidate.log`
 "@
 $md | Out-File $mdPath -Encoding utf8
 
-Write-Host "`n=== Summary ==="
-Get-Content $mdPath
+Write-Host ""
+Write-Host "Saved:" -ForegroundColor DarkGray
+Write-Host "  $jsonPath"
+Write-Host "  $mdPath"
+Write-Host ""
 
 # --- Perf gate (optional)
 if ($FailIfNpsDropPct -ne 0.0 -and $npsDeltaPct -lt $FailIfNpsDropPct) {
-  Write-Host "`nERROR: Candidate Aggregate NPS delta $npsDeltaPct% is below threshold $FailIfNpsDropPct%. Failing." -ForegroundColor Red
-  if (-not $KeepWorktree) { git worktree remove --force $baseWT }
+  Write-Host ("FAIL: Aggregate NPS delta {0:N3}% < threshold {1:N3}%." -f $npsDeltaPct, $FailIfNpsDropPct) -ForegroundColor Red
+  if (-not $KeepWorktree) { Run-Quiet { git worktree remove --force --quiet $baseWT } (Join-Path $logsRoot "worktree-remove.log") }
   exit 1
+}
+else {
+  Write-Host ("OK: Aggregate NPS delta {0:N3}% ≥ threshold {1:N3}%." -f $npsDeltaPct, $FailIfNpsDropPct) -ForegroundColor Green
 }
 
 if (-not $KeepWorktree) {
-  Write-Host "`nCleaning baseline worktree..."
-  git worktree remove --force $baseWT
+  Run-Quiet { git worktree remove --force --quiet $baseWT } (Join-Path $logsRoot "worktree-remove.log")
 }
-
-Write-Host "`nDone. Results:"
-Write-Host "  $jsonPath"
-Write-Host "  $mdPath"
