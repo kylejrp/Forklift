@@ -21,6 +21,18 @@
         "ucinewgame",
         "uciok",
         "zobrist"
+        , "worktree"
+        , "Worktree"
+        , "worktrees"
+        , "Worktrees"
+        , "candidate"
+        , "benchref"
+        , "LASTEXITCODE"
+        , "winget"
+        , "toplevel"
+        , "pscustomobject"
+        , "nologo"
+        , "behaviour"
     ],
     "cSpell.ignoreRegExpList": [
         "/[rnbqkpRNBQKP1-8\\/]+ [wb] [KQkq\\-]+ [a-h1-8\\-]+ \\d+ \\d+/"
