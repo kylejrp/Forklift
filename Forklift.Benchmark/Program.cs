@@ -63,25 +63,36 @@ public static class Program
         int warmup = p.Get("--warmup", 1);
         bool json = p.Has("--json");
         string? outFile = p.Get<string?>("--out", null);
-        int threads = p.Get("--threads", 0);
+        int? threads = p.Get<int?>("--threads", null);
         bool hiPrio = p.Has("--highPriority");
         bool keepHist = p.Has("--keepHistory");
 
-        // Apply presets AFTER parsing so they override defaults/CLI:
         switch (preset.ToLowerInvariant())
         {
             case "quick":
-                suite = "minimal"; depth = Math.Min(depth, 3); repeat = 1; warmup = 0;
-                skipCorr = true; // fastest possible smoke
+                if (!p.Has("--suite")) suite = "minimal";
+                if (!p.Has("--depth")) depth = 4;
+                if (!p.Has("--repeat")) repeat = 20;
+                if (!p.Has("--warmup")) warmup = 2;
+                if (!p.Has("--skipCorrectness")) skipCorr = true;
                 break;
+
             case "ci":
-                suite = "minimal"; depth = Math.Max(depth, 4); repeat = Math.Max(repeat, 3); warmup = Math.Max(warmup, 1);
-                // keep correctness on for CI unless user explicitly passes --skipCorrectness
+                if (!p.Has("--suite")) suite = "minimal";
+                if (!p.Has("--depth")) depth = 4;
+                if (!p.Has("--repeat")) repeat = 3;
+                if (!p.Has("--warmup")) warmup = 1;
                 break;
+
             case "deep":
-                suite = "fast"; depth = Math.Max(depth, 5); repeat = Math.Max(repeat, 5); warmup = Math.Max(warmup, 1);
+                if (!p.Has("--suite")) suite = "fast";
+                if (!p.Has("--depth")) depth = 5;
+                if (!p.Has("--repeat")) repeat = 5;
+                if (!p.Has("--warmup")) warmup = 1;
                 break;
         }
+
+        LogWithLocalTimestamp($"Suite={suite} Depth={depth} Repeat={repeat} Warmup={warmup} (preset='{preset}', skipCorrectness={skipCorr})");
 
         var suiteDict = GetSuite(suite);
         if (suiteDict.Count == 0)
@@ -111,7 +122,7 @@ public static class Program
                 LogWithLocalTimestamp($"[INFO] Correctness check for '{name}' depth {depth}...");
                 var b0 = BoardFactory.FromFenOrStart(entry.FenOrStart);
                 b0.KeepTrackOfHistory = keepHist;
-                long nodes0 = Perft.Count(b0, depth, parallelRoot: true);
+                long nodes0 = Perft.Count(b0, depth, parallelRoot: true, maxThreads: threads);
                 if (nodes0 != expected)
                     ErrorWithLocalTimestamp($"[FAIL] {name} depth {depth}: expected {expected}, got {nodes0}");
                 else
@@ -123,7 +134,7 @@ public static class Program
             {
                 var wb = BoardFactory.FromFenOrStart(entry.FenOrStart);
                 wb.KeepTrackOfHistory = keepHist;
-                _ = Perft.Count(wb, Math.Min(depth, 3), parallelRoot: true);
+                _ = Perft.Count(wb, Math.Min(depth, 3), parallelRoot: true, maxThreads: threads);
             }
 
             // repeats (measured)
@@ -134,7 +145,7 @@ public static class Program
                 b.KeepTrackOfHistory = keepHist;
 
                 var sw = Stopwatch.StartNew();
-                var stats = Perft.Statistics(b, depth, parallelRoot: true);
+                var stats = Perft.Statistics(b, depth, parallelRoot: true, maxThreads: threads);
                 sw.Stop();
 
                 var secs = Math.Max(1e-9, sw.Elapsed.TotalSeconds);
@@ -164,7 +175,7 @@ public static class Program
 
         var summary = new BenchSummary(
             Suite: suite, Depth: depth, Repeat: repeat, Warmup: warmup,
-            KeepHistory: keepHist, Threads: (threads > 0 ? threads : (int?)null),
+            KeepHistory: keepHist, Threads: threads > 0 ? threads : (int?)null,
             TimestampUtc: DateTime.UtcNow, Results: results,
             TotalNodes: totalNodes, TotalElapsedMs: totalMs, AggregateNps: aggregateNps
         );

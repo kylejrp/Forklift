@@ -10,7 +10,7 @@ namespace Forklift.Core
         // Public API
         // ---------------------------
 
-        public static long Count(Board board, int depth, bool parallelRoot = false)
+        public static long Count(Board board, int depth, bool parallelRoot = false, int? maxThreads = null)
         {
             if (!parallelRoot || depth <= 1)
                 return PerftSerial(board, depth);
@@ -26,7 +26,7 @@ namespace Forklift.Core
 
             System.Threading.Tasks.Parallel.For<long>(
                 fromInclusive: 0,
-                toExclusive: moves.Length,
+                toExclusive: Math.Max(moves.Length, maxThreads ?? 1),
                 localInit: static () => 0L,
                 body: (i, _state, local) =>
                 {
@@ -73,7 +73,7 @@ namespace Forklift.Core
         /// Root "divide" breakdown (move -> subtree nodes). 
         /// Set parallelRoot=true to parallelize per root move; set sort=true to sort by nodes desc.
         /// </summary>
-        public static IReadOnlyList<DivideMove> Divide(Board b, int depth, bool parallelRoot = false, bool sort = false)
+        public static IReadOnlyList<DivideMove> Divide(Board b, int depth, bool parallelRoot = false, bool sort = false, int? maxThreads = null)
         {
             Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
             // For divide, use legal move list at the root for clean output
@@ -102,7 +102,7 @@ namespace Forklift.Core
             }
             else
             {
-                System.Threading.Tasks.Parallel.For(0, moves.Length, i =>
+                System.Threading.Tasks.Parallel.For(0, Math.Max(moves.Length, maxThreads ?? 1), i =>
                 {
                     var mv = moves[i];
                     var bc = b.Copy();
@@ -144,7 +144,7 @@ namespace Forklift.Core
         /// <summary>
         /// Extended stats. Set parallelRoot=true to parallelize only the root.
         /// </summary>
-        public static PerftStatistics Statistics(Board board, int depth, bool parallelRoot = false)
+        public static PerftStatistics Statistics(Board board, int depth, bool parallelRoot = false, int? maxThreads = null)
         {
             if (!parallelRoot || depth <= 1)
             {
@@ -162,7 +162,7 @@ namespace Forklift.Core
 
             System.Threading.Tasks.Parallel.For<PerftStatistics>(
                 fromInclusive: 0,
-                toExclusive: moves.Length,
+                toExclusive: Math.Max(moves.Length, maxThreads ?? 1),
                 localInit: static () => default,
                 body: (i, _state, local) =>
                 {
