@@ -117,19 +117,31 @@ function Convert-ToNumber([object]$x) {
 }
 
 function Convert-DurationToMs([string]$text) {
-  # Handles e.g. "6.752 us", "3.84 ms", "50.1 ms", "1.23 s"
   if (-not $text) { return $null }
-  if ($text -match '^\s*([\d\.,]+)\s*(us|µs|ms|s)\s*$') {
+
+  # Normalize quotes and whitespace (regular + NBSP + NNBSP + thin)
+  $s = $text.Trim() -replace '[\u00A0\u202F\u2009]', ' '
+  $s = $s.Trim('"', "'")
+
+  # Normalize unit: map μ (Greek mu) and µ (micro sign) to 'u'
+  $s = $s -replace '([0-9]),([0-9]{3})', '$1,$2'  # keep thousands commas
+  $s = $s -replace 'μ', 'u'
+  $s = $s -replace 'µ', 'u'
+  $s = $s -replace '\s+', ' '                     # collapse spaces
+
+  # Match "<number> <unit>"
+  if ($s -match '^\s*([\d\.,]+)\s*(ns|us|ms|s)\s*$') {
     $n = [double]($matches[1] -replace ',', '')
     switch ($matches[2]) {
-      'us' { return $n / 1000.0 }
-      'µs' { return $n / 1000.0 }
-      'ms' { return $n }
-      's' { return $n * 1000.0 }
+      'ns' { return $n / 1e6 }  # nanoseconds -> ms
+      'us' { return $n / 1e3 }  # microseconds -> ms
+      'ms' { return $n }        # milliseconds
+      's' { return $n * 1e3 }  # seconds -> ms
     }
   }
-  # Fallback: assume already ms
-  try { return [double]($text -replace ',', '') } catch { return $null }
+
+  # Fallback: try to parse as a bare number (assume ms)
+  try { return [double]($s -replace ',', '') } catch { return $null }
 }
 
 # --- Optionally run BDNA aggregate/analyse/report (CI) ---
@@ -325,9 +337,14 @@ else {
     $candRow = $g.Group | Where-Object { $_.Method -eq 'Candidate' } | Select-Object -First 1
     if (-not $baseRow -or -not $candRow) { continue }
 
-    # BDN CSV has "Mean" like "6.752 us" — convert to ms
-    $baseMs = Convert-DurationToMs $baseRow.Mean
+    # BDN CSV has "Mean" like "6.752 us" — convert to ms$baseMs = Convert-DurationToMs $baseRow.Mean
     $candMs = Convert-DurationToMs $candRow.Mean
+
+    if ($baseMs -eq $null -or $candMs -eq $null) {
+      Write-Warning "Could not parse Mean for '$pos' (base='${($baseRow.Mean)}', cand='${($candRow.Mean)}'). Skipping."
+      continue
+    }
+    
     $deltaMs = $candMs - $baseMs
     $deltaPct = if ($baseMs) { ($deltaMs / $baseMs) * 100.0 } else { 0.0 }
 
