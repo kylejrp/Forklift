@@ -24,7 +24,12 @@ namespace Forklift.Core
 
             long total = 0;
 
-            System.Threading.Tasks.Parallel.For<long>(
+            var options = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = (maxThreads is > 0) ? maxThreads.Value : Environment.ProcessorCount
+            };
+
+            Parallel.For<long>(
                 fromInclusive: 0,
                 toExclusive: Math.Max(moves.Length, maxThreads ?? 1),
                 localInit: static () => 0L,
@@ -43,7 +48,8 @@ namespace Forklift.Core
                     bc.UnmakeMove(mv, u);
                     return local;
                 },
-                localFinally: localSum => System.Threading.Interlocked.Add(ref total, localSum)
+                localFinally: localSum => System.Threading.Interlocked.Add(ref total, localSum),
+                parallelOptions: options
             );
 
             return total;
@@ -102,7 +108,12 @@ namespace Forklift.Core
             }
             else
             {
-                System.Threading.Tasks.Parallel.For(0, Math.Max(moves.Length, maxThreads ?? 1), i =>
+                var options = new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = (maxThreads is > 0) ? maxThreads.Value : Environment.ProcessorCount
+                };
+
+                Parallel.For(0, Math.Max(moves.Length, maxThreads ?? 1), options, i =>
                 {
                     var mv = moves[i];
                     var bc = b.Copy();
@@ -159,8 +170,12 @@ namespace Forklift.Core
             var moves = span.ToArray(); // <-- materialize
 
             var total = new PerftStatistics();
+            var options = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = (maxThreads is > 0) ? maxThreads.Value : Environment.ProcessorCount
+            };
 
-            System.Threading.Tasks.Parallel.For<PerftStatistics>(
+            Parallel.For<PerftStatistics>(
                 fromInclusive: 0,
                 toExclusive: Math.Max(moves.Length, maxThreads ?? 1),
                 localInit: static () => default,
@@ -203,7 +218,8 @@ namespace Forklift.Core
                     System.Threading.Interlocked.Add(ref total.DiscoveryChecks, local.DiscoveryChecks);
                     System.Threading.Interlocked.Add(ref total.DoubleChecks, local.DoubleChecks);
                     System.Threading.Interlocked.Add(ref total.Checkmates, local.Checkmates);
-                });
+                },
+                parallelOptions: options);
 
             return total;
         }
