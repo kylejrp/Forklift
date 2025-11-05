@@ -1,4 +1,6 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.Loader;
 using BenchmarkDotNet.Attributes;
@@ -266,64 +268,54 @@ namespace Forklift.Benchmark
                 var board = _fromFenOrStart.Invoke(null, new object?[] { fenOrStart })
                             ?? throw new InvalidOperationException("BoardFactory.FromFenOrStart returned null.");
 
-                var parms = _entry.GetParameters();
-                var args = new object?[parms.Length];
+                var parameters = _entry.GetParameters();
+                var args = new object?[parameters.Length];
                 for (int i = 0; i < args.Length; i++)
-                    args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue : null;
+                    args[i] = parameters[i].HasDefaultValue ? parameters[i].DefaultValue : null;
 
                 args[0] = board;
                 args[_depthIndex] = depth;
-                if (_parallelIndex is int pi) args[pi] = true;
-                if (_threadsIndex is int ti) args[ti] = threads is int t && t > 0 ? (int?)t : null;
+                if (_parallelIndex is int parallelIndex) args[parallelIndex] = true;
+                if (_threadsIndex is int threadsIndex) args[threadsIndex] = threads is int t && t > 0 ? (int?)t : null;
 
-
-                var ret = _entry.Invoke(null, args);
-
+                // Optimized path: Count returns long directly.
                 if (_shape == EntryShape.CountLong)
                 {
-                    long n = (ret is long l) ? l : Convert.ToInt64(ret!);
-                    if (depth > 0 && n == 0)
+                    var timer = Stopwatch.StartNew();
+                    var result = _entry.Invoke(null, args);
+                    timer.Stop();
+
+                    long countNodes = (result is long l) ? l : Convert.ToInt64(result!);
+                    double elapsedMs = timer.Elapsed.TotalMilliseconds;
+                    double npsValue = elapsedMs > 0 ? countNodes / Math.Max(1e-9, elapsedMs / 1000.0) : 0.0;
+
+                    if (depth > 0 && countNodes == 0)
                         Console.Error.WriteLine($"[WARN] Perft.Count returned 0 nodes at depth {depth} for '{fenOrStart[..Math.Min(20, fenOrStart.Length)]}...'");
-                    return (n, 0.0, 0.0);
+
+                    return (countNodes, elapsedMs, npsValue);
                 }
 
-                if (ret is null) throw new InvalidOperationException("Perft entry returned null.");
+                // Stats object path: discover once, cache mapper.
+                var returnType = _entry.ReturnType;
+                var mapper = s_mapperCache.GetOrAdd(returnType, BuildMapper);
 
-                // Duck-typed property reads (properties OR fields)
-                object? GetMember(object obj, string name)
-                {
-                    var t = obj.GetType();
-                    return t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance)?.GetValue(obj)
-                        ?? t.GetField(name, BindingFlags.Public | BindingFlags.Instance)?.GetValue(obj);
-                }
+                // When the stats type has no timing fields, measure wall time here.
+                Stopwatch? wall = null;
+                if (!mapper.HasAnyTiming)
+                    wall = Stopwatch.StartNew();
 
-                long nodes =
-                    (long?)GetMember(ret, "Nodes")
-                 ?? (long?)GetMember(ret, "TotalNodes")
-                 ?? (long?)GetMember(ret, "NodesVisited")
-                 ?? (long?)GetMember(ret, "Visited")
-                 ?? (long?)GetMember(ret, "Count")
-                 ?? 0L;
+                var ret = _entry.Invoke(null, args);
+                if (ret is null)
+                    throw new InvalidOperationException("Perft entry returned null.");
 
-                double ms =
-                    (double?)GetMember(ret, "ElapsedMs")
-                 ?? (double?)GetMember(ret, "TotalElapsedMs")
-                 ?? (double?)GetMember(ret, "ElapsedMilliseconds")
-                 ?? (double?)GetMember(ret, "Ms")
-                 ?? (double?)GetMember(ret, "MedianElapsedMs")
-                 ?? 0.0;
+                wall?.Stop();
 
-                double nps =
-                    (double?)GetMember(ret, "Nps")
-                 ?? (double?)GetMember(ret, "AggregateNps")
-                 ?? (double?)GetMember(ret, "NpsMedian")
-                 ?? 0.0;
-
-                if (nps <= 0 && ms > 0)
-                    nps = nodes / Math.Max(1e-9, ms / 1000.0);
+                long nodes = mapper.ReadNodes?.Invoke(ret) ?? 0L;
+                double ms = mapper.ReadMs?.Invoke(ret) ?? (wall?.Elapsed.TotalMilliseconds ?? 0.0);
+                double nps = mapper.ReadNps?.Invoke(ret) ?? (ms > 0 ? nodes / Math.Max(1e-9, ms / 1000.0) : 0.0);
 
                 if (depth > 0 && nodes == 0)
-                    Console.Error.WriteLine($"[WARN] Stats object indicates 0 nodes at depth {depth}; check reflection mapping of properties/parameters.");
+                    Console.Error.WriteLine($"[WARN] Stats object indicates 0 nodes at depth {depth}; verify mapping or implementation.");
 
                 return (nodes, ms, nps);
             }
@@ -420,6 +412,100 @@ namespace Forklift.Benchmark
 
                 if (best is null) return null;
                 return (best.Value.mi, best.Value.shape, best.Value.depthIdx, best.Value.parIdx, best.Value.thrIdx);
+            }
+
+            private sealed class StatsMapper
+            {
+                public Func<object, long>? ReadNodes { get; init; }
+                public Func<object, double>? ReadMs { get; init; }
+                public Func<object, double>? ReadNps { get; init; }
+                public bool HasAnyTiming => ReadMs is not null || ReadNps is not null;
+            }
+
+            private static readonly ConcurrentDictionary<Type, StatsMapper> s_mapperCache = new();
+
+            private static StatsMapper BuildMapper(Type returnType)
+            {
+                // Count(long) shape handled elsewhere; only map object/struct shapes here.
+                var param = Expression.Parameter(typeof(object), "obj");
+                var typed = Expression.Convert(param, returnType);
+
+                static MemberInfo? FindMember(Type t, string[] names, Type? exactType = null, Func<Type, bool>? typePred = null)
+                {
+                    BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+                    foreach (var n in names)
+                    {
+                        var p = t.GetProperty(n, flags);
+                        if (p is not null && (exactType is null ? typePred?.Invoke(p.PropertyType) != false : p.PropertyType == exactType))
+                            return p;
+
+                        var f = t.GetField(n, flags);
+                        if (f is not null && (exactType is null ? typePred?.Invoke(f.FieldType) != false : f.FieldType == exactType))
+                            return f;
+                    }
+                    return null;
+                }
+
+                // Build accessor: property or field -> object -> TOut (via Convert/ChangeType)
+                static Func<object, TOut>? CompileGetter<TOut>(ParameterExpression objParam, Expression typedObj, MemberInfo? member)
+                {
+                    if (member is null) return null;
+
+                    Expression read = member switch
+                    {
+                        PropertyInfo pi => Expression.Property(typedObj, pi),
+                        FieldInfo fi => Expression.Field(typedObj, fi),
+                        _ => throw new InvalidOperationException()
+                    };
+
+                    // Handle TimeSpan -> double ms conversion in the ReadMs builder (below).
+                    var body = Expression.Convert(read, typeof(TOut));
+                    return Expression.Lambda<Func<object, TOut>>(body, objParam).Compile();
+                }
+
+                // Accept common aliases from your history and typical perf objects:
+                string[] nodesNames = { "Nodes", "TotalNodes", "NodesVisited", "Visited", "Count" };
+                string[] msDoubleNames = { "Ms", "ElapsedMs", "MedianElapsedMs" };
+                string[] msTimeSpanNames = { "Elapsed", "TotalElapsed", "ElapsedTime", "TotalElapsedTime", "Duration" };
+                string[] npsNames = { "Nps", "AggregateNps", "NpsMedian" };
+
+                var nodesMember = FindMember(returnType, nodesNames, exactType: typeof(long));
+                var npsMember = FindMember(returnType, npsNames, exactType: typeof(double));
+
+                // Prefer double-ms members; if absent, accept TimeSpan-typed members and convert to ms.
+                var msDoubleMember = FindMember(returnType, msDoubleNames, exactType: typeof(double));
+                var msTimeSpanMember = msDoubleMember is null
+                    ? FindMember(returnType, msTimeSpanNames, exactType: typeof(TimeSpan))
+                    : null;
+
+                var readNodes = CompileGetter<long>(param, typed, nodesMember);
+                var readNps = CompileGetter<double>(param, typed, npsMember);
+
+                Func<object, double>? readMs = null;
+                if (msDoubleMember is not null)
+                {
+                    readMs = CompileGetter<double>(param, typed, msDoubleMember);
+                }
+                else if (msTimeSpanMember is not null)
+                {
+                    // Build a lambda that converts TimeSpan to milliseconds as double.
+                    MemberExpression readTs = msTimeSpanMember switch
+                    {
+                        PropertyInfo pi => Expression.Property(typed, pi),
+                        FieldInfo fi => Expression.Field(typed, fi),
+                        _ => throw new InvalidOperationException()
+                    };
+                    var tsTotalMs = Expression.Property(readTs, nameof(TimeSpan.TotalMilliseconds));
+                    var body = Expression.Convert(tsTotalMs, typeof(double));
+                    readMs = Expression.Lambda<Func<object, double>>(body, param).Compile();
+                }
+
+                return new StatsMapper
+                {
+                    ReadNodes = readNodes,
+                    ReadMs = readMs,
+                    ReadNps = readNps
+                };
             }
         }
 
