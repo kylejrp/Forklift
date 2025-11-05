@@ -116,7 +116,8 @@ namespace Forklift.Testing
         private static bool HasAnyLegalMove(Board b)
         {
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
-            var span = MoveGeneration.GeneratePseudoLegal(b, moves, b.SideToMove);
+            var buffer = new MoveBuffer(moves);
+            var span = MoveGeneration.GeneratePseudoLegal(b, ref buffer, b.SideToMove);
             foreach (var mv in span)
             {
                 var u = b.MakeMove(mv);
@@ -130,7 +131,8 @@ namespace Forklift.Testing
         private static bool TryPickRandomLegalMove(Board b, Random rng, out Board.Move move)
         {
             Span<Board.Move> pseudo = stackalloc Board.Move[Board.MoveBufferMax];
-            var span = MoveGeneration.GeneratePseudoLegal(b, pseudo, b.SideToMove);
+            var buffer = new MoveBuffer(pseudo);
+            var span = MoveGeneration.GeneratePseudoLegal(b, ref buffer, b.SideToMove);
             if (span.Length == 0) { move = default; return false; }
 
             int start = rng.Next(span.Length);

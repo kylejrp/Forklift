@@ -578,7 +578,8 @@ public sealed class Board
 
     public Span<Move> GenerateLegal(Span<Move> moveBuffer)
     {
-        var pseudo = MoveGeneration.GeneratePseudoLegal(this, moveBuffer, SideToMove); // <- slice of candidates
+        var pseudoBuffer = new MoveBuffer(moveBuffer);
+        var pseudo = MoveGeneration.GeneratePseudoLegal(this, ref pseudoBuffer, SideToMove); // <- slice of candidates
 
         int i = 0;
         foreach (var mv in pseudo)   // iterate only pseudo-candidates, not full buffer
@@ -594,7 +595,8 @@ public sealed class Board
     public bool HasAnyLegalMoves()
     {
         Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
-        var pseudo = MoveGeneration.GeneratePseudoLegal(this, moveBuffer, SideToMove);
+        var pseudoBuffer = new MoveBuffer(moveBuffer);
+        var pseudo = MoveGeneration.GeneratePseudoLegal(this, ref pseudoBuffer, SideToMove);
 
         foreach (var mv in pseudo)
         {
@@ -609,12 +611,8 @@ public sealed class Board
     /// <summary>
     /// Generates all pseudo-legal moves for the side to move.
     /// </summary>
-    public Move[] GeneratePseudoLegal()
-    {
-        Span<Move> moves = stackalloc Move[MoveBufferMax];
-        MoveGeneration.GeneratePseudoLegal(this, moves, SideToMove);
-        return moves.ToArray();
-    }
+    public Move[] GeneratePseudoLegal() =>
+        MoveGeneration.GeneratePseudoLegal(this, SideToMove);
 
     private void XorZPiece(Piece p, Square0x88 sq88)
     {
@@ -1241,7 +1239,7 @@ public sealed class Board
             promotion = Piece.FromPromotionChar(s[4], SideToMove); // case-insensitive, uses side to choose color
 
         // Scan legal moves without allocating
-        Span<Move> buf = stackalloc Move[64];
+        Span<Move> buf = stackalloc Move[MoveBufferMax];
         var legalSpan = GenerateLegal(buf);
 
         for (int i = 0; i < legalSpan.Length; i++)

@@ -17,7 +17,8 @@ namespace Forklift.Core
 
             // Root-split: generate once, then parallelize per root move
             Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var span = MoveGeneration.GeneratePseudoLegal(board, buf, board.SideToMove);
+            var buffer = new MoveBuffer(buf);
+            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
             // MATERIALIZE to avoid capturing a Span<T> in the lambda
             var moves = span.ToArray();
@@ -166,7 +167,8 @@ namespace Forklift.Core
 
             // Root-split stats: generate once; combine per-branch using thread-local accumulation
             Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var span = MoveGeneration.GeneratePseudoLegal(board, buf, board.SideToMove);
+            var buffer = new MoveBuffer(buf);
+            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
             var moves = span.ToArray(); // <-- materialize
 
             var total = new PerftStatistics();
@@ -234,7 +236,8 @@ namespace Forklift.Core
             if (depth == 0) return 1;
 
             Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var span = MoveGeneration.GeneratePseudoLegal(board, buf, board.SideToMove);
+            var buffer = new MoveBuffer(buf);
+            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
             long nodes = 0;
             foreach (var mv in span)
@@ -260,7 +263,8 @@ namespace Forklift.Core
             }
 
             Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-            var span = MoveGeneration.GeneratePseudoLegal(board, moveBuffer, board.SideToMove);
+            var buffer = new MoveBuffer(moveBuffer);
+            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
             foreach (var mv in span)
             {
