@@ -274,7 +274,8 @@ namespace Forklift.Benchmark
                 args[0] = board;
                 args[_depthIndex] = depth;
                 if (_parallelIndex is int pi) args[pi] = true;
-                if (_threadsIndex is int ti) args[ti] = threads is int t && t > 0 ? t : null;
+                if (_threadsIndex is int ti) args[ti] = threads is int t && t > 0 ? (int?)t : null;
+
 
                 var ret = _entry.Invoke(null, args);
 
@@ -329,65 +330,96 @@ namespace Forklift.Benchmark
 
             private static (MethodInfo entry, EntryShape shape, int depthIdx, int? parallelIdx, int? threadsIdx)? ResolvePerftEntry(Type perftType)
             {
-                var cand = new List<(MethodInfo mi, bool isStats, int depthIdx, int? parIdx, int? thrIdx, int rank)>();
+                // We only accept these exact shapes from Forklift history:
+                //   Stats: Statistics(Board board, int depth [, bool parallelRoot] [, int? maxThreads])
+                //   Count: Count     (Board board, int depth [, bool parallelRoot] [, int? maxThreads])
+                //
+                // Order is fixed: Board, depth, [parallelRoot], [maxThreads].
+                // Names are fixed: "parallelRoot" and "maxThreads".
+                // Threads param must be Nullable<int>.
 
-                foreach (var mi in perftType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                bool IsNullableInt(Type t) =>
+                    t.IsGenericType &&
+                    t.GetGenericTypeDefinition() == typeof(Nullable<>) &&
+                    t.GetGenericArguments()[0] == typeof(int);
+
+                (MethodInfo mi, EntryShape shape, int depthIdx, int? parIdx, int? thrIdx, int rank)? best = null;
+
+                foreach (var method in perftType.GetMethods(BindingFlags.Public | BindingFlags.Static))
                 {
-                    if (mi.Name is not ("Statistics" or "Count"))
+                    var isStats = method.Name == "Statistics";
+                    var isCount = method.Name == "Count";
+                    if (!isStats && !isCount)
                         continue;
 
-                    var ps = mi.GetParameters();
-                    if (ps.Length == 0) continue;
-
-                    // Must accept a Board as first parameter (loose check by name to avoid loading type)
-                    var firstTypeName = ps[0].ParameterType.FullName ?? ps[0].ParameterType.Name;
-                    if (!firstTypeName.EndsWith(".Board", StringComparison.Ordinal))
+                    var ps = method.GetParameters();
+                    if (ps.Length < 2 || ps.Length > 4)
                         continue;
 
-                    // Prefer a parameter explicitly named "depth" (case-insensitive)
-                    int depthIdx = Array.FindIndex(ps, p =>
-                        p.Position > 0 &&
-                        p.ParameterType == typeof(int) &&
-                        string.Equals(p.Name, "depth", StringComparison.OrdinalIgnoreCase));
+                    // ps[0] must be Board (we check by name to avoid loading the type across contexts)
+                    var p0Name = ps[0].ParameterType.FullName ?? ps[0].ParameterType.Name;
+                    if (!p0Name.EndsWith(".Board", StringComparison.Ordinal))
+                        continue;
 
-                    // Fallback: first int after Board
-                    if (depthIdx < 0)
-                        depthIdx = Array.FindIndex(ps, p => p.ParameterType == typeof(int) && p.Position > 0);
+                    // ps[1] must be int depth (name must be "depth")
+                    if (ps[1].ParameterType != typeof(int) ||
+                        !string.Equals(ps[1].Name, "depth", StringComparison.OrdinalIgnoreCase))
+                        continue;
 
-                    if (depthIdx < 0) continue;
+                    int depthIdx = 1;
+                    int? parallelIdx = null;
+                    int? threadsIdx = null;
 
-                    // Optional parallelRoot param (bool) *after* depth
-                    int parIdx = Array.FindIndex(ps, p => p.ParameterType == typeof(bool) && p.Position > depthIdx);
-
-                    // Optional threads param (int or int?) with flexible names
-                    int thrIdx = Array.FindIndex(ps, p =>
+                    // Optional ps[2]: bool parallelRoot
+                    if (ps.Length >= 3)
                     {
-                        var t = p.ParameterType;
-                        bool isIntLike = t == typeof(int) || (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(Nullable<>) && t.GetGenericArguments()[0] == typeof(int));
-                        if (!isIntLike) return false;
-                        var n = p.Name ?? "";
-                        return n.Equals("maxThreads", StringComparison.OrdinalIgnoreCase)
-                            || n.Equals("threads", StringComparison.OrdinalIgnoreCase)
-                            || n.Equals("numThreads", StringComparison.OrdinalIgnoreCase);
-                    });
+                        if (ps[2].ParameterType == typeof(bool) &&
+                            string.Equals(ps[2].Name, "parallelRoot", StringComparison.OrdinalIgnoreCase))
+                        {
+                            parallelIdx = 2;
+                        }
+                        else
+                        {
+                            // If there are 3+ parameters and #2 isn't the canonical parallelRoot, reject.
+                            continue;
+                        }
+                    }
 
-                    bool isStats = mi.Name == "Statistics" && mi.ReturnType != typeof(void);
+                    // Optional ps[3]: int? maxThreads
+                    if (ps.Length == 4)
+                    {
+                        if (IsNullableInt(ps[3].ParameterType) &&
+                            string.Equals(ps[3].Name, "maxThreads", StringComparison.OrdinalIgnoreCase))
+                        {
+                            threadsIdx = 3;
+                        }
+                        else
+                        {
+                            // If there are 4 parameters and #3 isn't the canonical maxThreads, reject.
+                            continue;
+                        }
+                    }
 
-                    // Rank by richness: Stats with threads+parallel, then Stats with parallel, then Stats simple,
-                    // then Count with threads+parallel, then Count with parallel, then Count simple.
-                    int richness =
-                        (isStats ? 100 : 0) +
-                        (thrIdx >= 0 ? 10 : 0) +
-                        (parIdx >= 0 ? 1 : 0);
+                    // Validate return type for the two shapes
+                    var shape = isStats ? EntryShape.StatsObject : EntryShape.CountLong;
+                    if (shape == EntryShape.CountLong && method.ReturnType != typeof(long))
+                        continue; // Count must return long
+                    if (shape == EntryShape.StatsObject && method.ReturnType == typeof(void))
+                        continue; // Statistics must return a value (struct/object with Nodes, etc.)
 
-                    cand.Add((mi, isStats, depthIdx, parIdx >= 0 ? parIdx : (int?)null, thrIdx >= 0 ? thrIdx : (int?)null, richness));
+                    // Rank preference: prefer richest Statistics overload, then Count.
+                    // parallelRoot + maxThreads (2 extras) outranks only parallelRoot (1 extra), which outranks none.
+                    int richness = (shape == EntryShape.StatsObject ? 100 : 0)
+                                 + (parallelIdx.HasValue ? 10 : 0)
+                                 + (threadsIdx.HasValue ? 1 : 0);
+
+                    var candidate = (method, shape, depthIdx, parallelIdx, threadsIdx, richness);
+                    if (best is null || candidate.richness > best.Value.rank)
+                        best = candidate;
                 }
 
-                if (cand.Count == 0) return null;
-
-                var best = cand.OrderByDescending(x => x.rank).First();
-                var shape = best.isStats ? EntryShape.StatsObject : EntryShape.CountLong;
-                return (best.mi, shape, best.depthIdx, best.parIdx, best.thrIdx);
+                if (best is null) return null;
+                return (best.Value.mi, best.Value.shape, best.Value.depthIdx, best.Value.parIdx, best.Value.thrIdx);
             }
         }
 
