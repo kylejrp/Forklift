@@ -1,345 +1,390 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Text.Json;
-using Forklift.Core;
+﻿using System.Reflection;
+using System.Runtime.Loader;
+using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Columns;
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Diagnosers;
+using BenchmarkDotNet.Exporters;
+using BenchmarkDotNet.Exporters.Json;
+using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Loggers;
+using BenchmarkDotNet.Order;
+using BenchmarkDotNet.Running;
+using BenchmarkDotNet.Toolchains.InProcess.Emit;
+using Perfolizer.Horology;
 
-public static class Program
+namespace Forklift.Benchmark
 {
-    // ===== Perft Suites (edit as you like) =====
-    private static readonly Dictionary<string, SuiteEntry> MinimalSuite = new()
+    public static class Program
     {
-        ["startpos"] = new SuiteEntry(
-            FenOrStart: "startpos",
-            ExpectedByDepth: new Dictionary<int, long> {
-                {1,20}, {2,400}, {3,8902}, {4,197281}, {5,4865609}
-            }),
-        ["kiwipete"] = new SuiteEntry(
-            FenOrStart: "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-            ExpectedByDepth: new Dictionary<int, long> {
-                {1,48}, {2,2039}, {3,97862}, {4,4085603}, {5,193690690}
-            }),
-        ["tricky-ep"] = new SuiteEntry(
-            FenOrStart: "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
-            ExpectedByDepth: new Dictionary<int, long> {
-                {1,14}, {2,191}, {3,2812}, {4,43238}, {5,674624}
-            }),
-    };
+        private static Job Quick(Job j) => j
+            .WithIterationTime(TimeInterval.FromMilliseconds(200))
+            .WithMinIterationCount(8)
+            .WithMaxIterationCount(20)
+            .WithMaxRelativeError(0.02);
 
-    private static readonly Dictionary<string, SuiteEntry> FastSuite = new(MinimalSuite)
-    {
-        ["r2q1rk1_mix"] = new SuiteEntry(
-            FenOrStart: "r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1",
-            ExpectedByDepth: new Dictionary<int, long> {
-                {1,6}, {2,264}, {3,9467}, {4,422333}, {5,15833292}
-            })
-    };
+        private static Job Thorough(Job j) => j
+            .WithIterationTime(TimeInterval.FromMilliseconds(750))
+            .WithMinIterationCount(20)
+            .WithMaxIterationCount(60)
+            .WithMaxRelativeError(0.005);
 
-    private static readonly Dictionary<string, SuiteEntry> FullSuite = new(FastSuite);
-
-    private static Dictionary<string, SuiteEntry> GetSuite(string name) =>
-        name.ToLowerInvariant() switch
+        public static int Main(string[] args)
         {
-            "minimal" => MinimalSuite,
-            "fast" => FastSuite,
-            "full" => FullSuite,
-            _ => FastSuite
-        };
+            // ---- Parse CLI ----
+            var cli = CliArgs.Parse(args);
 
-    public static int Main(string[] args)
-    {
-        var p = Args.Parse(args);
+            if (string.IsNullOrWhiteSpace(cli.BaselinePath) || string.IsNullOrWhiteSpace(cli.CandidatePath))
+            {
+                Console.Error.WriteLine("Usage:");
+                Console.Error.WriteLine("  dotnet run -c Release --project Forklift.Benchmark -- " +
+                                        "--baseline <path-to-Forklift.Core.dll> --candidate <path-to-Forklift.Core.dll> " +
+                                        "[--suite minimal|fast|full] [--depth 4] [--threads N] [--affinity MASK] [--highPriority]");
+                return 2;
+            }
 
-        string preset = p.Get("--preset", "quick"); // quick | ci | deep
-        bool skipCorr = p.Has("--skipCorrectness");
-        int sampleN = p.Get("--positions", 0); // 0 = use all positions
-
-        // Tighter defaults (you can tweak these):
-        string suite = p.Get("--suite", "minimal");
-        int depth = p.Get("--depth", 4);
-        int repeat = p.Get("--repeat", 3);
-        int warmup = p.Get("--warmup", 1);
-        bool json = p.Has("--json");
-        string? outFile = p.Get<string?>("--out", null); int? threads = null;
-        if (p.Has("--threads"))
-        {
+            // ---- Load cores (runtime, isolated) ----
             try
             {
-                // Accept both "--threads=1" and "--threads 1"
-                var t = p.Get("--threads", -1); // int fallback ensures T=int
-                if (t > 0) threads = t; // treat 0/negatives as "default"
+                Inputs.Baseline = EngineFacade.LoadFrom(cli.BaselinePath);
+                Inputs.Candidate = EngineFacade.LoadFrom(cli.CandidatePath);
             }
-            catch { /* leave as null */ }
-        }
-        bool hiPrio = p.Has("--highPriority");
-        bool keepHist = p.Has("--keepHistory");
-        int? affinity = p.Has("--affinity") ? p.Get("--affinity", 0) : null;
-
-        switch (preset.ToLowerInvariant())
-        {
-            case "quick":
-                if (!p.Has("--suite")) suite = "minimal";
-                if (!p.Has("--depth")) depth = 4;
-                if (!p.Has("--repeat")) repeat = 20;
-                if (!p.Has("--warmup")) warmup = 2;
-                if (!p.Has("--skipCorrectness")) skipCorr = true;
-                break;
-
-            case "ci":
-                if (!p.Has("--suite")) suite = "fast";
-                if (!p.Has("--depth")) depth = 4;
-                if (!p.Has("--repeat")) repeat = 5;
-                if (!p.Has("--warmup")) warmup = 1;
-                break;
-
-            case "deep":
-                if (!p.Has("--suite")) suite = "full";
-                if (!p.Has("--depth")) depth = 5;
-                if (!p.Has("--repeat")) repeat = 5;
-                if (!p.Has("--warmup")) warmup = 1;
-                break;
-        }
-
-        LogWithLocalTimestamp($"Suite={suite} Depth={depth} Repeat={repeat} Warmup={warmup} (preset='{preset}', skipCorrectness={skipCorr})");
-
-        var suiteDict = GetSuite(suite);
-        if (suiteDict.Count == 0)
-        {
-            Console.Error.WriteLine($"Suite '{suite}' is empty.");
-            return 2;
-        }
-
-        // Optional: sample a subset of positions for speed
-        var rng = new Random(12345);
-        var positions = suiteDict.ToList();
-        if (sampleN > 0 && sampleN < positions.Count)
-            positions = positions.OrderBy(_ => rng.Next()).Take(sampleN).ToList();
-
-        TrySetProcessPriority(hiPrio);
-        try
-        {
-            if (affinity is int mask && mask != 0)
-                Process.GetCurrentProcess().ProcessorAffinity = (IntPtr)mask;
-        }
-        catch { /* ignore */ }
-        ForceGC();
-
-        var results = new List<BenchResult>(positions.Count);
-        long totalNodes = 0;
-        double totalMs = 0;
-        var oldMode = System.Runtime.GCSettings.LatencyMode;
-        System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
-        try
-        {
-            foreach (var (name, entry) in positions)
+            catch (Exception ex)
             {
-                // Respect skipCorrectness
-                if (!skipCorr && entry.ExpectedByDepth.TryGetValue(depth, out var expected))
+                Console.Error.WriteLine($"Failed to load Forklift.Core DLLs: {ex.Message}");
+                return 3;
+            }
+
+            Inputs.Depth = cli.Depth ?? 4;
+            Inputs.Threads = cli.Threads; // null => engine default
+            Inputs.SuiteName = (cli.Suite ?? "minimal").ToLowerInvariant();
+
+            var job = Inputs.SuiteName switch
+            {
+                "minimal" => Quick(Job.Default),
+                "fast" => Thorough(Job.Default),
+                "full" => Thorough(Job.Default),
+                _ => Quick(Job.Default)
+            };
+
+            // Create a ManualConfig and add the job and other options
+            var config = ManualConfig.Create(DefaultConfig.Instance)
+                .AddDiagnoser(MemoryDiagnoser.Default)          // you also have [MemoryDiagnoser]; harmless to keep here
+                .AddDiagnoser(ThreadingDiagnoser.Default)       // adds the Threading diagnostics block
+                .AddExporter(MarkdownExporter.GitHub)
+                .AddExporter(JsonExporter.Full)
+                .AddJob(job
+                        .WithToolchain(InProcessEmitToolchain.Instance)
+                        .WithEnvironmentVariable("COMPlus_ReadyToRun", "0")
+                        .WithEnvironmentVariable("COMPlus_TieredCompilation", "0")
+                        .WithEnvironmentVariable("COMPlus_TieredPGO", "0")
+                );
+
+            var summary = BenchmarkRunner.Run<PerftAABench>(config);
+
+            return 0;
+        }
+
+        // ===== Shared inputs pushed into the benchmark =====
+        internal static class Inputs
+        {
+            public static EngineFacade? Baseline;
+            public static EngineFacade? Candidate;
+            public static string SuiteName = "minimal";
+            public static int Depth = 4;
+            public static int? Threads;
+        }
+
+        // ===== Benchmark type =====
+        [MemoryDiagnoser(true)]
+        [Orderer(SummaryOrderPolicy.FastestToSlowest)]
+        [RankColumn, MinColumn, MaxColumn, Q1Column, Q3Column, AllStatisticsColumn]
+        [JsonExporterAttribute.Full]
+        public class PerftAABench
+        {
+            // You can add/remove positions here; names feed [ParamsSource].
+            private static readonly (string Name, string Fen)[] MinimalSuite =
+            {
+                ("startpos", "startpos"),
+                ("kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
+                ("tricky-ep","8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1"),
+            };
+
+            private static readonly (string Name, string Fen)[] FastSuite =
+                MinimalSuite;
+
+            private static readonly (string Name, string Fen)[] FullSuite = FastSuite;
+
+            // Parameterize which position is under test
+            [ParamsSource(nameof(PositionNames))]
+            public string PositionName { get; set; } = "startpos";
+
+            public static IEnumerable<string> PositionNames =>
+                GetSuite(Program.Inputs.SuiteName).Select(p => p.Name);
+
+            private static IEnumerable<(string Name, string Fen)> GetSuite(string name) =>
+                name switch
                 {
-                    LogWithLocalTimestamp($"[INFO] Correctness check for '{name}' depth {depth}...");
-                    var b0 = BoardFactory.FromFenOrStart(entry.FenOrStart);
-                    b0.KeepTrackOfHistory = keepHist;
-                    long nodes0 = Perft.Count(b0, depth, parallelRoot: true, maxThreads: threads);
-                    if (nodes0 != expected)
-                        ErrorWithLocalTimestamp($"[FAIL] {name} depth {depth}: expected {expected}, got {nodes0}");
-                    else
-                        LogWithLocalTimestamp($"[PASS] {name} depth {depth}: {nodes0} nodes");
-                }
+                    "minimal" => MinimalSuite,
+                    "fast" => FastSuite,
+                    "full" => FullSuite,
+                    _ => FastSuite
+                };
 
-                // warmups (unmeasured)
-                for (int i = 0; i < warmup; i++)
-                {
-                    var wb = BoardFactory.FromFenOrStart(entry.FenOrStart);
-                    wb.KeepTrackOfHistory = keepHist;
-                    _ = Perft.Count(wb, Math.Min(depth, 3), parallelRoot: true, maxThreads: threads);
-                }
+            private (string Name, string Fen) _position;
+            private EngineFacade _baseline = null!;
+            private EngineFacade _candidate = null!;
+            private int _depth;
+            private int? _threads;
 
-                // repeats (measured)
-                var measurements = new List<(long Nodes, double Ms, double Nps)>(repeat);
-                for (int r = 0; r < repeat; r++)
-                {
-                    var b = BoardFactory.FromFenOrStart(entry.FenOrStart);
-                    b.KeepTrackOfHistory = keepHist;
+            [GlobalSetup]
+            public void Setup()
+            {
+                _baseline = Program.Inputs.Baseline ?? throw new InvalidOperationException("Baseline not loaded.");
+                _candidate = Program.Inputs.Candidate ?? throw new InvalidOperationException("Candidate not loaded.");
+                _depth = Program.Inputs.Depth;
+                _threads = Program.Inputs.Threads;
 
-                    var sw = Stopwatch.StartNew();
-                    var stats = Perft.Statistics(b, depth, parallelRoot: true, maxThreads: threads);
-                    sw.Stop();
+                var suite = GetSuite(Program.Inputs.SuiteName);
+                _position = suite.First(p => p.Name == PositionName);
+            }
 
-                    var secs = Math.Max(1e-9, sw.Elapsed.TotalSeconds);
-                    measurements.Add((stats.Nodes, sw.Elapsed.TotalMilliseconds, stats.Nodes / secs));
-                }
+            // NOTE: We let BenchmarkDotNet measure the elapsed time.
+            // We call into the engine once per iteration; the engine returns nodes,
+            // but we don't compute NPS here—BDN gives ratios & stats we care about.
 
-                var nodesMed = Median(measurements.Select(x => (double)x.Nodes));
-                var msMed = Median(measurements.Select(x => x.Ms));
-                var npsMed = Median(measurements.Select(x => x.Nps));
+            [Benchmark(Baseline = true)]
+            public (long Nodes, double Ms, double Nps) Baseline()
+            {
+                return _baseline.RunPerft(_position.Fen, _depth, _threads);
+            }
 
-                totalNodes += (long)nodesMed;
-                totalMs += msMed;
-
-                results.Add(new BenchResult(
-                    Name: name,
-                    Fen: entry.FenOrStart,
-                    Depth: depth,
-                    NodesMedian: (long)nodesMed,
-                    ElapsedMsMedian: msMed,
-                    NpsMedian: npsMed,
-                    Repeats: repeat
-                ));
+            [Benchmark(Baseline = false)]
+            public (long Nodes, double Ms, double Nps) Candidate()
+            {
+                return _candidate.RunPerft(_position.Fen, _depth, _threads);
             }
         }
-        finally
+
+        // ===== Runtime loader & reflection façade (tolerates old/new APIs) =====
+        internal sealed class EngineFacade
         {
-            System.Runtime.GCSettings.LatencyMode = oldMode;
-        }
+            private readonly Assembly _coreAsm;
+            private readonly MethodInfo _fromFenOrStart;
+            private readonly MethodInfo _entry; // Statistics(...) or Count(...)
+            private readonly EntryShape _shape;
+            private readonly int _depthIndex;
+            private readonly int? _parallelIndex;   // nullable => not present
+            private readonly int? _threadsIndex;    // nullable => not present
+            private readonly AssemblyLoadContext _alc;
 
-        var aggregateSecs = totalMs / 1000.0;
-        var aggregateNps = totalNodes / Math.Max(1e-9, aggregateSecs);
-
-        var runId = Guid.NewGuid().ToString();
-
-        static string GetFileSha256(string path)
-        {
-            using var sha = System.Security.Cryptography.SHA256.Create();
-            using var fs = File.OpenRead(path);
-            return Convert.ToHexString(sha.ComputeHash(fs));
-        }
-
-        var benchmarkAssemblyHash = GetFileSha256(typeof(Program).Assembly.Location);
-        var coreAssemblyHash = GetFileSha256(typeof(Perft).Assembly.Location);
-
-        var summary = new BenchSummary(
-            Suite: suite, Depth: depth, Repeat: repeat, Warmup: warmup,
-            KeepHistory: keepHist, Threads: threads > 0 ? threads : (int?)null,
-            TimestampUtc: DateTime.UtcNow, Results: results,
-            TotalNodes: totalNodes, TotalElapsedMs: totalMs, AggregateNps: aggregateNps,
-            RunId: runId, Argv: args, BenchmarkAssemblyHash: benchmarkAssemblyHash, CoreAssemblyHash: coreAssemblyHash
-        );
-
-        if (json)
-        {
-            var jsonText = JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true });
-            LogWithLocalTimestamp(jsonText);
-            if (!string.IsNullOrWhiteSpace(outFile))
-                System.IO.File.WriteAllText(outFile!, jsonText);
-        }
-        else
-        {
-            LogWithLocalTimestamp($"Suite={suite} Depth={depth} Repeat={repeat} Positions={results.Count}");
-            foreach (var r in results)
-                LogWithLocalTimestamp($"{r.Name,-12} Nodes={r.NodesMedian:N0}  Elapsed={r.ElapsedMsMedian:N0} ms  NPS={r.NpsMedian:N0}");
-            LogWithLocalTimestamp($"TOTAL       Nodes={summary.TotalNodes:N0}  Elapsed={summary.TotalElapsedMs:N0} ms  NPS={summary.AggregateNps:N0}");
-        }
-
-        return 0;
-    }
-
-    // ===== Helpers & models =====
-
-    private static void TrySetProcessPriority(bool hi)
-    {
-        try
-        {
-            if (!hi) return;
-            var p = Process.GetCurrentProcess();
-            p.PriorityClass = ProcessPriorityClass.High;
-        }
-        catch { /* ignore */ }
-    }
-
-    private static void ForceGC()
-    {
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-    }
-
-    private static double Median(IEnumerable<double> values)
-    {
-        var arr = values.OrderBy(x => x).ToArray();
-        if (arr.Length == 0) return 0;
-        int mid = arr.Length / 2;
-        return (arr.Length % 2 == 1) ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2.0;
-    }
-
-    private record SuiteEntry(string FenOrStart, Dictionary<int, long> ExpectedByDepth);
-    private record BenchResult(string Name, string Fen, int Depth, long NodesMedian, double ElapsedMsMedian, double NpsMedian, int Repeats);
-    private record BenchSummary(string Suite, int Depth, int Repeat, int Warmup, bool KeepHistory, int? Threads, DateTime TimestampUtc,
-        List<BenchResult> Results, long TotalNodes, double TotalElapsedMs, double AggregateNps, string RunId, string[]? Argv, string? BenchmarkAssemblyHash, string? CoreAssemblyHash);
-
-    // --- Very small flag parser (---k v / ---k=v / boolean switches) ---
-    private sealed class Args
-    {
-        private readonly Dictionary<string, string?> _map;
-
-        private Args(Dictionary<string, string?> map) => _map = map;
-
-        public static Args Parse(string[] argv)
-        {
-            var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < argv.Length; i++)
+            private enum EntryShape
             {
-                var tok = argv[i];
-                if (!tok.StartsWith("--")) continue;
+                StatsObject, // returns stats object with properties
+                CountLong    // returns long nodes directly
+            }
 
-                var eq = tok.IndexOf('=');
-                if (eq > 0)
+            private EngineFacade(AssemblyLoadContext alc, Assembly coreAsm,
+                                MethodInfo fromFenOrStart, MethodInfo entry,
+                                EntryShape shape, int depthIndex, int? parallelIndex, int? threadsIndex)
+            {
+                _alc = alc;
+                _coreAsm = coreAsm;
+                _fromFenOrStart = fromFenOrStart;
+                _entry = entry;
+                _shape = shape;
+                _depthIndex = depthIndex;
+                _parallelIndex = parallelIndex;
+                _threadsIndex = threadsIndex;
+            }
+
+            public static EngineFacade LoadFrom(string corePath)
+            {
+                if (!File.Exists(corePath))
+                    throw new FileNotFoundException("Core assembly not found", corePath);
+
+                var bytes = File.ReadAllBytes(corePath);
+                var alc = new AssemblyLoadContext($"alc:{Path.GetFileName(corePath)}", isCollectible: true);
+                using var ms = new MemoryStream(bytes);
+                var asm = alc.LoadFromStream(ms);
+
+                var boardFactory = asm.GetType("Forklift.Core.BoardFactory", throwOnError: true)!;
+                var perft = asm.GetType("Forklift.Core.Perft", throwOnError: true)!;
+
+                var fromFen = boardFactory.GetMethod("FromFenOrStart", BindingFlags.Public | BindingFlags.Static)
+                            ?? throw new MissingMethodException("BoardFactory.FromFenOrStart not found.");
+
+                // Try Statistics first (richer), then Count
+                var (entry, shape, depthIdx, parallelIdx, threadsIdx) =
+                    ResolvePerftEntry(perft) ?? throw new MissingMethodException(
+                        "No compatible Perft.Statistics/Perft.Count overloads found.");
+
+                return new EngineFacade(alc, asm, fromFen, entry, shape, depthIdx, parallelIdx, threadsIdx);
+            }
+
+            public (long Nodes, double Ms, double Nps) RunPerft(string fenOrStart, int depth, int? threads)
+            {
+                var board = _fromFenOrStart.Invoke(null, new object?[] { fenOrStart })
+                            ?? throw new InvalidOperationException("BoardFactory.FromFenOrStart returned null.");
+
+                // Build arg list matching the selected overload
+                var parms = _entry.GetParameters();
+                var args = new object?[parms.Length];
+
+                // Fill defaults
+                for (int i = 0; i < args.Length; i++)
+                    args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue : (object?)null;
+
+                // Map required parameters we know exist
+                // First param should be Board, second is (usually) depth — but we computed index robustly.
+                args[0] = board;
+                args[_depthIndex] = depth;
+
+                if (_parallelIndex is int pi)
+                    args[pi] = true; // we prefer parallel root when available
+
+                if (_threadsIndex is int ti)
+                    args[ti] = threads is int t && t > 0 ? t : null;
+
+                var ret = _entry.Invoke(null, args);
+
+                if (_shape == EntryShape.CountLong)
                 {
-                    var key = tok[..eq];
-                    var val = tok[(eq + 1)..];
-                    dict[key] = val;
+                    // Long count only
+                    long n = (ret is long l) ? l : Convert.ToInt64(ret!);
+                    return (n, 0.0, 0.0);
                 }
-                else
+
+                // Stats object — duck read
+                if (ret is null) throw new InvalidOperationException("Perft entry returned null.");
+
+                long nodes = (long?)TryGet(ret, "Nodes")
+                        ?? (long?)TryGet(ret, "TotalNodes")
+                        ?? (long?)TryGet(ret, "NodesMedian")
+                        ?? (long?)TryGet(ret, "Count")
+                        ?? 0L;
+
+                double ms = (double?)TryGet(ret, "ElapsedMs")
+                    ?? (double?)TryGet(ret, "TotalElapsedMs")
+                    ?? (double?)TryGet(ret, "ElapsedMilliseconds")
+                    ?? (double?)TryGet(ret, "Ms")
+                    ?? (double?)TryGet(ret, "MedianElapsedMs")
+                    ?? 0.0;
+
+                double nps = (double?)TryGet(ret, "Nps")
+                        ?? (double?)TryGet(ret, "AggregateNps")
+                        ?? (double?)TryGet(ret, "NpsMedian")
+                        ?? 0.0;
+
+                if (nps <= 0 && ms > 0)
+                    nps = nodes / Math.Max(1e-9, ms / 1000.0);
+
+                return (nodes, ms, nps);
+
+                // Local helpers
+                static object? TryGet(object obj, string prop)
+                    => obj.GetType().GetProperty(prop, BindingFlags.Public | BindingFlags.Instance)?.GetValue(obj);
+            }
+
+            private static (MethodInfo entry, EntryShape shape, int depthIdx, int? parallelIdx, int? threadsIdx)? ResolvePerftEntry(Type perftType)
+            {
+                var cand = new List<(MethodInfo mi, bool isStats, int depthIdx, int? parIdx, int? thrIdx, int rank)>();
+
+                foreach (var mi in perftType.GetMethods(BindingFlags.Public | BindingFlags.Static))
                 {
-                    var key = tok;
-                    // If next token exists and is not another --flag, treat it as value
-                    if (i + 1 < argv.Length && !argv[i + 1].StartsWith("--"))
+                    if (mi.Name is not ("Statistics" or "Count"))
+                        continue;
+
+                    var ps = mi.GetParameters();
+                    if (ps.Length == 0) continue;
+
+                    // Must accept a Board as first parameter (loose check by name to avoid loading type)
+                    var firstTypeName = ps[0].ParameterType.FullName ?? ps[0].ParameterType.Name;
+                    if (!firstTypeName.EndsWith(".Board", StringComparison.Ordinal))
+                        continue;
+
+                    // Find depth param (int) anywhere after the Board
+                    int depthIdx = Array.FindIndex(ps, p => p.ParameterType == typeof(int) && p.Position > 0);
+                    if (depthIdx < 0) continue;
+
+                    // Optional parallelRoot param (bool)
+                    int parIdx = Array.FindIndex(ps, p => p.ParameterType == typeof(bool) && p.Position > depthIdx);
+
+                    // Optional threads param (int or Nullable<int>) with flexible names
+                    int thrIdx = Array.FindIndex(ps, p =>
                     {
-                        dict[key] = argv[++i];
-                    }
+                        var t = p.ParameterType;
+                        bool isIntLike = t == typeof(int) || (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(Nullable<>) && t.GetGenericArguments()[0] == typeof(int));
+                        if (!isIntLike) return false;
+                        var n = p.Name ?? "";
+                        return n.Equals("maxThreads", StringComparison.OrdinalIgnoreCase)
+                            || n.Equals("threads", StringComparison.OrdinalIgnoreCase)
+                            || n.Equals("numThreads", StringComparison.OrdinalIgnoreCase);
+                    });
+
+                    bool isStats = mi.Name == "Statistics" && mi.ReturnType != typeof(void);
+
+                    // Rank by richness: Stats with threads+parallel, then Stats with parallel, then Stats simple,
+                    // then Count with threads+parallel, then Count with parallel, then Count simple.
+                    int richness =
+                        (isStats ? 100 : 0) +
+                        (thrIdx >= 0 ? 10 : 0) +
+                        (parIdx >= 0 ? 1 : 0);
+
+                    cand.Add((mi, isStats, depthIdx, parIdx >= 0 ? parIdx : (int?)null, thrIdx >= 0 ? thrIdx : (int?)null, richness));
+                }
+
+                if (cand.Count == 0) return null;
+
+                var best = cand.OrderByDescending(x => x.rank).First();
+
+                var shape = best.isStats ? EntryShape.StatsObject : EntryShape.CountLong;
+                return (best.mi, shape, best.depthIdx, best.parIdx, best.thrIdx);
+            }
+        }
+
+        // ===== Minimal CLI =====
+        internal sealed class CliArgs
+        {
+            public string? BaselinePath { get; init; }
+            public string? CandidatePath { get; init; }
+            public string? Suite { get; init; }            // minimal|fast|full (default minimal)
+            public int? Depth { get; init; }               // default 4
+            public int? Threads { get; init; }             // null => engine default
+            public int? AffinityMask { get; init; }        // optional
+            public bool HighPriority { get; init; }
+
+            public static CliArgs Parse(string[] argv)
+            {
+                var map = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < argv.Length; i++)
+                {
+                    var tok = argv[i];
+                    if (!tok.StartsWith("--")) continue;
+                    var eq = tok.IndexOf('=');
+                    if (eq > 0) { map[tok[..eq]] = tok[(eq + 1)..]; }
                     else
                     {
-                        // boolean switch
-                        dict[key] = "true";
+                        var key = tok;
+                        if (i + 1 < argv.Length && !argv[i + 1].StartsWith("--")) map[key] = argv[++i];
+                        else map[key] = "true";
                     }
                 }
+
+                int? GetInt(string k)
+                    => map.TryGetValue(k, out var s) && int.TryParse(s, out var v) ? v : (int?)null;
+
+                string? GetStr(string k) => map.TryGetValue(k, out var s) ? s : null;
+
+                return new CliArgs
+                {
+                    BaselinePath = GetStr("--baseline"),
+                    CandidatePath = GetStr("--candidate"),
+                    Suite = GetStr("--suite"),
+                    Depth = GetInt("--depth"),
+                    Threads = GetInt("--threads")
+                };
             }
-            return new Args(dict);
         }
-
-        public bool Has(string key) => _map.ContainsKey(key);
-
-        public T Get<T>(string key, T fallback)
-        {
-            if (!_map.TryGetValue(key, out var s) || s is null) return fallback;
-            try
-            {
-                if (typeof(T) == typeof(string)) return (T)(object)s;
-                if (typeof(T) == typeof(int)) return (T)(object)int.Parse(s);
-                if (typeof(T) == typeof(bool)) return (T)(object)ParseBool(s);
-                if (typeof(T) == typeof(double)) return (T)(object)double.Parse(s);
-                return fallback;
-            }
-            catch { return fallback; }
-        }
-
-        private static bool ParseBool(string s)
-        {
-            if (string.Equals(s, "true", StringComparison.OrdinalIgnoreCase)) return true;
-            if (string.Equals(s, "false", StringComparison.OrdinalIgnoreCase)) return false;
-            // allow 1/0
-            if (int.TryParse(s, out var i)) return i != 0;
-            return true; // bare switch treated as true
-        }
-    }
-
-    private static void LogWithLocalTimestamp(string message)
-    {
-        Console.WriteLine($"[{DateTime.Now:O}] {message}");
-    }
-
-    private static void ErrorWithLocalTimestamp(string message)
-    {
-        Console.Error.WriteLine($"[{DateTime.Now:O}] {message}");
     }
 }
