@@ -1,17 +1,21 @@
-﻿using System.Reflection;
+﻿using System.Collections.Concurrent;
+using System.Reflection;
 using System.Runtime.Loader;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
+using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Exporters;
 using BenchmarkDotNet.Exporters.Json;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Loggers;
 using BenchmarkDotNet.Order;
+using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using Perfolizer.Horology;
+using TraceReloggerLib;
 
 namespace Forklift.Benchmark
 {
@@ -55,6 +59,25 @@ namespace Forklift.Benchmark
                 return 3;
             }
 
+
+            try
+            {
+                var (smokeNodesA, _, _) = Inputs.Baseline!.RunPerft("startpos", 1, null);
+                if (smokeNodesA <= 0)
+                    Console.Error.WriteLine("[WARN] Baseline smoke test returned 0 nodes for depth=1; reflection mapping is likely wrong.");
+                var (smokeNodesB, _, _) = Inputs.Candidate!.RunPerft("startpos", 1, null);
+                if (smokeNodesB <= 0)
+                    Console.Error.WriteLine("[WARN] Candidate smoke test returned 0 nodes for depth=1; reflection mapping is likely wrong.");
+                if (smokeNodesA != smokeNodesB)
+                    Console.Error.WriteLine($"[WARN] Smoke test node counts differ: Baseline={smokeNodesA}, Candidate={smokeNodesB}");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[WARN] Smoke test failed: {ex.Message}");
+                return 4;
+            }
+
+
             Inputs.Depth = cli.Depth ?? 4;
             Inputs.Threads = cli.Threads; // null => engine default
             Inputs.SuiteName = (cli.Suite ?? "minimal").ToLowerInvariant();
@@ -69,6 +92,7 @@ namespace Forklift.Benchmark
 
             // Create a ManualConfig and add the job and other options
             var config = ManualConfig.Create(DefaultConfig.Instance)
+                .AddColumn(new NodesPerOpColumn(), new TotalNodesColumn(), new AggregateNpsColumn())
                 .AddDiagnoser(MemoryDiagnoser.Default)          // you also have [MemoryDiagnoser]; harmless to keep here
                 .AddDiagnoser(ThreadingDiagnoser.Default)       // adds the Threading diagnostics block
                 .AddExporter(MarkdownExporter.GitHub)
@@ -115,6 +139,13 @@ namespace Forklift.Benchmark
 
             private static readonly (string Name, string Fen)[] FullSuite = FastSuite;
 
+            private (long Nodes, double Ms, double Nps) _last;
+            private string _caseKey = "";
+            private string CaseKey(string methodName) => $"{PositionName}::{methodName}";
+
+            internal static readonly ConcurrentDictionary<string, long> NodesPerOp = new();
+
+
             // Parameterize which position is under test
             [ParamsSource(nameof(PositionNames))]
             public string PositionName { get; set; } = "startpos";
@@ -156,13 +187,21 @@ namespace Forklift.Benchmark
             [Benchmark(Baseline = true)]
             public (long Nodes, double Ms, double Nps) Baseline()
             {
-                return _baseline.RunPerft(_position.Fen, _depth, _threads);
+                _last = _baseline.RunPerft(_position.Fen, _depth, _threads);
+                _caseKey = CaseKey(nameof(Baseline));
+
+                NodesPerOp.TryAdd(_caseKey, _last.Nodes);
+                return _last;
             }
 
             [Benchmark(Baseline = false)]
             public (long Nodes, double Ms, double Nps) Candidate()
             {
-                return _candidate.RunPerft(_position.Fen, _depth, _threads);
+                _last = _candidate.RunPerft(_position.Fen, _depth, _threads);
+                _caseKey = CaseKey(nameof(Candidate));
+
+                NodesPerOp.TryAdd(_caseKey, _last.Nodes);
+                return _last;
             }
         }
 
@@ -227,63 +266,65 @@ namespace Forklift.Benchmark
                 var board = _fromFenOrStart.Invoke(null, new object?[] { fenOrStart })
                             ?? throw new InvalidOperationException("BoardFactory.FromFenOrStart returned null.");
 
-                // Build arg list matching the selected overload
                 var parms = _entry.GetParameters();
                 var args = new object?[parms.Length];
-
-                // Fill defaults
                 for (int i = 0; i < args.Length; i++)
-                    args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue : (object?)null;
+                    args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue : null;
 
-                // Map required parameters we know exist
-                // First param should be Board, second is (usually) depth — but we computed index robustly.
                 args[0] = board;
                 args[_depthIndex] = depth;
-
-                if (_parallelIndex is int pi)
-                    args[pi] = true; // we prefer parallel root when available
-
-                if (_threadsIndex is int ti)
-                    args[ti] = threads is int t && t > 0 ? t : null;
+                if (_parallelIndex is int pi) args[pi] = true;
+                if (_threadsIndex is int ti) args[ti] = threads is int t && t > 0 ? t : null;
 
                 var ret = _entry.Invoke(null, args);
 
                 if (_shape == EntryShape.CountLong)
                 {
-                    // Long count only
                     long n = (ret is long l) ? l : Convert.ToInt64(ret!);
+                    if (depth > 0 && n == 0)
+                        Console.Error.WriteLine($"[WARN] Perft.Count returned 0 nodes at depth {depth} for '{fenOrStart[..Math.Min(20, fenOrStart.Length)]}...'");
                     return (n, 0.0, 0.0);
                 }
 
-                // Stats object — duck read
                 if (ret is null) throw new InvalidOperationException("Perft entry returned null.");
 
-                long nodes = (long?)TryGet(ret, "Nodes")
-                        ?? (long?)TryGet(ret, "TotalNodes")
-                        ?? (long?)TryGet(ret, "NodesMedian")
-                        ?? (long?)TryGet(ret, "Count")
-                        ?? 0L;
+                // Duck-typed property reads (properties OR fields)
+                object? GetMember(object obj, string name)
+                {
+                    var t = obj.GetType();
+                    return t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance)?.GetValue(obj)
+                        ?? t.GetField(name, BindingFlags.Public | BindingFlags.Instance)?.GetValue(obj);
+                }
 
-                double ms = (double?)TryGet(ret, "ElapsedMs")
-                    ?? (double?)TryGet(ret, "TotalElapsedMs")
-                    ?? (double?)TryGet(ret, "ElapsedMilliseconds")
-                    ?? (double?)TryGet(ret, "Ms")
-                    ?? (double?)TryGet(ret, "MedianElapsedMs")
-                    ?? 0.0;
+                long nodes =
+                    (long?)GetMember(ret, "Nodes")
+                 ?? (long?)GetMember(ret, "TotalNodes")
+                 ?? (long?)GetMember(ret, "NodesVisited")
+                 ?? (long?)GetMember(ret, "Visited")
+                 ?? (long?)GetMember(ret, "Count")
+                 ?? 0L;
 
-                double nps = (double?)TryGet(ret, "Nps")
-                        ?? (double?)TryGet(ret, "AggregateNps")
-                        ?? (double?)TryGet(ret, "NpsMedian")
-                        ?? 0.0;
+                double ms =
+                    (double?)GetMember(ret, "ElapsedMs")
+                 ?? (double?)GetMember(ret, "TotalElapsedMs")
+                 ?? (double?)GetMember(ret, "ElapsedMilliseconds")
+                 ?? (double?)GetMember(ret, "Ms")
+                 ?? (double?)GetMember(ret, "MedianElapsedMs")
+                 ?? 0.0;
+
+                double nps =
+                    (double?)GetMember(ret, "Nps")
+                 ?? (double?)GetMember(ret, "AggregateNps")
+                 ?? (double?)GetMember(ret, "NpsMedian")
+                 ?? 0.0;
 
                 if (nps <= 0 && ms > 0)
                     nps = nodes / Math.Max(1e-9, ms / 1000.0);
 
-                return (nodes, ms, nps);
+                if (depth > 0 && nodes == 0)
+                    Console.Error.WriteLine($"[WARN] Stats object indicates 0 nodes at depth {depth}; check reflection mapping of properties/parameters.");
 
-                // Local helpers
-                static object? TryGet(object obj, string prop)
-                    => obj.GetType().GetProperty(prop, BindingFlags.Public | BindingFlags.Instance)?.GetValue(obj);
+                return (nodes, ms, nps);
             }
 
             private static (MethodInfo entry, EntryShape shape, int depthIdx, int? parallelIdx, int? threadsIdx)? ResolvePerftEntry(Type perftType)
@@ -303,14 +344,22 @@ namespace Forklift.Benchmark
                     if (!firstTypeName.EndsWith(".Board", StringComparison.Ordinal))
                         continue;
 
-                    // Find depth param (int) anywhere after the Board
-                    int depthIdx = Array.FindIndex(ps, p => p.ParameterType == typeof(int) && p.Position > 0);
+                    // Prefer a parameter explicitly named "depth" (case-insensitive)
+                    int depthIdx = Array.FindIndex(ps, p =>
+                        p.Position > 0 &&
+                        p.ParameterType == typeof(int) &&
+                        string.Equals(p.Name, "depth", StringComparison.OrdinalIgnoreCase));
+
+                    // Fallback: first int after Board
+                    if (depthIdx < 0)
+                        depthIdx = Array.FindIndex(ps, p => p.ParameterType == typeof(int) && p.Position > 0);
+
                     if (depthIdx < 0) continue;
 
-                    // Optional parallelRoot param (bool)
+                    // Optional parallelRoot param (bool) *after* depth
                     int parIdx = Array.FindIndex(ps, p => p.ParameterType == typeof(bool) && p.Position > depthIdx);
 
-                    // Optional threads param (int or Nullable<int>) with flexible names
+                    // Optional threads param (int or int?) with flexible names
                     int thrIdx = Array.FindIndex(ps, p =>
                     {
                         var t = p.ParameterType;
@@ -337,7 +386,6 @@ namespace Forklift.Benchmark
                 if (cand.Count == 0) return null;
 
                 var best = cand.OrderByDescending(x => x.rank).First();
-
                 var shape = best.isStats ? EntryShape.StatsObject : EntryShape.CountLong;
                 return (best.mi, shape, best.depthIdx, best.parIdx, best.thrIdx);
             }
@@ -385,6 +433,119 @@ namespace Forklift.Benchmark
                     Threads = GetInt("--threads")
                 };
             }
+        }
+
+        internal static class BdnAgg
+        {
+            public static (long totalOps, double totalMs) GetWorkloadOpsAndMs(Summary summary, BenchmarkCase bc)
+            {
+                var report = summary.Reports.FirstOrDefault(r => r.BenchmarkCase.Equals(bc));
+                if (report is null) return (0, 0);
+
+                // Only the actual workload measurements (exclude Overhead/Pilot/Warmup)
+                var ms = report.AllMeasurements
+                    .Where(m => m.IterationMode == IterationMode.Workload &&
+                                m.IterationStage == IterationStage.Actual)
+                    .ToList();
+
+                long totalOps = ms.Sum(m => (long)m.Operations);
+                double totalMs = ms.Sum(m => m.Nanoseconds) / 1_000_000.0;
+                return (totalOps, totalMs);
+            }
+        }
+
+        internal sealed class NodesPerOpColumn : IColumn
+        {
+            public string Id => "PerftNodesPerOp";
+            public string ColumnName => "Nodes/Op";
+            public bool AlwaysShow => true;
+            public ColumnCategory Category => ColumnCategory.Custom;
+            public int PriorityInCategory => 0;
+            public bool IsNumeric => true;
+            public UnitType UnitType => UnitType.Size;
+            public bool IsDefault(Summary s, BenchmarkCase bc) => false;
+            public string Legend => "Per-iteration node count for this position/depth.";
+
+            public string GetValue(Summary summary, BenchmarkCase bc)
+            {
+                var pos = bc.Parameters["PositionName"]?.ToString() ?? "";
+                var method = bc.Descriptor.WorkloadMethod.Name;
+                var key = $"{pos}::{method}";
+                if (Forklift.Benchmark.Program.PerftAABench.NodesPerOp.TryGetValue(key, out var nodes))
+                    return nodes.ToString("N0");
+                return "";
+            }
+
+            public string GetValue(Summary s, BenchmarkCase bc, SummaryStyle style) => GetValue(s, bc);
+            public bool IsAvailable(Summary _) => true;
+        }
+
+        internal sealed class TotalNodesColumn : IColumn
+        {
+            public string Id => "PerftTotalNodes";
+            public string ColumnName => "TotalNodes";
+            public bool AlwaysShow => true;
+            public ColumnCategory Category => ColumnCategory.Custom;
+            public int PriorityInCategory => 1;
+            public bool IsNumeric => true;
+            public UnitType UnitType => UnitType.Size;
+            public bool IsDefault(Summary s, BenchmarkCase bc) => false;
+            public string Legend => "Σ(nodes-per-op × measured operations).";
+
+            public string GetValue(Summary summary, BenchmarkCase bc)
+            {
+                var pos = bc.Parameters["PositionName"]?.ToString() ?? "";
+                var method = bc.Descriptor.WorkloadMethod.Name;
+                var key = $"{pos}::{method}";
+
+                if (!Forklift.Benchmark.Program.PerftAABench.NodesPerOp.TryGetValue(key, out var nodesPerOp))
+                    return "";
+
+                var (ops, _) = BdnAgg.GetWorkloadOpsAndMs(summary, bc);
+                if (ops <= 0) return "";
+                var totalNodes = nodesPerOp * (decimal)ops;
+                return totalNodes.ToString("N0");
+            }
+
+            public string GetValue(Summary s, BenchmarkCase bc, SummaryStyle style) => GetValue(s, bc);
+            public bool IsAvailable(Summary _) => true;
+        }
+
+        internal sealed class AggregateNpsColumn : IColumn
+        {
+            public string Id => "PerftAggregateNps";
+            public string ColumnName => "Agg NPS";
+            public bool AlwaysShow => true;
+            public ColumnCategory Category => ColumnCategory.Custom;
+            public int PriorityInCategory => 2;
+            public bool IsNumeric => true;
+            public UnitType UnitType => UnitType.Size;
+            public bool IsDefault(Summary s, BenchmarkCase bc) => false;
+            public string Legend => "Σ(nodes) / Σ(time) over measured iterations only.";
+
+            public string GetValue(Summary summary, BenchmarkCase bc)
+            {
+                var pos = bc.Parameters["PositionName"]?.ToString() ?? "";
+                var method = bc.Descriptor.WorkloadMethod.Name;
+                var key = $"{pos}::{method}";
+
+                if (!Forklift.Benchmark.Program.PerftAABench.NodesPerOp.TryGetValue(key, out var nodesPerOp))
+                    return "";
+
+                var (ops, totalMs) = BdnAgg.GetWorkloadOpsAndMs(summary, bc);
+                if (ops <= 0 || totalMs <= 0) return "";
+
+                double totalNodes = nodesPerOp * (double)ops;
+                double nps = totalNodes / (totalMs / 1000.0);
+
+                return nps >= 1_000_000_000 ? (nps / 1_000_000_000d).ToString("0.00") + " B/s"
+                     : nps >= 1_000_000 ? (nps / 1_000_000d).ToString("0.00") + " M/s"
+                     : nps >= 1_000 ? (nps / 1_000d).ToString("0.00") + " K/s"
+                                              : nps.ToString("0") + " /s";
+            }
+
+            public string GetValue(Summary s, BenchmarkCase bc, SummaryStyle style) => GetValue(s, bc);
+            public bool IsAvailable(Summary _) => true;
         }
     }
 }
