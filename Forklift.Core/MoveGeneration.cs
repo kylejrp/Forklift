@@ -10,14 +10,8 @@ namespace Forklift.Core
     /// </summary>
     public static class MoveGeneration
     {
-        // Restore direction arrays for slider move generation
-        private static readonly int[] RookDirs = { +1, -1, +16, -16 };
-        private static readonly int[] BishopDirs = { +15, +17, -15, -17 };
-        private static readonly int[] QueenDirs = { +1, -1, +16, -16, +15, +17, -15, -17 };
-
         // Precomputed pawn move tables
         private static readonly int[] PawnPushDelta = { +16, -16 }; // [White, Black]
-        private static readonly int[] PawnDoublePushDelta = { +32, -32 }; // [White, Black]
         private static readonly int[][] PawnCaptureDeltas = new int[][] {
             new int[] { +15, +17 }, // White
             new int[] { -15, -17 }  // Black
@@ -50,15 +44,15 @@ namespace Forklift.Core
 
             // Sliders
             GenerateSliderMoves(board, ref buffer, sideToMove,
-                sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, BishopDirs);
+                sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop);
             buffer.AssertNoOverflow(nameof(GenerateSliderMoves) + " (Bishop)");
 
             GenerateSliderMoves(board, ref buffer, sideToMove,
-                sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, RookDirs);
+                sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook);
             buffer.AssertNoOverflow(nameof(GenerateSliderMoves) + " (Rook)");
 
             GenerateSliderMoves(board, ref buffer, sideToMove,
-                sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, QueenDirs);
+                sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen);
             buffer.AssertNoOverflow(nameof(GenerateSliderMoves) + " (Queen)");
 
             GenerateKingMoves(board, ref buffer, sideToMove);
@@ -177,7 +171,7 @@ namespace Forklift.Core
         }
 
         // --- Sliders (bishops/rooks/queens) ----------------------------------------------
-        private static void GenerateSliderMoves(Board board, ref MoveBuffer buffer, Color sideToMove, Piece piece, int[] dirs /*unused but kept for compatibility*/)
+        private static void GenerateSliderMoves(Board board, ref MoveBuffer buffer, Color sideToMove, Piece piece)
         {
             bool white = sideToMove.IsWhite();
             ulong sliders = board.GetPieceBitboard(piece);
@@ -260,7 +254,7 @@ namespace Forklift.Core
                 else if (target.IsWhite != white)
                 {
                     buffer.Add(Move.Capture(from88, to88, king, target));
-        }
+                }
             }
         }
 
