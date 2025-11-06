@@ -1,6 +1,6 @@
 param(
-  [string]$RepositoryRoot = "C:\code\Forklift",
-  [string]$ArtifactsRoot = "C:\code\ForkliftArtifacts",
+  [string]$RepositoryRoot,
+  [string]$ArtifactsRoot,
 
   # Refs to compare (both become detached worktrees)
   [string]$BaselineGitRef = "main",
@@ -20,6 +20,43 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Resolve repository root ---
+if (-not $RepositoryRoot) {
+  try {
+    $RepositoryRoot = (git rev-parse --show-toplevel 2>$null).Trim()
+  }
+  catch {
+    $RepositoryRoot = (Split-Path -Path $PSScriptRoot -Parent)
+  }
+}
+$RepositoryRoot = (Resolve-Path $RepositoryRoot).Path
+
+# --- Default artifacts folder: sibling of the repo root ---
+if (-not $ArtifactsRoot) {
+  $ArtifactsRoot = $env:FORKLIFT_ARTIFACTS
+  if (-not $ArtifactsRoot) {
+    $repoParent = Split-Path -Path $RepositoryRoot -Parent
+    $repoName = Split-Path -Leaf $RepositoryRoot
+    $ArtifactsRoot = Join-Path $repoParent ("{0}Artifacts" -f $repoName)
+  }
+}
+
+# --- Resolve and create if needed ---
+$ArtifactsRoot = (Resolve-Path (New-Item -ItemType Directory -Force -Path $ArtifactsRoot)).Path
+
+# --- Validation: ensure artifacts are not inside the repo ---
+$repoFull = [IO.Path]::GetFullPath($RepositoryRoot)
+$artFull = [IO.Path]::GetFullPath($ArtifactsRoot)
+
+# Normalize for case-insensitive filesystems
+if ($artFull.StartsWith($repoFull.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) {
+  throw "❌ ArtifactsRoot '$ArtifactsRoot' must not be inside RepositoryRoot '$RepositoryRoot'. " +
+  "Please set -ArtifactsRoot or `$env:FORKLIFT_ARTIFACTS to a sibling folder (e.g., $repoFullArtifacts)."
+}
+
+Write-Host "RepositoryRoot: $RepositoryRoot"
+Write-Host "ArtifactsRoot : $ArtifactsRoot"
 
 # --- Derived paths ---
 $BaselineOutputDir = Join-Path $ArtifactsRoot "baseline"
