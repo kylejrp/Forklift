@@ -1239,8 +1239,8 @@ public sealed class Board
             promotion = Piece.FromPromotionChar(s[4], SideToMove); // case-insensitive, uses side to choose color
 
         // Scan legal moves without allocating
-        Span<Move> buf = stackalloc Move[MoveBufferMax];
-        var legalSpan = GenerateLegal(buf);
+        Span<Move> buffer = stackalloc Move[MoveBufferMax];
+        var legalSpan = GenerateLegal(buffer);
 
         for (int i = 0; i < legalSpan.Length; i++)
         {
