@@ -1,0 +1,8 @@
+version: 2
+updates:
+  - package-ecosystem: "dotnet-sdk"
+    directory: "/"
+  - package-ecosystem: "nuget"
+    directory: "/"
+  - package-ecosystem: "github-actions"
+    directory: "/"
