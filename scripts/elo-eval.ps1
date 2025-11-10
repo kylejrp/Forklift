@@ -1,6 +1,3 @@
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 [CmdletBinding()]
 param(
     [string]$EngineProject = 'Forklift.ConsoleClient/Forklift.ConsoleClient.csproj',
@@ -19,7 +16,11 @@ param(
     [switch]$InstallTools
 )
 
-$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+# Must be after the param block
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$PSDefaultParameterValues['Out-File:Encoding']   = 'utf8'
 $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
 
@@ -47,8 +48,8 @@ try {
     }
 
     $isWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
-    $isLinux = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Linux)
-    $isMacOS = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::OSX)
+    $isLinux   = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Linux)
+    $isMacOS   = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::OSX)
 
     function Get-CommandOrNull {
         param([string]$Name)
@@ -260,7 +261,7 @@ try {
     } else {
         $cutechessCmd = Get-CommandOrNull 'cutechess-cli'
         if (-not $cutechessCmd -and $InstallTools) {
-            $toolsRoot = Join-Path $repoRoot '.tools'
+            $toolsRoot   = Join-Path $repoRoot '.tools'
             $cutechessRoot = Join-Path $toolsRoot 'cutechess'
             Ensure-Directory -Path $cutechessRoot
             try {
@@ -356,7 +357,7 @@ try {
         }
     }
 
-    $currentBinary = Resolve-Path $currentBinary
+    $currentBinary  = Resolve-Path $currentBinary
     $baselineBinary = Resolve-Path $baselineBinary
     if (-not $isWindows) {
         Set-Executable -Path $currentBinary.Path
@@ -374,7 +375,7 @@ try {
 
     $newEngineCmd = 'cmd=' + (Quote-CutechessArgument $currentBinary.Path)
     $oldEngineCmd = 'cmd=' + (Quote-CutechessArgument $baselineBinary.Path)
-    $openingsArg = 'file=' + (Quote-CutechessArgument $openingsPath)
+    $openingsArg  = 'file=' + (Quote-CutechessArgument $openingsPath)
 
     $cutechessArgs = @(
         '-engine', $newEngineCmd, 'name=New', 'proto=uci',
