@@ -16,7 +16,8 @@ namespace Forklift.Core
         public static Board.Move FirstPseudoLegal(Board board)
         {
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
-            var span = MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
+            var buffer = new MoveBuffer(moves);
+            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
             if (span.Length == 0)
                 throw new InvalidOperationException("No pseudo-legal moves available.");
             return span[0];
@@ -28,7 +29,8 @@ namespace Forklift.Core
         public static Board.Move FirstLegal(Board board)
         {
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
-            var span = MoveGeneration.GeneratePseudoLegal(board, moves, board.SideToMove);
+            var buffer = new MoveBuffer(moves);
+            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
             foreach (var mv in span)
             {
                 var undo = board.MakeMove(mv);
