@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   elo:
-    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'elo') }}    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'elo') }}    
+    runs-on: ubuntu-latest
     env:
       ENGINE_PROJECT: Forklift.ConsoleClient/Forklift.ConsoleClient.csproj
       ENGINE_NAME: Forklift
