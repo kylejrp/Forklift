@@ -157,8 +157,6 @@ namespace Forklift.Core
         /// </summary>
         public static PerftStatistics Statistics(Board board, int depth, bool parallelRoot = false, int? maxThreads = null)
         {
-            System.Threading.Thread.Sleep(25);
-
             if (!parallelRoot || depth <= 1)
             {
                 var s = new PerftStatistics();
