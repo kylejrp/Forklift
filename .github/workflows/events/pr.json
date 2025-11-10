@@ -1,0 +1,36 @@
+{
+  "repository": {
+    "name": "Forklift",
+    "full_name": "kylejrp/Forklift",
+    "owner": {
+      "login": "kylejrp"
+    }
+  },
+  "sender": {
+    "login": "kylejrp"
+  },
+  "pull_request": {
+    "labels": [
+      {
+        "name": "benchmark"
+      }
+    ],
+    "head": {
+      "ref": "main",
+      "repo": {
+        "full_name": "kylejrp/Forklift"
+      },
+      "sha": "aad2731d1fdedbcd2efbfd6f3029eb25771a5e2d"
+    },
+    "base": {
+      "ref": "main",
+      "repo": {
+        "full_name": "kylejrp/Forklift"
+      },
+      "sha": ""
+    },
+    "number": 123
+  },
+  "action": "opened",
+  "number": 123
+}
