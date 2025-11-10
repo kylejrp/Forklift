@@ -55,7 +55,7 @@ function Remove-WorktreeSafe {
 
 function Ensure-HighPerf {
   try {
-    $script:originalSchemeGuid = (powercfg /GETACTIVESCHEME) -replace '.*GUID:\s+([a-f0-9-]+).*', '$1'
+    $script:originalSchemeGuid = (powercfg /GETACTIVESCHEME) -replace '.*GUID:\s+([a-fA-F0-9-]+).*', '$1'
     if ($script:originalSchemeGuid -ne '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c') {
       powercfg /SETACTIVE SCHEME_MIN
       $script:powerPlanChanged = $true
