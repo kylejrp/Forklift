@@ -466,7 +466,7 @@ jobs:
   combine-and-upload-aggregates:
     if: ${{ always() && (github.ref == 'refs/heads/main' || github.event_name == 'schedule') }}
     needs: [benchmark-suite]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
