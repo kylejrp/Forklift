@@ -319,7 +319,7 @@ jobs:
             core.setOutput('ui_url', a ? `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${a.id}` : '');
 
       - name: Comment results on PR (A/B + BDNA)
-        if: ${{ always() && github.event_name == 'pull_request' }}
+        if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
         uses: actions/github-script@v7
         env:
           SUITE: ${{ matrix.suite }}
@@ -370,9 +370,9 @@ jobs:
             const artName = (process.env.PR_ART_NAME && process.env.PR_ART_NAME !== 'null')
               ? process.env.PR_ART_NAME : '(no artifact name)';
             const isDry = process.env.DRY_RUN === 'true' || !process.env.GH_TOKEN;
-            const artUrl = isDry
-              ? (process.env.PR_ART_URL_ACT && process.env.PR_ART_URL_ACT !== 'null' ? process.env.PR_ART_URL_ACT : '')
-              : (process.env.PR_ART_URL_RESOLVED && process.env.PR_ART_URL_RESOLVED !== 'null' ? process.env.PR_ART_URL_RESOLVED : '');
+            const candidates = [process.env.PR_ART_URL_ACT, process.env.PR_ART_URL_RESOLVED]
+              .filter(u => u && u !== 'null');
+            const artUrl = candidates[0] || '';
             const artText = artUrl ? `[**${artName}**](${artUrl})` : `**${artName}**`;
             body += `\nArtifacts: download ${artText} from this run.\n`;
 
