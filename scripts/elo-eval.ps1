@@ -20,7 +20,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$PSDefaultParameterValues['Out-File:Encoding']   = 'utf8'
+$PSDefaultParameterValues['Out-File:Encoding']    = 'utf8'
 $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
 
@@ -35,11 +35,11 @@ function Resolve-RepoRoot {
 $repoRoot = Resolve-RepoRoot -ScriptPath $PSCommandPath
 Push-Location $repoRoot
 try {
-    if ($env:ENGINE_PROJECT) { $EngineProject = $env:ENGINE_PROJECT }
-    if ($env:ENGINE_NAME) { $EngineName = $env:ENGINE_NAME }
-    if ($env:MATCH_DIR) { $MatchDir = $env:MATCH_DIR }
-    if ($env:CURRENT_ENGINE_DIR) { $CurrentOutDir = $env:CURRENT_ENGINE_DIR }
-    if ($env:PREVIOUS_ENGINE_DIR) { $PreviousOutDir = $env:PREVIOUS_ENGINE_DIR }
+    if ($env:ENGINE_PROJECT)       { $EngineProject  = $env:ENGINE_PROJECT }
+    if ($env:ENGINE_NAME)          { $EngineName     = $env:ENGINE_NAME }
+    if ($env:MATCH_DIR)            { $MatchDir       = $env:MATCH_DIR }
+    if ($env:CURRENT_ENGINE_DIR)   { $CurrentOutDir  = $env:CURRENT_ENGINE_DIR }
+    if ($env:PREVIOUS_ENGINE_DIR)  { $PreviousOutDir = $env:PREVIOUS_ENGINE_DIR }
 
     if ($VsRef) {
         $VsParent = $false
@@ -47,31 +47,26 @@ try {
         $VsParent = $true
     }
 
-    $isWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
-    $isLinux   = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Linux)
-    $isMacOS   = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::OSX)
+    # Use different names to avoid clobbering PowerShell's read-only $IsWindows etc.
+    $OnWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+    $OnLinux   = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Linux)
+    $OnMacOS   = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::OSX)
 
     function Get-CommandOrNull {
         param([string]$Name)
-        try {
-            return Get-Command $Name -ErrorAction Stop
-        } catch {
-            return $null
-        }
+        try { return Get-Command $Name -ErrorAction Stop } catch { return $null }
     }
 
     function Invoke-Checked {
         param(
             [Parameter(Mandatory=$true)][string]$Command,
-            [Parameter()][string[]]$Arguments,
+            [string[]]$Arguments,
             [switch]$IgnoreExitCode
         )
         Write-Host "[elo-eval] $Command $($Arguments -join ' ')"
         & $Command @Arguments
         $exit = $LASTEXITCODE
-        if (-not $IgnoreExitCode -and $exit -ne 0) {
-            throw "Command '$Command' failed with exit code $exit"
-        }
+        if (-not $IgnoreExitCode -and $exit -ne 0) { throw "Command '$Command' failed with exit code $exit" }
         return $exit
     }
 
@@ -84,20 +79,14 @@ try {
 
     function Set-Executable {
         param([string]$Path)
-        if (-not $isWindows -and $Path) {
-            & chmod '+x' $Path
-        }
+        if (-not $OnWindows -and $Path) { & chmod '+x' $Path }
     }
 
     function Quote-CutechessArgument {
         param([string]$Value)
-        if (-not $Value) {
-            return '""'
-        }
+        if (-not $Value) { return '""' }
         $escaped = $Value -replace '"', '\"'
-        if ($Value -match '\s') {
-            return '"' + $escaped + '"'
-        }
+        if ($Value -match '\s') { return '"' + $escaped + '"' }
         return $escaped
     }
 
@@ -106,7 +95,7 @@ try {
             [string]$OutputDirectory,
             [string]$EngineNameParam
         )
-        $expectedName = if ($isWindows) { "$EngineNameParam.exe" } else { $EngineNameParam }
+        $expectedName = if ($OnWindows) { "$EngineNameParam.exe" } else { $EngineNameParam }
         $expectedPath = Join-Path $OutputDirectory $expectedName
         if (Test-Path $expectedPath) {
             Set-Executable -Path $expectedPath
@@ -128,88 +117,56 @@ try {
 
     function Get-LogicalProcessorCount {
         param([int]$Requested)
-        if ($Requested -gt 0) {
-            return $Requested
-        }
+        if ($Requested -gt 0) { return $Requested }
         try {
-            if ($isWindows) {
+            if ($OnWindows) {
                 $count = (Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum
                 if ($count -gt 0) { return [int]$count }
-            } elseif ($isLinux) {
+            } elseif ($OnLinux) {
                 $nproc = Get-CommandOrNull 'nproc'
                 if ($nproc) {
                     $value = (& $nproc.Source).Trim()
                     $parsed = 0
-                    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) {
-                        return $parsed
-                    }
+                    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
                 }
                 $cpuinfo = Get-Content -ErrorAction SilentlyContinue /proc/cpuinfo | Where-Object { $_ -like 'processor*' }
                 $count = $cpuinfo.Count
                 if ($count -gt 0) { return [int]$count }
-            } elseif ($isMacOS) {
+            } elseif ($OnMacOS) {
                 $sysctl = Get-CommandOrNull 'sysctl'
                 if ($sysctl) {
                     $value = (& $sysctl.Source -n hw.logicalcpu).Trim()
                     $parsed = 0
-                    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) {
-                        return $parsed
-                    }
+                    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
                 }
             }
-        } catch {
-        }
+        } catch { }
         return 1
     }
 
     function Download-File {
-        param(
-            [string]$Uri,
-            [string]$Destination
-        )
+        param([string]$Uri, [string]$Destination)
         Write-Host "[elo-eval] Downloading $Uri"
         $curlCmd = Get-CommandOrNull 'curl'
-        if ($curlCmd) {
-            & $curlCmd.Source -L $Uri -o $Destination
-            return
-        }
+        if ($curlCmd) { & $curlCmd.Source -L $Uri -o $Destination; return }
         $wgetCmd = Get-CommandOrNull 'wget'
-        if ($wgetCmd) {
-            & $wgetCmd.Source -O $Destination $Uri
-            return
-        }
+        if ($wgetCmd) { & $wgetCmd.Source -O $Destination $Uri; return }
         Invoke-WebRequest -Uri $Uri -OutFile $Destination
     }
 
     function Get-BaselineRef {
-        if ($VsRef) {
-            return $VsRef
-        }
-        if (-not $VsParent) {
-            return $null
-        }
+        if ($VsRef) { return $VsRef }
+        if (-not $VsParent) { return $null }
         $headCommit = (git rev-parse HEAD).Trim()
         $originMain = $null
-        try {
-            $originMain = (git rev-parse origin/main).Trim()
-        } catch {
-            $originMain = $null
-        }
+        try { $originMain = (git rev-parse origin/main).Trim() } catch { $originMain = $null }
         if ($originMain) {
             if ($headCommit -eq $originMain) {
-                try {
-                    return (git rev-parse HEAD^).Trim()
-                } catch {
-                    return $null
-                }
+                try { return (git rev-parse HEAD^).Trim() } catch { return $null }
             }
             return $originMain
         }
-        try {
-            return (git rev-parse HEAD^).Trim()
-        } catch {
-            return $null
-        }
+        try { return (git rev-parse HEAD^).Trim() } catch { return $null }
     }
 
     $baselineRef = Get-BaselineRef
@@ -220,19 +177,15 @@ try {
     }
     Write-Host "[elo-eval] Baseline ref: $baselineRef"
 
-    $runtime = if ($isWindows) { 'win-x64' } else { 'linux-x64' }
+    $runtime = if ($OnWindows) { 'win-x64' } else { 'linux-x64' }
 
-    if (Test-Path $CurrentOutDir) {
-        Remove-Item $CurrentOutDir -Recurse -Force
-    }
+    if (Test-Path $CurrentOutDir) { Remove-Item $CurrentOutDir -Recurse -Force }
     Ensure-Directory -Path $CurrentOutDir
     $publishArgs = @('publish', $EngineProject, '-c', 'Release', '-r', $runtime, '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-o', $CurrentOutDir)
     Invoke-Checked -Command 'dotnet' -Arguments $publishArgs
     $currentBinary = Normalize-EngineBinary -OutputDirectory $CurrentOutDir -EngineNameParam $EngineName
 
-    if (Test-Path $PreviousOutDir) {
-        Remove-Item $PreviousOutDir -Recurse -Force
-    }
+    if (Test-Path $PreviousOutDir) { Remove-Item $PreviousOutDir -Recurse -Force }
     Ensure-Directory -Path $PreviousOutDir
     $baselineBuildSuccess = $true
     try {
@@ -253,15 +206,13 @@ try {
 
     $baselineBinary = Normalize-EngineBinary -OutputDirectory $PreviousOutDir -EngineNameParam $EngineName
 
-    if (-not $isWindows) {
-        if ($InstallTools.IsPresent) {
-            Write-Host '[elo-eval] InstallTools switch has no effect on non-Windows platforms.'
-        }
+    if (-not $OnWindows) {
+        if ($InstallTools.IsPresent) { Write-Host '[elo-eval] InstallTools switch has no effect on non-Windows platforms.' }
         Invoke-Checked -Command 'bash' -Arguments @('./scripts/install-chess-tools.sh')
     } else {
         $cutechessCmd = Get-CommandOrNull 'cutechess-cli'
         if (-not $cutechessCmd -and $InstallTools) {
-            $toolsRoot   = Join-Path $repoRoot '.tools'
+            $toolsRoot     = Join-Path $repoRoot '.tools'
             $cutechessRoot = Join-Path $toolsRoot 'cutechess'
             Ensure-Directory -Path $cutechessRoot
             try {
@@ -272,27 +223,19 @@ try {
                     Download-File -Uri $asset.browser_download_url -Destination $zipPath
                     Expand-Archive -Path $zipPath -DestinationPath $cutechessRoot -Force
                     $binary = Get-ChildItem -Path $cutechessRoot -Filter 'cutechess-cli.exe' -Recurse | Select-Object -First 1
-                    if ($binary) {
-                        $env:PATH = "$($binary.DirectoryName);$env:PATH"
-                    }
+                    if ($binary) { $env:PATH = "$($binary.DirectoryName);$env:PATH" }
                 }
             } catch {
                 Write-Warning "Failed to install cutechess-cli automatically: $($_.Exception.Message)"
             }
             $cutechessCmd = Get-CommandOrNull 'cutechess-cli'
         }
-        if (-not $cutechessCmd) {
-            throw 'cutechess-cli is required but was not found on PATH.'
-        }
-        if (-not (Get-CommandOrNull 'ordo')) {
-            Write-Warning 'ordo not found; ratings will be skipped.'
-        }
+        if (-not $cutechessCmd) { throw 'cutechess-cli is required but was not found on PATH.' }
+        if (-not (Get-CommandOrNull 'ordo')) { Write-Warning 'ordo not found; ratings will be skipped.' }
     }
 
     $cutechess = Get-CommandOrNull 'cutechess-cli'
-    if (-not $cutechess) {
-        throw 'cutechess-cli is required but unavailable.'
-    }
+    if (-not $cutechess) { throw 'cutechess-cli is required but unavailable.' }
 
     $ordoCmd = Get-CommandOrNull 'ordo'
 
@@ -301,17 +244,11 @@ try {
 
     $toolVersionsPath = Join-Path $MatchDir 'tool-versions.txt'
     $toolLines = @()
-    try {
-        $toolLines += "cutechess-cli: $(& $cutechess.Source --version | Select-Object -First 1)"
-    } catch {
-        $toolLines += 'cutechess-cli: (version unavailable)'
-    }
+    try   { $toolLines += "cutechess-cli: $(& $cutechess.Source --version | Select-Object -First 1)" }
+    catch { $toolLines += 'cutechess-cli: (version unavailable)' }
     if ($ordoCmd) {
-        try {
-            $toolLines += "ordo: $(& $ordoCmd.Source -h 2>&1 | Select-Object -First 1)"
-        } catch {
-            $toolLines += 'ordo: (version unavailable)'
-        }
+        try   { $toolLines += "ordo: $(& $ordoCmd.Source -h 2>&1 | Select-Object -First 1)" }
+        catch { $toolLines += 'ordo: (version unavailable)' }
     } else {
         $toolLines += 'ordo: not available'
     }
@@ -359,7 +296,7 @@ try {
 
     $currentBinary  = Resolve-Path $currentBinary
     $baselineBinary = Resolve-Path $baselineBinary
-    if (-not $isWindows) {
+    if (-not $OnWindows) {
         Set-Executable -Path $currentBinary.Path
         Set-Executable -Path $baselineBinary.Path
     }
@@ -369,9 +306,7 @@ try {
     $logPath = Join-Path $MatchDir 'logs/cutechess-cli.log'
 
     $sprtArgs = @()
-    if ($Sprt) {
-        $sprtArgs = $Sprt -split '\s+' | Where-Object { $_ }
-    }
+    if ($Sprt) { $sprtArgs = $Sprt -split '\s+' | Where-Object { $_ } }
 
     $newEngineCmd = 'cmd=' + (Quote-CutechessArgument $currentBinary.Path)
     $oldEngineCmd = 'cmd=' + (Quote-CutechessArgument $baselineBinary.Path)
@@ -388,17 +323,12 @@ try {
         '-draw', 'movenumber=50', 'movecount=8', 'score=10',
         '-resign', 'movecount=8', 'score=800', 'twosided=true'
     )
-    if ($sprtArgs.Count -gt 0) {
-        $cutechessArgs += '-sprt'
-        $cutechessArgs += $sprtArgs
-    }
+    if ($sprtArgs.Count -gt 0) { $cutechessArgs += '-sprt'; $cutechessArgs += $sprtArgs }
     $cutechessArgs += @('-pgnout', (Quote-CutechessArgument $pgnPath))
 
     $cutechessOutput = & $cutechess.Source @cutechessArgs 2>&1 | Tee-Object -FilePath $logPath
     $cutechessExit = $LASTEXITCODE
-    if ($cutechessExit -ne 0) {
-        throw "cutechess-cli exited with code $cutechessExit"
-    }
+    if ($cutechessExit -ne 0) { throw "cutechess-cli exited with code $cutechessExit" }
 
     $gameCount = 0
     if (Test-Path $pgnPath) {
@@ -411,11 +341,7 @@ try {
     if ($gameCount -gt 0 -and $ordoCmd) {
         $ordoArgs = @('-A', '"Old"=' + $AnchorOld, '-p', $pgnPath, '-o', $ratingsTxt, '-c', $ratingsCsv)
         & $ordoCmd.Source @ordoArgs
-        if ($LASTEXITCODE -eq 0) {
-            $ordoRan = $true
-        } else {
-            Write-Warning 'Ordo failed to compute ratings.'
-        }
+        if ($LASTEXITCODE -eq 0) { $ordoRan = $true } else { Write-Warning 'Ordo failed to compute ratings.' }
     }
 
     $summaryLines = New-Object System.Collections.Generic.List[string]
@@ -426,9 +352,7 @@ try {
             $summaryLines.Add("Score (New vs Old): $($Matches[1])/$($Matches[2])/$($Matches[3])")
         }
         $sprtLine = $cutechessOutput | Where-Object { $_ -match 'SPRT' } | Select-Object -Last 1
-        if ($sprtLine) {
-            $summaryLines.Add($sprtLine.Trim())
-        }
+        if ($sprtLine) { $summaryLines.Add($sprtLine.Trim()) }
         $summaryLines.Add("Games played: $gameCount")
     } else {
         $summaryLines.Add('No completed games recorded in PGN.')
@@ -439,15 +363,13 @@ try {
             $newRow = $csvContent | Where-Object { $_.Player -eq 'New' }
             $oldRow = $csvContent | Where-Object { $_.Player -eq 'Old' }
             if ($newRow) {
-                $culture = [System.Globalization.CultureInfo]::InvariantCulture
-                $diff = [double]::Parse($newRow.Difference, $culture)
-                $err = if ($newRow.Error) { [double]::Parse($newRow.Error, $culture) } else { $null }
+                $culture   = [System.Globalization.CultureInfo]::InvariantCulture
+                $diff      = [double]::Parse($newRow.Difference, $culture)
+                $err       = if ($newRow.Error) { [double]::Parse($newRow.Error, $culture) } else { $null }
                 $newRating = [double]::Parse($newRow.Rating, $culture)
                 $oldRating = if ($oldRow) { [double]::Parse($oldRow.Rating, $culture) } else { [double]$AnchorOld }
                 $line = "Ordo: New {0:F2} vs Old {1:F2} (Δ {2:F2})" -f $newRating, $oldRating, $diff
-                if ($err -ne $null) {
-                    $line += " ±{0:F2}" -f $err
-                }
+                if ($err -ne $null) { $line += " ±{0:F2}" -f $err }
                 $summaryLines.Add($line)
             }
         } catch {
@@ -458,9 +380,7 @@ try {
         Write-Warning 'Fewer than 10 games were played; statistics may be unreliable.'
     }
 
-    foreach ($line in $summaryLines) {
-        Write-Output $line
-    }
+    foreach ($line in $summaryLines) { Write-Output $line }
 }
 finally {
     Pop-Location
