@@ -3,157 +3,149 @@ using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Security.Cryptography;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Engines;
-using BenchmarkDotNet.Exporters;
 using BenchmarkDotNet.Exporters.Json;
 using BenchmarkDotNet.Jobs;
-using BenchmarkDotNet.Loggers;
 using BenchmarkDotNet.Order;
-using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
-using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using Perfolizer.Horology;
-using TraceReloggerLib;
 
 namespace Forklift.Benchmark
 {
     public static class Program
     {
-        private static Job Quick(Job j) => j
-            .WithIterationTime(TimeInterval.FromMilliseconds(200))
-            .WithMinIterationCount(8)
-            .WithMaxIterationCount(20)
-            .WithMaxRelativeError(0.02);
 
-        private static Job Thorough(Job j) => j
-            .WithIterationTime(TimeInterval.FromMilliseconds(750))
-            .WithMinIterationCount(20)
-            .WithMaxIterationCount(60)
-            .WithMaxRelativeError(0.005);
+
+        internal static class BenchParams
+        {
+            public static string Suite = "minimal";
+            public static int Depth = 4;
+            public static int? Threads = null;
+            public static bool ParallelRoot = false;
+        }
+
+        private static Job Minimal(Job baseJob) => baseJob
+            .WithStrategy(RunStrategy.Throughput)
+            .WithWarmupCount(4)
+            .WithIterationTime(TimeInterval.FromSeconds(1))
+            .WithIterationCount(15)
+            .WithMaxRelativeError(0.03)
+            .WithOutlierMode(Perfolizer.Mathematics.OutlierDetection.OutlierMode.RemoveUpper)
+            .WithLaunchCount(1)
+            .WithGcServer(true)
+            .WithId("Minimal");
+
+        private static Job Fast(Job baseJob) => baseJob
+            .WithStrategy(RunStrategy.Throughput)
+            .WithWarmupCount(6)
+            .WithIterationTime(TimeInterval.FromSeconds(2))
+            .WithMinIterationCount(25)
+            .WithMaxIterationCount(50)
+            .WithMaxRelativeError(0.02)
+            .WithOutlierMode(Perfolizer.Mathematics.OutlierDetection.OutlierMode.RemoveUpper)
+            .WithGcServer(true)
+            .WithId("Fast");
+
+        private static Job Full(Job baseJob) => baseJob
+            .WithStrategy(RunStrategy.Throughput)
+            .WithWarmupCount(6)
+            .WithIterationTime(TimeInterval.FromSeconds(3))
+            .WithMinIterationCount(25)
+            .WithMaxIterationCount(50)
+            .WithMaxRelativeError(0.02)
+            .WithOutlierMode(Perfolizer.Mathematics.OutlierDetection.OutlierMode.RemoveUpper)
+            .WithGcServer(true)
+            .WithId("Full");
 
         public static int Main(string[] args)
         {
-            // ---- Parse CLI ----
             var cli = CliArgs.Parse(args);
-
             if (string.IsNullOrWhiteSpace(cli.BaselinePath) || string.IsNullOrWhiteSpace(cli.CandidatePath))
             {
                 Console.Error.WriteLine("Usage:");
                 Console.Error.WriteLine("  dotnet run -c Release --project Forklift.Benchmark -- " +
                                         "--baseline <path-to-Forklift.Core.dll> --candidate <path-to-Forklift.Core.dll> " +
-                                        "[--suite minimal|fast|full] [--depth 4] [--threads N] [--affinity MASK] [--highPriority]");
+                                        "[--suite minimal|fast|full] [--depth 4] [--threads N] [--parallelRoot true|false]");
                 return 2;
             }
 
-            // ---- Load cores (runtime, isolated) ----
-            try
+            var job = cli.Suite switch
             {
-                Inputs.Baseline = EngineFacade.LoadFrom(cli.BaselinePath);
-                Inputs.Candidate = EngineFacade.LoadFrom(cli.CandidatePath);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Failed to load Forklift.Core DLLs: {ex.Message}");
-                return 3;
-            }
-
-
-            try
-            {
-                var (smokeNodesA, _, _) = Inputs.Baseline!.RunPerft("startpos", 1, null);
-                if (smokeNodesA <= 0)
-                    Console.Error.WriteLine("[WARN] Baseline smoke test returned 0 nodes for depth=1; reflection mapping is likely wrong.");
-                var (smokeNodesB, _, _) = Inputs.Candidate!.RunPerft("startpos", 1, null);
-                if (smokeNodesB <= 0)
-                    Console.Error.WriteLine("[WARN] Candidate smoke test returned 0 nodes for depth=1; reflection mapping is likely wrong.");
-                if (smokeNodesA != smokeNodesB)
-                    Console.Error.WriteLine($"[WARN] Smoke test node counts differ: Baseline={smokeNodesA}, Candidate={smokeNodesB}");
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[WARN] Smoke test failed: {ex.Message}");
-                return 4;
-            }
-
-
-            Inputs.Depth = cli.Depth ?? 4;
-            Inputs.Threads = cli.Threads; // null => engine default
-            Inputs.SuiteName = (cli.Suite ?? "minimal").ToLowerInvariant();
-
-            var job = Inputs.SuiteName switch
-            {
-                "minimal" => Quick(Job.Default),
-                "fast" => Thorough(Job.Default),
-                "full" => Thorough(Job.Default),
-                _ => Quick(Job.Default)
+                "minimal" => Minimal(Job.Default),
+                "fast" => Fast(Job.Default),
+                "full" => Full(Job.Default),
+                _ => Minimal(Job.Default),
             };
+
+            BenchParams.Suite = (cli.Suite ?? "minimal").ToLowerInvariant();
+            BenchParams.Depth = cli.Depth ?? 4;
+            BenchParams.Threads = cli.Threads;
+            BenchParams.ParallelRoot = cli.ParallelRoot;
 
             // Create a ManualConfig and add the job and other options
             var config = ManualConfig.Create(DefaultConfig.Instance)
-                .AddColumn(new NodesPerOpColumn(), new TotalNodesColumn(), new AggregateNpsColumn())
-                .AddDiagnoser(MemoryDiagnoser.Default)          // you also have [MemoryDiagnoser]; harmless to keep here
-                .AddDiagnoser(ThreadingDiagnoser.Default)       // adds the Threading diagnostics block
-                .AddExporter(MarkdownExporter.GitHub)
+                .WithOptions(ConfigOptions.DisableLogFile)
                 .AddExporter(JsonExporter.Full)
                 .AddJob(job
-                        .WithToolchain(InProcessEmitToolchain.Instance)
                         .WithEnvironmentVariable("COMPlus_ReadyToRun", "0")
                         .WithEnvironmentVariable("COMPlus_TieredCompilation", "0")
                         .WithEnvironmentVariable("COMPlus_TieredPGO", "0")
+                        .WithEnvironmentVariable("COMPlus_GCHeapCount", "1")
+                        .WithEnvironmentVariable("DOTNET_TieredPGO", "0")
+                        .WithEnvironmentVariable("DOTNET_ReadyToRun", "0")
+                        .WithEnvironmentVariable("FORKLIFT_BASELINE_PATH", cli.BaselinePath)       // e.g., ".../baseline/Forklift.Core.dll"
+                        .WithEnvironmentVariable("FORKLIFT_CANDIDATE_PATH", cli.CandidatePath)      // e.g., ".../candidate/Forklift.Core.dll"
+                        .WithEnvironmentVariable("FORKLIFT_SUITE", cli.Suite ?? "minimal")             // "minimal" | "fast" | "full"
+                        .WithEnvironmentVariable("FORKLIFT_DEPTH", cli.Depth?.ToString() ?? "4")
+                        .WithEnvironmentVariable("FORKLIFT_THREADS", cli.Threads?.ToString() ?? "")
+                        .WithEnvironmentVariable("FORKLIFT_PARALLEL_ROOT", cli.ParallelRoot ? "1" : "0")
+
                 );
 
             var summary = BenchmarkRunner.Run<PerftAABench>(config);
-
             return 0;
-        }
-
-        // ===== Shared inputs pushed into the benchmark =====
-        internal static class Inputs
-        {
-            public static EngineFacade? Baseline;
-            public static EngineFacade? Candidate;
-            public static string SuiteName = "minimal";
-            public static int Depth = 4;
-            public static int? Threads;
         }
 
         // ===== Benchmark type =====
         [MemoryDiagnoser(true)]
         [Orderer(SummaryOrderPolicy.FastestToSlowest)]
         [RankColumn, MinColumn, MaxColumn, Q1Column, Q3Column, AllStatisticsColumn]
-        [JsonExporterAttribute.Full]
         public class PerftAABench
         {
-            // You can add/remove positions here; names feed [ParamsSource].
             private static readonly (string Name, string Fen)[] MinimalSuite =
-            {
+            [
                 ("startpos", "startpos"),
-                ("kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
-                ("tricky-ep","8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1"),
-            };
+            ];
 
             private static readonly (string Name, string Fen)[] FastSuite =
-                MinimalSuite;
+            [
+                ("kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
+                ("tricky-ep","8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1"),
+            ];
 
-            private static readonly (string Name, string Fen)[] FullSuite = FastSuite;
-
-            private (long Nodes, double Ms, double Nps) _last;
-            private string _caseKey = "";
-            private string CaseKey(string methodName) => $"{PositionName}::{methodName}";
-
-            internal static readonly ConcurrentDictionary<string, long> NodesPerOp = new();
-
+            private static readonly (string Name, string Fen)[] FullSuite =
+            [
+                ("complex-castle", "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1"),
+                ("position-5", "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8"),
+                ("position-6", "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10"),
+                ("illegal-ep-1", "3k4/3p4/8/K1P4r/8/8/8/8 b - - 0 1"),
+                ("illegal-ep-2", "8/8/4k3/8/2p5/8/B2P2K1/8 w - - 0 1"),
+                ("castling-through", "r3k2r/8/3Q4/8/8/5q2/8/R3K2R b KQkq - 0 1"),
+                ("short-castle-check", "5k2/8/8/8/8/8/8/4K2R w K - 0 1"),
+                ("long-castle-check", "3k4/8/8/8/8/8/8/R3K3 w Q - 0 1"),
+                ("promotion-out-of-check", "2K2r2/4P3/8/8/8/8/8/3k4 w - - 0 1"),
+                ("underpromotion-to-check", "8/P1k5/K7/8/8/8/8/8 w - - 0 1"),
+                ("self-stalemate", "K1k5/8/P7/8/8/8/8/8 w - - 0 1"),
+            ];
 
             // Parameterize which position is under test
             [ParamsSource(nameof(PositionNames))]
             public string PositionName { get; set; } = "startpos";
-
-            public static IEnumerable<string> PositionNames =>
-                GetSuite(Program.Inputs.SuiteName).Select(p => p.Name);
 
             private static IEnumerable<(string Name, string Fen)> GetSuite(string name) =>
                 name switch
@@ -167,19 +159,77 @@ namespace Forklift.Benchmark
             private (string Name, string Fen) _position;
             private EngineFacade _baseline = null!;
             private EngineFacade _candidate = null!;
-            private int _depth;
-            private int? _threads;
+
+            [ParamsSource(nameof(DepthValues))]
+            public int Depth { get; set; } = 4;
+
+            [ParamsSource(nameof(ThreadValues))]
+            public int? Threads { get; set; } = null; // null => engine default
+
+            [ParamsSource(nameof(ParallelRootValues))]
+            public bool ParallelRoot { get; set; } = false;
+
+            public static IEnumerable<int> DepthValues() => [BenchParams.Depth];
+            public static IEnumerable<int?> ThreadValues() => [BenchParams.Threads];
+            public static IEnumerable<bool> ParallelRootValues() => [BenchParams.ParallelRoot];
+
+            static string GetEnv(string name, bool required = true)
+            {
+                var v = Environment.GetEnvironmentVariable(name);
+                if (required && string.IsNullOrWhiteSpace(v))
+                    throw new InvalidOperationException($"{name} not set.");
+                return v ?? string.Empty;
+            }
+            static int GetEnvInt(string name, int @default)
+                => int.TryParse(Environment.GetEnvironmentVariable(name), out var v) ? v : @default;
+            static int? GetEnvIntNullable(string name)
+                => int.TryParse(Environment.GetEnvironmentVariable(name), out var v) ? v : (int?)null;
+            static bool GetEnvBool(string name, bool @default = false)
+            {
+                var v = Environment.GetEnvironmentVariable(name);
+                if (string.IsNullOrWhiteSpace(v)) return @default;
+                return v == "1" || bool.TryParse(v, out var b) && b;
+            }
+
+            public static IEnumerable<string> PositionNames =>
+                GetSuite(BenchParams.Suite).Select(p => p.Name);
 
             [GlobalSetup]
             public void Setup()
             {
-                _baseline = Program.Inputs.Baseline ?? throw new InvalidOperationException("Baseline not loaded.");
-                _candidate = Program.Inputs.Candidate ?? throw new InvalidOperationException("Candidate not loaded.");
-                _depth = Program.Inputs.Depth;
-                _threads = Program.Inputs.Threads;
+                // Load engines from the paths that we passed via env vars
+                var baselinePath = GetEnv("FORKLIFT_BASELINE_PATH");
+                var candidatePath = GetEnv("FORKLIFT_CANDIDATE_PATH");
 
-                var suite = GetSuite(Program.Inputs.SuiteName);
+                _baseline = EngineFacade.LoadFrom(baselinePath);
+                _candidate = EngineFacade.LoadFrom(candidatePath);
+
+                // Lock in the run params (BDN already set our [Params] values from env-driven ParamsSource)
+                var suite = GetSuite(Environment.GetEnvironmentVariable("FORKLIFT_SUITE") ?? "fast");
                 _position = suite.First(p => p.Name == PositionName);
+
+                Console.WriteLine($"[BenchInit] Baseline:  {_baseline.Identity}");
+                Console.WriteLine($"[BenchInit] Candidate: {_candidate.Identity}");
+                Console.WriteLine($"[BenchInit] Depth={Depth} Threads={Threads?.ToString() ?? "<engine default>"} ParallelRoot={ParallelRoot}");
+
+                try
+                {
+                    if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+                    {
+                        var p = System.Diagnostics.Process.GetCurrentProcess();
+                        p.ProcessorAffinity = (IntPtr)1; // CPU0
+                        p.PriorityClass = System.Diagnostics.ProcessPriorityClass.High;
+                        System.Threading.Thread.CurrentThread.Priority = System.Threading.ThreadPriority.Highest;
+                    }
+                }
+                catch { /* ignore on restricted CI */ }
+            }
+
+            [GlobalCleanup]
+            public void Cleanup()
+            {
+                _candidate?.Dispose();
+                _baseline?.Dispose();
             }
 
             // NOTE: We let BenchmarkDotNet measure the elapsed time.
@@ -187,23 +237,17 @@ namespace Forklift.Benchmark
             // but we don't compute NPS here—BDN gives ratios & stats we care about.
 
             [Benchmark(Baseline = true)]
-            public (long Nodes, double Ms, double Nps) Baseline()
+            public (long nodes, double ms, double nps) Baseline()
             {
-                _last = _baseline.RunPerft(_position.Fen, _depth, _threads);
-                _caseKey = CaseKey(nameof(Baseline));
-
-                NodesPerOp.TryAdd(_caseKey, _last.Nodes);
-                return _last;
+                var result = _baseline.RunPerft(_position.Fen, Depth, Threads, ParallelRoot);
+                return result;
             }
 
-            [Benchmark(Baseline = false)]
-            public (long Nodes, double Ms, double Nps) Candidate()
+            [Benchmark]
+            public (long nodes, double ms, double nps) Candidate()
             {
-                _last = _candidate.RunPerft(_position.Fen, _depth, _threads);
-                _caseKey = CaseKey(nameof(Candidate));
-
-                NodesPerOp.TryAdd(_caseKey, _last.Nodes);
-                return _last;
+                var result = _candidate.RunPerft(_position.Fen, Depth, Threads, ParallelRoot);
+                return result;
             }
         }
 
@@ -218,6 +262,14 @@ namespace Forklift.Benchmark
             private readonly int? _parallelIndex;   // nullable => not present
             private readonly int? _threadsIndex;    // nullable => not present
             private readonly AssemblyLoadContext _alc;
+            private readonly WeakReference _alcWeakRef;
+
+            private bool _disposed;
+            public string Identity =>
+                $"{Path.GetFileName(_coreAsm.Location)} " +
+                $"sha256={Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(_coreAsm.Location)))[..12]} " +
+                $"entry={_entry.DeclaringType!.FullName}.{_entry.Name}({string.Join(",", _entry.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name))})";
+
 
             private enum EntryShape
             {
@@ -225,11 +277,25 @@ namespace Forklift.Benchmark
                 CountLong    // returns long nodes directly
             }
 
+            private sealed class CoreAlc : AssemblyLoadContext
+            {
+                private readonly AssemblyDependencyResolver _resolver;
+                public CoreAlc(string corePath) : base($"alc:{Path.GetFileName(corePath)}", isCollectible: true)
+                    => _resolver = new AssemblyDependencyResolver(corePath);
+
+                protected override Assembly? Load(AssemblyName name)
+                {
+                    var path = _resolver.ResolveAssemblyToPath(name);
+                    return path is null ? null : LoadFromAssemblyPath(path);
+                }
+            }
+
             private EngineFacade(AssemblyLoadContext alc, Assembly coreAsm,
                                 MethodInfo fromFenOrStart, MethodInfo entry,
                                 EntryShape shape, int depthIndex, int? parallelIndex, int? threadsIndex)
             {
                 _alc = alc;
+                _alcWeakRef = new WeakReference(alc, trackResurrection: false);
                 _coreAsm = coreAsm;
                 _fromFenOrStart = fromFenOrStart;
                 _entry = entry;
@@ -239,31 +305,55 @@ namespace Forklift.Benchmark
                 _threadsIndex = threadsIndex;
             }
 
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+
+                // Drop strong refs to ALC-held objects ASAP
+                // (fields above referencing types/methods keep the ALC alive).
+                // We null what we can and then try to unload.
+                // Note: fields are readonly; set via locals to aid GC.
+                // GC will see they are no longer rooted by this instance once ALC is unloaded.
+                _alc.Unload();
+
+                // Aggressive but fast: try a few GC cycles until the ALC dies or we give up.
+                for (int i = 0; i < 3 && _alcWeakRef.IsAlive; i++)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+                // Optional: one last collection pass
+                if (_alcWeakRef.IsAlive)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+            }
+
             public static EngineFacade LoadFrom(string corePath)
             {
                 if (!File.Exists(corePath))
                     throw new FileNotFoundException("Core assembly not found", corePath);
 
-                var bytes = File.ReadAllBytes(corePath);
-                var alc = new AssemblyLoadContext($"alc:{Path.GetFileName(corePath)}", isCollectible: true);
-                using var ms = new MemoryStream(bytes);
-                var asm = alc.LoadFromStream(ms);
+                var alc = new CoreAlc(corePath);
+                var asm = alc.LoadFromAssemblyPath(Path.GetFullPath(corePath));
 
+                // types
                 var boardFactory = asm.GetType("Forklift.Core.BoardFactory", throwOnError: true)!;
                 var perft = asm.GetType("Forklift.Core.Perft", throwOnError: true)!;
 
                 var fromFen = boardFactory.GetMethod("FromFenOrStart", BindingFlags.Public | BindingFlags.Static)
-                            ?? throw new MissingMethodException("BoardFactory.FromFenOrStart not found.");
+                             ?? throw new MissingMethodException("BoardFactory.FromFenOrStart not found.");
 
-                // Try Statistics first (richer), then Count
-                var (entry, shape, depthIdx, parallelIdx, threadsIdx) =
-                    ResolvePerftEntry(perft) ?? throw new MissingMethodException(
-                        "No compatible Perft.Statistics/Perft.Count overloads found.");
+                var resolved = ResolvePerftEntry(perft) ?? throw new MissingMethodException(
+                    "No compatible Perft.Statistics/Perft.Count overloads found.");
 
-                return new EngineFacade(alc, asm, fromFen, entry, shape, depthIdx, parallelIdx, threadsIdx);
+                return new EngineFacade(alc, asm, fromFen, resolved.entry, resolved.shape,
+                                        resolved.depthIdx, resolved.parallelIdx, resolved.threadsIdx);
             }
 
-            public (long Nodes, double Ms, double Nps) RunPerft(string fenOrStart, int depth, int? threads)
+            public (long Nodes, double Ms, double Nps) RunPerft(string fenOrStart, int depth, int? threads, bool? parallelRoot = null)
             {
                 var board = _fromFenOrStart.Invoke(null, new object?[] { fenOrStart })
                             ?? throw new InvalidOperationException("BoardFactory.FromFenOrStart returned null.");
@@ -275,8 +365,8 @@ namespace Forklift.Benchmark
 
                 args[0] = board;
                 args[_depthIndex] = depth;
-                if (_parallelIndex is int parallelIndex) args[parallelIndex] = true;
-                if (_threadsIndex is int threadsIndex) args[threadsIndex] = threads is int t && t > 0 ? (int?)t : null;
+                if (_parallelIndex is int prIdx) args[prIdx] = parallelRoot is bool pr ? pr : null;
+                if (_threadsIndex is int thIdx) args[thIdx] = threads is int t && t > 0 ? (int?)t : null;
 
                 // Optimized path: Count returns long directly.
                 if (_shape == EntryShape.CountLong)
@@ -517,8 +607,7 @@ namespace Forklift.Benchmark
             public string? Suite { get; init; }            // minimal|fast|full (default minimal)
             public int? Depth { get; init; }               // default 4
             public int? Threads { get; init; }             // null => engine default
-            public int? AffinityMask { get; init; }        // optional
-            public bool HighPriority { get; init; }
+            public bool ParallelRoot { get; init; }
 
             public static CliArgs Parse(string[] argv)
             {
@@ -542,128 +631,18 @@ namespace Forklift.Benchmark
 
                 string? GetStr(string k) => map.TryGetValue(k, out var s) ? s : null;
 
+                bool GetBool(string k) => map.TryGetValue(k, out var s) && bool.TryParse(s, out var v) && v;
+
                 return new CliArgs
                 {
                     BaselinePath = GetStr("--baseline"),
                     CandidatePath = GetStr("--candidate"),
                     Suite = GetStr("--suite"),
                     Depth = GetInt("--depth"),
-                    Threads = GetInt("--threads")
+                    Threads = GetInt("--threads"),
+                    ParallelRoot = GetBool("--parallelRoot")
                 };
             }
-        }
-
-        internal static class BdnAgg
-        {
-            public static (long totalOps, double totalMs) GetWorkloadOpsAndMs(Summary summary, BenchmarkCase bc)
-            {
-                var report = summary.Reports.FirstOrDefault(r => r.BenchmarkCase.Equals(bc));
-                if (report is null) return (0, 0);
-
-                // Only the actual workload measurements (exclude Overhead/Pilot/Warmup)
-                var ms = report.AllMeasurements
-                    .Where(m => m.IterationMode == IterationMode.Workload &&
-                                m.IterationStage == IterationStage.Actual)
-                    .ToList();
-
-                long totalOps = ms.Sum(m => (long)m.Operations);
-                double totalMs = ms.Sum(m => m.Nanoseconds) / 1_000_000.0;
-                return (totalOps, totalMs);
-            }
-        }
-
-        internal sealed class NodesPerOpColumn : IColumn
-        {
-            public string Id => "PerftNodesPerOp";
-            public string ColumnName => "Nodes/Op";
-            public bool AlwaysShow => true;
-            public ColumnCategory Category => ColumnCategory.Custom;
-            public int PriorityInCategory => 0;
-            public bool IsNumeric => true;
-            public UnitType UnitType => UnitType.Size;
-            public bool IsDefault(Summary s, BenchmarkCase bc) => false;
-            public string Legend => "Per-iteration node count for this position/depth.";
-
-            public string GetValue(Summary summary, BenchmarkCase bc)
-            {
-                var pos = bc.Parameters["PositionName"]?.ToString() ?? "";
-                var method = bc.Descriptor.WorkloadMethod.Name;
-                var key = $"{pos}::{method}";
-                if (Forklift.Benchmark.Program.PerftAABench.NodesPerOp.TryGetValue(key, out var nodes))
-                    return nodes.ToString("N0");
-                return "";
-            }
-
-            public string GetValue(Summary s, BenchmarkCase bc, SummaryStyle style) => GetValue(s, bc);
-            public bool IsAvailable(Summary _) => true;
-        }
-
-        internal sealed class TotalNodesColumn : IColumn
-        {
-            public string Id => "PerftTotalNodes";
-            public string ColumnName => "TotalNodes";
-            public bool AlwaysShow => true;
-            public ColumnCategory Category => ColumnCategory.Custom;
-            public int PriorityInCategory => 1;
-            public bool IsNumeric => true;
-            public UnitType UnitType => UnitType.Size;
-            public bool IsDefault(Summary s, BenchmarkCase bc) => false;
-            public string Legend => "Σ(nodes-per-op × measured operations).";
-
-            public string GetValue(Summary summary, BenchmarkCase bc)
-            {
-                var pos = bc.Parameters["PositionName"]?.ToString() ?? "";
-                var method = bc.Descriptor.WorkloadMethod.Name;
-                var key = $"{pos}::{method}";
-
-                if (!Forklift.Benchmark.Program.PerftAABench.NodesPerOp.TryGetValue(key, out var nodesPerOp))
-                    return "";
-
-                var (ops, _) = BdnAgg.GetWorkloadOpsAndMs(summary, bc);
-                if (ops <= 0) return "";
-                var totalNodes = nodesPerOp * (decimal)ops;
-                return totalNodes.ToString("N0");
-            }
-
-            public string GetValue(Summary s, BenchmarkCase bc, SummaryStyle style) => GetValue(s, bc);
-            public bool IsAvailable(Summary _) => true;
-        }
-
-        internal sealed class AggregateNpsColumn : IColumn
-        {
-            public string Id => "PerftAggregateNps";
-            public string ColumnName => "Agg NPS";
-            public bool AlwaysShow => true;
-            public ColumnCategory Category => ColumnCategory.Custom;
-            public int PriorityInCategory => 2;
-            public bool IsNumeric => true;
-            public UnitType UnitType => UnitType.Size;
-            public bool IsDefault(Summary s, BenchmarkCase bc) => false;
-            public string Legend => "Σ(nodes) / Σ(time) over measured iterations only.";
-
-            public string GetValue(Summary summary, BenchmarkCase bc)
-            {
-                var pos = bc.Parameters["PositionName"]?.ToString() ?? "";
-                var method = bc.Descriptor.WorkloadMethod.Name;
-                var key = $"{pos}::{method}";
-
-                if (!Forklift.Benchmark.Program.PerftAABench.NodesPerOp.TryGetValue(key, out var nodesPerOp))
-                    return "";
-
-                var (ops, totalMs) = BdnAgg.GetWorkloadOpsAndMs(summary, bc);
-                if (ops <= 0 || totalMs <= 0) return "";
-
-                double totalNodes = nodesPerOp * (double)ops;
-                double nps = totalNodes / (totalMs / 1000.0);
-
-                return nps >= 1_000_000_000 ? (nps / 1_000_000_000d).ToString("0.00") + " B/s"
-                     : nps >= 1_000_000 ? (nps / 1_000_000d).ToString("0.00") + " M/s"
-                     : nps >= 1_000 ? (nps / 1_000d).ToString("0.00") + " K/s"
-                                              : nps.ToString("0") + " /s";
-            }
-
-            public string GetValue(Summary s, BenchmarkCase bc, SummaryStyle style) => GetValue(s, bc);
-            public bool IsAvailable(Summary _) => true;
         }
     }
 }

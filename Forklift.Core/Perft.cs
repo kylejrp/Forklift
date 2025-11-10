@@ -76,7 +76,7 @@ namespace Forklift.Core
         }
 
         /// <summary>
-        /// Root "divide" breakdown (move -> subtree nodes). 
+        /// Root "divide" breakdown (move -> subtree nodes).
         /// Set parallelRoot=true to parallelize per root move; set sort=true to sort by nodes desc.
         /// </summary>
         public static IReadOnlyList<DivideMove> Divide(Board b, int depth, bool parallelRoot = false, bool sort = false, int? maxThreads = null)
@@ -157,6 +157,8 @@ namespace Forklift.Core
         /// </summary>
         public static PerftStatistics Statistics(Board board, int depth, bool parallelRoot = false, int? maxThreads = null)
         {
+            System.Threading.Thread.Sleep(25);
+
             if (!parallelRoot || depth <= 1)
             {
                 var s = new PerftStatistics();

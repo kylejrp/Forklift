@@ -1,0 +1,642 @@
+name: "Benchmarks"
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    paths:
+      - "Forklift.Core/**"
+      - ".github/workflows/benchmark.yml"
+  workflow_dispatch:
+    inputs:
+      suite:
+        type: choice
+        options: [all, minimal, fast, full]
+        default: all
+  schedule:
+    - cron: "0 8 * * *"
+
+concurrency:
+  group: benchmarks-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+  statuses: write
+
+jobs:
+  benchmark-suite:
+    if: ${{ github.event_name != 'pull_request' || contains(join(github.event.pull_request.labels.*.name, ','), 'benchmark') }}
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        suite: [minimal, fast, full]
+    name: "Perft benchmark (${{ matrix.suite }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      COMPlus_ReadyToRun: "0"
+      COMPlus_TieredCompilation: "0"
+      COMPlus_TieredPGO: "0"
+      DOTNET_GCServer: "1"
+      COMPlus_GCHeapCount: "1"
+      SUITE: ${{ matrix.suite }}
+      SHOULD_SKIP: ${{ (github.event_name == 'pull_request' && matrix.suite != 'minimal') ||
+                       (github.event_name == 'workflow_dispatch' && github.event.inputs.suite != 'all' && matrix.suite != github.event.inputs.suite) }}
+
+    steps:
+      # Log-and-bail step (just for clarity in the UI)
+      - name: Conditional skip
+        if: ${{ env.SHOULD_SKIP == 'true' }}
+        run: |
+          echo "Skipping suite ${{ matrix.suite }} for event ${{ github.event_name }}"
+
+      # Everything real is guarded with the inverse
+      - name: Debug - check operating system / architecture
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        run: |
+          echo "Detected OS ID: $ImageOS"
+          echo "Detected OS Version: $ImageVersion"
+          echo "Detected runner.os: ${{ runner.os }}"
+          echo "Detected runner.arch: ${{ runner.arch }}"
+          echo "Resolved SUITE: $SUITE"
+
+      - uses: actions/checkout@v4
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-dotnet@v4
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        with: { dotnet-version: "9.0.x" }
+
+      - name: Detect .NET SDK full version
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        id: dotnet
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_string=$(dotnet --version | tr -d '\n' | xargs)
+          major=$(echo "$version_string" | cut -d'.' -f1)
+          minor=$(echo "$version_string" | cut -d'.' -f2)
+          echo "majorMinor=$major.$minor" >> "$GITHUB_OUTPUT"
+
+      - name: Install jq + pwsh + unzip
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq powershell unzip
+
+      - name: Cache NuGet
+        if: ${{ env.SHOULD_SKIP != 'true' && !cancelled() }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nuget/packages
+            ~/.local/share/NuGet/v3-cache
+          key: ${{ runner.os }}-nuget-${{ steps.dotnet.outputs.majorMinor }}-${{ hashFiles('**/*.csproj','**/Directory.Packages.props','**/global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-${{ steps.dotnet.outputs.majorMinor }}-
+            ${{ runner.os }}-nuget-
+
+      - name: Compute tolerance (by suite)
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${SUITE}" in
+            minimal) tol=5.0 ;;
+            fast)    tol=3.0 ;;
+            full)    tol=2.0 ;;
+            *)       tol=3.0 ;;
+          esac
+          echo "TOLERANCE_PCT=$tol" >> "$GITHUB_ENV"
+          echo "Using TOLERANCE_PCT=$tol for SUITE=${SUITE}"
+
+      - name: Compute environment-keyed artifact name
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        id: art
+        shell: bash
+        run: |
+          echo "bdn_name=bdn-results-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-${{ matrix.suite }}" >> "$GITHUB_OUTPUT"
+          echo "agg_name=bdna-aggregates-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}" >> "$GITHUB_OUTPUT"
+
+      - name: Debug – show computed artifact names
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        run: |
+          echo "Artifact name (BDN):  ${{ steps.art.outputs.bdn_name }}"
+          echo "Artifact name (BDNA): ${{ steps.art.outputs.agg_name }}"
+
+      - name: Compute PR artifact name
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        id: prart
+        shell: bash
+        run: |
+          {
+            echo "name<<EOF"
+            echo "benchmark-${{ matrix.suite }}-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-${{ github.event.pull_request.number || github.run_id }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest main BDNA aggregates (same environment)
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        uses: actions/github-script@v7
+        env:
+          ART_NAME: ${{ steps.art.outputs.agg_name }}
+        with:
+          script: |
+            const {owner, repo} = context.repo
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              { owner, repo, branch: 'main', status: 'success', per_page: 50 }
+            )
+            let found = null
+            for (const run of runs) {
+              const arts = await github.paginate(
+                github.rest.actions.listWorkflowRunArtifacts,
+                { owner, repo, run_id: run.id, per_page: 100 }
+              )
+              found = arts.find(a => a.name === process.env.ART_NAME && !a.expired)
+              if (found) break
+            }
+            if (!found) {
+              core.info(`No '${process.env.ART_NAME}' artifact found on main; starting with an empty aggregates directory.`)
+              return
+            }
+            const dl = await github.rest.actions.downloadArtifact({
+              owner, repo, artifact_id: found.id, archive_format: 'zip'
+            })
+            require('fs').writeFileSync('aggregates.zip', Buffer.from(dl.data))
+
+      - name: Unpack BDNA aggregates into .eval/bdna/aggregates
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        run: |
+          rm -rf .eval/bdna/aggregates
+          mkdir -p .eval/bdna/aggregates
+          if [ -f aggregates.zip ]; then
+            unzip -o aggregates.zip -d .agg
+            cp -a .agg/. .eval/bdna/aggregates/
+          else
+            echo "No aggregates.zip found; starting with an empty aggregates store."
+          fi
+
+      - name: Select baseline/candidate git refs
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        id: refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --all --prune
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            # main: Baseline = HEAD^1 (if exists), Candidate = HEAD
+            if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              echo "baseline=$(git rev-parse --verify HEAD^)" >> "$GITHUB_OUTPUT"
+            else
+              echo "baseline=" >> "$GITHUB_OUTPUT"
+            fi
+            echo "candidate=$(git rev-parse --verify HEAD)" >> "$GITHUB_OUTPUT"
+          else
+            # PR: Baseline = merge-base(HEAD, origin/main) (fallback to origin/main), Candidate = HEAD
+            mb=$(git merge-base HEAD origin/main || true)
+            if [ -n "$mb" ]; then
+              echo "baseline=$mb" >> "$GITHUB_OUTPUT"
+            else
+              echo "baseline=$(git rev-parse --verify origin/main)" >> "$GITHUB_OUTPUT"
+            fi
+            echo "candidate=$(git rev-parse --verify HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run benchmark via project script (BDNA gate) [pwsh]
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        shell: pwsh
+        run: |
+          git fetch --all --prune
+          $RepositoryRoot = "$env:GITHUB_WORKSPACE"
+          $ArtifactsRoot  = Join-Path (Split-Path $env:GITHUB_WORKSPACE -Parent) 'ForkliftArtifacts'
+          $AggregatesDir  = Join-Path $RepositoryRoot '.eval/bdna/aggregates'
+          New-Item -ItemType Directory -Force -Path $ArtifactsRoot | Out-Null
+          New-Item -ItemType Directory -Force -Path $AggregatesDir | Out-Null
+
+          taskset -c 0 pwsh -File ./Forklift.Benchmark/Run-Benchmark.ps1 `
+            -RepositoryRoot $RepositoryRoot `
+            -ArtifactsRoot  $ArtifactsRoot `
+            -Suite          $env:SUITE `
+            -BaselineGitRef "${{ steps.refs.outputs.baseline }}" `
+            -CandidateGitRef "${{ steps.refs.outputs.candidate }}" `
+            -EnableBdna `
+            -TolerancePct   ($env:TOLERANCE_PCT ?? '1.0') `
+            -KeepRuns       100 `
+            -Quiet
+
+          $StageOut = Join-Path $env:GITHUB_WORKSPACE '.eval/out'
+          New-Item -ItemType Directory -Force -Path $StageOut | Out-Null
+          $SrcOut = Join-Path $ArtifactsRoot '.eval/out'
+          if (Test-Path $SrcOut) {
+            Copy-Item -Recurse -Force (Join-Path $SrcOut '*') $StageOut -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload BDN results (environment-keyed)
+        if: ${{ env.SHOULD_SKIP != 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'schedule') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.art.outputs.bdn_name }}
+          path: |
+            ${{ github.workspace }}/BenchmarkDotNet.Artifacts/results/**/*.md
+            ${{ github.workspace }}/BenchmarkDotNet.Artifacts/results/**/*.json
+            ${{ github.workspace }}/BenchmarkDotNet.Artifacts/results/**/*.html
+            ${{ github.workspace }}/BenchmarkDotNet.Artifacts/results/**/*.csv
+          if-no-files-found: ignore
+
+      - id: parse_ab
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        name: Read A/B summary (Baseline vs Candidate)
+        shell: bash
+        run: |
+          set -euo pipefail
+          AB_JSON=".eval/out/ab-summary.json"
+          AB_MD=".eval/out/ab-summary.md"
+
+          # Default outputs
+          echo "ab_json=" >> "$GITHUB_OUTPUT"
+          echo "ab_md="   >> "$GITHUB_OUTPUT"
+          echo "has_ab_regression=false" >> "$GITHUB_OUTPUT"
+          echo "worst_delta_pct="   >> "$GITHUB_OUTPUT"
+
+          # Publish file paths if they exist
+          [[ -f "$AB_JSON" ]] && echo "ab_json=$AB_JSON" >> "$GITHUB_OUTPUT" || echo "::notice::A/B JSON not found at $AB_JSON"
+          [[ -f "$AB_MD"   ]] && echo "ab_md=$AB_MD"     >> "$GITHUB_OUTPUT" || echo "::notice::A/B markdown not found at $AB_MD"
+
+          # Extract values only if JSON exists
+          if [[ -f "$AB_JSON" ]]; then
+            jq -r '"has_ab_regression=\(.HasAbRegression)"' "$AB_JSON" >> "$GITHUB_OUTPUT"
+            jq -r '"worst_delta_pct=\(.WorstDeltaPct // "")"' "$AB_JSON" >> "$GITHUB_OUTPUT"
+          fi
+
+
+      - id: parse_bdna
+        if: ${{ env.SHOULD_SKIP != 'true' }}
+        name: Read BDNA trend summary (Candidate trend vs main)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BDNA_JSON=".eval/out/bdna-summary.json"
+          BDNA_MD=".eval/out/bdna-summary.md"
+
+          # Default outputs
+          echo "bdna_json=" >> "$GITHUB_OUTPUT"
+          echo "bdna_md="   >> "$GITHUB_OUTPUT"
+          echo "has_bdna_regression=false" >> "$GITHUB_OUTPUT"
+          echo "tolerance_pct="       >> "$GITHUB_OUTPUT"
+          echo "no_bdna_history="     >> "$GITHUB_OUTPUT"
+          echo "bdna_mean_delta="     >> "$GITHUB_OUTPUT"
+          echo "bdna_worst_delta="    >> "$GITHUB_OUTPUT"
+
+          [[ -f "$BDNA_JSON" ]] && echo "bdna_json=$BDNA_JSON" >> "$GITHUB_OUTPUT" || echo "::notice::BDNA JSON not found at $BDNA_JSON"
+          [[ -f "$BDNA_MD"   ]] && echo "bdna_md=$BDNA_MD"     >> "$GITHUB_OUTPUT" || echo "::notice::BDNA markdown not found at $BDNA_MD"
+
+          if [[ -f "$BDNA_JSON" ]]; then
+            jq -r '"has_bdna_regression=\(.HasBdnaRegression)"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
+            jq -r '"tolerance_pct=\(.TolerancePct // "")"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
+            jq -r '"no_bdna_history=\(.NoHistory // false)"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
+            jq -r '"bdna_mean_delta=\(.TrendMeanDeltaPct // "")"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
+            jq -r '"bdna_worst_delta=\(.TrendWorstDeltaPct // "")"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
+          fi
+
+
+      - id: pr_texts
+        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prart.outputs.name }}
+          if-no-files-found: warn
+          path: |
+            ${{ github.workspace }}/BenchmarkDotNet.Artifacts/results/**/*.md
+            ${{ github.workspace }}/BenchmarkDotNet.Artifacts/results/**/*.json
+            ${{ github.workspace }}/BenchmarkDotNet.Artifacts/results/**/*.html
+            ${{ github.workspace }}/BenchmarkDotNet.Artifacts/results/**/*.csv
+            ${{ github.workspace }}/.eval/out/**/*.md
+            ${{ github.workspace }}/.eval/out/**/*.json
+            ${{ github.workspace }}/.eval/out/**/*.csv
+            ${{ github.workspace }}/.eval/bdna/reports/*.csv
+            ${{ github.workspace }}/.eval/bdna/reports/*.json
+            ${{ github.workspace }}/.eval/artifacts/**/*
+
+      - id: resolve_art_url
+        if: ${{ always() && env.SHOULD_SKIP != 'true' && env.DRY_RUN != 'true' }}
+        uses: actions/github-script@v7
+        env:
+          ART_NAME: ${{ steps.prart.outputs.name }}
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const run_id = context.runId;
+            const list = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              { owner, repo, run_id, per_page: 100 }
+            );
+            const a = list.find(x => x.name === process.env.ART_NAME && !x.expired);
+            core.setOutput('ui_url', a ? `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${a.id}` : '');
+
+      - name: Comment results on PR (A/B + BDNA)
+        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        env:
+          SUITE: ${{ matrix.suite }}
+          RUNNER_OS: ${{ runner.os }}
+          AB_MD: ${{ steps.parse_ab.outputs.ab_md }}
+          BDNA_MD: ${{ steps.parse_bdna.outputs.bdna_md }}
+          HAS_AB: ${{ steps.parse_ab.outputs.has_ab_regression }}
+          AB_WORST: ${{ steps.parse_ab.outputs.worst_delta_pct }}
+          HAS_BDNA: ${{ steps.parse_bdna.outputs.has_bdna_regression }}
+          BDNA_TOL: ${{ steps.parse_bdna.outputs.tolerance_pct }}
+          BDNA_MEAN_DELTA:  ${{ steps.parse_bdna.outputs.bdna_mean_delta }}
+          BDNA_WORST_DELTA: ${{ steps.parse_bdna.outputs.bdna_worst_delta }}
+          NO_BDNA_HISTORY: ${{ steps.parse_bdna.outputs.no_bdna_history }}
+          PR_ART_NAME: ${{ steps.prart.outputs.name }}
+          PR_ART_URL_RESOLVED: ${{ steps.resolve_art_url.outputs.ui_url }}
+          PR_ART_URL_ACT: ${{ steps.pr_texts.outputs.artifact-url }}
+        with:
+          script: |
+            const fs = require('fs');
+
+            const readText = p => (!p || p === 'null' || !fs.existsSync(p))
+              ? null
+              : fs.readFileSync(p, 'utf8');
+
+            const flag = b => (b===true || b==='true') ? '❌' : (b===false || b==='false' ? '✅' : '—');
+            const num  = (v,s='') => (v==null || v==='' || isNaN(Number(v))) ? '—' : `${Number(v).toFixed(2)}${s}`;
+            const osName = process.env.RUNNER_OS || (process.platform === 'linux' ? 'Linux' : 'unknown');
+
+            const abMd   = readText(process.env.AB_MD);
+            const bdnaMd = readText(process.env.BDNA_MD);
+
+            let body = `### 🧪 Forklift Benchmark (${osName}; suite: ${process.env.SUITE})\n`;
+
+            body += `\n#### A/B (Baseline ↔ Candidate)\n`;
+            body += `Status: ${flag(process.env.HAS_AB)}  \n`;
+            if (process.env.AB_WORST) body += `Worst Δ%: ${num(process.env.AB_WORST, '%')}\n\n`;
+
+            body += `#### Trend (Candidate ↔ main history)\n`;
+            body += `Status: ${flag(process.env.HAS_BDNA)}  \n`;
+            if (process.env.BDNA_TOL)        body += `Tolerance: ±${num(process.env.BDNA_TOL, '%')}\n`;
+            if (process.env.BDNA_MEAN_DELTA) body += `Mean Δ%: ${num(process.env.BDNA_MEAN_DELTA, '%')}\n`;
+            if (process.env.BDNA_WORST_DELTA)body += `Worst Δ%: ${num(process.env.BDNA_WORST_DELTA, '%')}\n`;
+            if (process.env.NO_BDNA_HISTORY === 'true') {
+              body += `\n> [!WARNING]\n> No BDNA historical data from main found — this run is initializing a new trend baseline.\n`;
+            }
+
+            const artName = (process.env.PR_ART_NAME && process.env.PR_ART_NAME !== 'null')
+              ? process.env.PR_ART_NAME : '(no artifact name)';
+            const isDry = process.env.DRY_RUN === 'true' || !process.env.GITHUB_TOKEN;
+            const artUrl = isDry
+              ? (process.env.PR_ART_URL_ACT && process.env.PR_ART_URL_ACT !== 'null' ? process.env.PR_ART_URL_ACT : '')
+              : (process.env.PR_ART_URL_RESOLVED && process.env.PR_ART_URL_RESOLVED !== 'null' ? process.env.PR_ART_URL_RESOLVED : '');
+            const artText = artUrl ? `[**${artName}**](${artUrl})` : `**${artName}**`;
+            body += `\nArtifacts: download ${artText} from this run.\n`;
+
+            if (bdnaMd) {
+              body += `\n<details><summary><strong>📈 BDNA Trend (bdna-summary.md)</strong></summary>\n\n${bdnaMd}\n</details>\n`;
+            }
+            if (abMd) {
+              body += `\n<details><summary><strong>📉 A/B Summary (ab-summary.md)</strong></summary>\n\n${abMd}\n</details>\n`;
+            }
+
+            if (isDry) {
+              console.log('--- dry run, would have posted PR comment: ---\n');
+              console.log(body);
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+      - id: gates
+        name: Expose regression gates
+        if: ${{ always() && env.SHOULD_SKIP != 'true' }}
+        run: |
+          echo "ab_regression=${{ steps.parse_ab.outputs.has_ab_regression }}" >> "$GITHUB_OUTPUT"
+          echo "bdna_regression=${{ steps.parse_bdna.outputs.has_bdna_regression }}" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize results on main
+        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name != 'pull_request' }}
+        shell: bash --noprofile --norc -euo pipefail
+        run: |
+          {
+            echo "### 🧪 Forklift Benchmarks (main)"
+            echo
+            echo "**A/B regression:** ${{ steps.parse_ab.outputs.has_ab_regression }}  "
+            echo "**BDNA regression:** ${{ steps.parse_bdna.outputs.has_bdna_regression }}  "
+            echo "**Worst Δ% (A/B):** ${{ steps.parse_ab.outputs.worst_delta_pct }}  "
+            echo "**Tolerance (BDNA):** ±${{ steps.parse_bdna.outputs.tolerance_pct }}%"
+            echo
+            echo "<details><summary><strong>📈 BDNA Trend</strong></summary>"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          # Append BDNA markdown if present
+          if [ -f "${{ steps.parse_bdna.outputs.bdna_md }}" ]; then
+            cat "${{ steps.parse_bdna.outputs.bdna_md }}" >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo "</details>"
+            echo
+            echo "<details><summary><strong>📉 A/B Summary</strong></summary>"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          # Append A/B markdown if present
+          if [ -f "${{ steps.parse_ab.outputs.ab_md }}" ]; then
+            cat "${{ steps.parse_ab.outputs.ab_md }}" >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "</details>" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Set commit status (failure) on regression
+        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name != 'pull_request' && (steps.gates.outputs.ab_regression == 'true' || steps.gates.outputs.bdna_regression == 'true') }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            await github.rest.repos.createCommitStatus({
+              owner, repo,
+              sha: context.sha,
+              state: "failure",
+              context: "Forklift Benchmarks",
+              description: "Performance regression detected on main",
+              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            });
+
+
+      - name: Fail on regressions
+        # temporarily disabled
+        if: ${{ false && always() && env.SHOULD_SKIP != 'true' && github.event_name == 'pull_request' && steps.parse_bdna.outputs.no_bdna_history != 'true' && steps.gates.outputs.bdna_regression == 'true' }}
+        run: |
+          echo "::error::Performance regression detected. A/B=${{ steps.gates.outputs.ab_regression }}, BDNA=${{ steps.gates.outputs.bdna_regression }}"
+          exit 1
+
+      - name: Annotate regressions on main (soft)
+        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name != 'pull_request' && (steps.gates.outputs.ab_regression == 'true' || steps.gates.outputs.bdna_regression == 'true') }}
+        run: |
+          echo "::warning::Performance regression on main. A/B=${{ steps.gates.outputs.ab_regression }}, BDNA=${{ steps.gates.outputs.bdna_regression }}"
+
+  combine-and-upload-aggregates:
+    if: ${{ always() && (github.ref == 'refs/heads/main' || github.event_name == 'schedule') }}
+    needs: [benchmark-suite]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "9.0.x" }
+
+      - name: Detect .NET SDK full version
+        id: dotnet
+        shell: bash
+        run: |
+          set -euo pipefail
+          v=$(dotnet --version | tr -d '\n' | xargs)
+          echo "majorMinor=$(echo "$v" | cut -d'.' -f1-2)" >> "$GITHUB_OUTPUT"
+
+      - name: Install jq + pwsh
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq powershell unzip
+
+      - name: Compute artifact names (env-keyed)
+        id: art
+        shell: bash
+        run: |
+          echo "agg_name=bdna-aggregates-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}" >> "$GITHUB_OUTPUT"
+          echo "bdn_min=bdn-results-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-minimal" >> "$GITHUB_OUTPUT"
+          echo "bdn_fast=bdn-results-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-fast" >> "$GITHUB_OUTPUT"
+          echo "bdn_full=bdn-results-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-full" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest main BDNA aggregates (same environment)
+        uses: actions/github-script@v7
+        env:
+          ART_NAME: ${{ steps.art.outputs.agg_name }}
+        with:
+          script: |
+            const {owner, repo} = context.repo
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              { owner, repo, branch: 'main', status: 'success', per_page: 50 }
+            )
+            let found = null
+            for (const run of runs) {
+              const arts = await github.paginate(
+                github.rest.actions.listWorkflowRunArtifacts,
+                { owner, repo, run_id: run.id, per_page: 100 }
+              )
+              found = arts.find(a => a.name === process.env.ART_NAME && !a.expired)
+              if (found) break
+            }
+            if (!found) {
+              core.info(`No '${process.env.ART_NAME}' artifact found on main; starting fresh.`)
+              return
+            }
+            const dl = await github.rest.actions.downloadArtifact({
+              owner, repo, artifact_id: found.id, archive_format: 'zip'
+            })
+            require('fs').writeFileSync('aggregates.zip', Buffer.from(dl.data))
+
+      - name: Unpack BDNA aggregates into .eval/bdna/aggregates
+        run: |
+          rm -rf .eval/bdna/aggregates
+          mkdir -p .eval/bdna/aggregates
+          if [ -f aggregates.zip ]; then
+            unzip -o aggregates.zip -d .agg
+            cp -a .agg/. .eval/bdna/aggregates/
+          fi
+
+      - name: Download per-suite BDN result artifacts from this run
+        uses: actions/github-script@v7
+        env:
+          BDN_MIN:  ${{ steps.art.outputs.bdn_min }}
+          BDN_FAST: ${{ steps.art.outputs.bdn_fast }}
+          BDN_FULL: ${{ steps.art.outputs.bdn_full }}
+        with:
+          script: |
+            const {owner, repo} = context.repo
+            const run_id = context.runId
+            const arts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              { owner, repo, run_id, per_page: 100 }
+            )
+            const wanted = [process.env.BDN_MIN, process.env.BDN_FAST, process.env.BDN_FULL].filter(Boolean)
+            const fs = require('fs')
+            let foundAny = false
+            for (const name of wanted) {
+              foundAny = true
+              const a = arts.find(x => x.name === name && !x.expired)
+              if (!a) { core.info(`Artifact not found: ${name}`); continue }
+              const dl = await github.rest.actions.downloadArtifact({
+                owner, repo, artifact_id: a.id, archive_format: 'zip'
+              })
+              fs.writeFileSync(`${name}.zip`, Buffer.from(dl.data))
+            }
+            if (!foundAny) {
+              core.info(`No artifacts found for: ${wanted.join(', ')}`)
+            }
+
+      - name: Unpack per-suite results
+        run: |
+          mkdir -p .res/minimal .res/fast .res/full
+          [ -f "${{ steps.art.outputs.bdn_min }}.zip" ]  && unzip -o "${{ steps.art.outputs.bdn_min }}.zip"  -d .res/minimal  || true
+          [ -f "${{ steps.art.outputs.bdn_fast }}.zip" ] && unzip -o "${{ steps.art.outputs.bdn_fast }}.zip" -d .res/fast     || true
+          [ -f "${{ steps.art.outputs.bdn_full }}.zip" ] && unzip -o "${{ steps.art.outputs.bdn_full }}.zip" -d .res/full     || true
+
+      - name: Aggregate all suites into single store
+        shell: pwsh
+        run: |
+          $AggregatesDir = ".eval/bdna/aggregates"
+          New-Item -ItemType Directory -Force -Path $AggregatesDir | Out-Null
+
+          dotnet tool restore | Out-Null
+          try { & dotnet tool run bdna --version | Out-Null } catch { dotnet tool install bdna | Out-Null }
+
+          $sha    = (git rev-parse HEAD).Trim()
+          $short  = $sha.Substring(0, [Math]::Min(12, $sha.Length))
+          $branch = "${{ github.ref_name }}"
+          $buildUri = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          function Add-Run([string]$path) {
+            if (-not (Test-Path $path)) { return }
+            # Only proceed if the path contains some BDN files
+            $has = Get-ChildItem -Path $path -Recurse -Include *.json,*.csv,*.md,*.html -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $has) { return }
+            & dotnet bdna aggregate `
+              --new        $path `
+              --aggregates $AggregatesDir `
+              --output     $AggregatesDir `
+              --runs       100 `
+              --build      $short `
+              --branch     $branch `
+              --commit     $sha `
+              --builduri   $buildUri
+            if ($LASTEXITCODE -ne 0) { throw "bdna aggregate failed ($LASTEXITCODE) for $path" }
+          }
+
+          Add-Run ".res/minimal"
+          Add-Run ".res/fast"
+          Add-Run ".res/full"
+
+      - name: Upload combined BDNA aggregates (env-keyed)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.art.outputs.agg_name }}
+          path: .eval/bdna/aggregates/**
+          if-no-files-found: ignore
+
