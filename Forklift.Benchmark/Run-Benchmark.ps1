@@ -637,7 +637,7 @@ try {
     $trendBest = if ($TrendBestDeltaPct -ne $null) { ('{0:N2} %' -f $TrendBestDeltaPct) }   else { '—' }
     $tolStr = ('{0:N0} %' -f $TolerancePct)
     $compRuns = if ($ComparedRows) { $ComparedRows } else { 0 }
-    $passEmoji = if (-not $HadRegressions) { '❌' } else { '✅' }
+    $regressionDetectedEmoji = if (-not $HadRegressions) { '✅' } else { '❌' }
 
     $bdnaMd = @()
     $bdnaMd += "# 📈 BDNA Trend Summary (Candidate ↔ main)"
@@ -648,7 +648,7 @@ try {
     $bdnaMd += "| **Worst Δ%** | $trendWorst | Highest slowdown across benchmarks |"
     $bdnaMd += "| **Best Δ%** | $trendBest | Largest speedup (negative is good) |"
     $bdnaMd += "| **Tolerance** | $tolStr | Gate threshold |"
-    $bdnaMd += "| **Regression detected?** | $passEmoji | $(if ($HadRegressions) { 'Trend gate triggered' } else { 'No trend regressions' }) |"
+    $bdnaMd += "| **Regression detected?** | $regressionDetectedEmoji | $(if ($HadRegressions) { 'Trend gate triggered' } else { 'No trend regressions' }) |"
     $bdnaMd += "| **Compared Rows** | $compRuns | Benchmarks included in trend calc |"
 
     $bdnaMd -join "`n" | Out-File -Encoding UTF8 $BdnaSummaryMdPath
