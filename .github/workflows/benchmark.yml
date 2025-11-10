@@ -294,7 +294,7 @@ jobs:
           echo "has_bdna_regression=false" >> "$GITHUB_OUTPUT"
           echo "tolerance_pct="       >> "$GITHUB_OUTPUT"
           echo "no_bdna_history="     >> "$GITHUB_OUTPUT"
-          echo "bdna_mean_delta="     >> "$GITHUB_OUTPUT"
+          echo "bdna_median_delta="     >> "$GITHUB_OUTPUT"
           echo "bdna_worst_delta="    >> "$GITHUB_OUTPUT"
 
           [[ -f "$BDNA_JSON" ]] && echo "bdna_json=$BDNA_JSON" >> "$GITHUB_OUTPUT" || echo "::notice::BDNA JSON not found at $BDNA_JSON"
@@ -304,7 +304,7 @@ jobs:
             jq -r '"has_bdna_regression=\(.HasBdnaRegression)"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
             jq -r '"tolerance_pct=\(.TolerancePct // "")"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
             jq -r '"no_bdna_history=\(.NoHistory // false)"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
-            jq -r '"bdna_mean_delta=\(.TrendMeanDeltaPct // "")"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
+            jq -r '"bdna_median_delta=\(.TrendMedianDeltaPct // "")"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
             jq -r '"bdna_worst_delta=\(.TrendWorstDeltaPct // "")"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
           fi
 
@@ -355,7 +355,7 @@ jobs:
           AB_WORST: ${{ steps.parse_ab.outputs.worst_delta_pct }}
           HAS_BDNA: ${{ steps.parse_bdna.outputs.has_bdna_regression }}
           BDNA_TOL: ${{ steps.parse_bdna.outputs.tolerance_pct }}
-          BDNA_MEAN_DELTA:  ${{ steps.parse_bdna.outputs.bdna_mean_delta }}
+          BDNA_MEDIAN_DELTA:  ${{ steps.parse_bdna.outputs.bdna_median_delta }}
           BDNA_WORST_DELTA: ${{ steps.parse_bdna.outputs.bdna_worst_delta }}
           NO_BDNA_HISTORY: ${{ steps.parse_bdna.outputs.no_bdna_history }}
           PR_ART_NAME: ${{ steps.prart.outputs.name }}
@@ -385,7 +385,7 @@ jobs:
             body += `#### Trend (Candidate ↔ main history)\n`;
             body += `Status: ${flag(process.env.HAS_BDNA)}  \n`;
             if (process.env.BDNA_TOL)        body += `Tolerance: ±${num(process.env.BDNA_TOL, '%')}\n`;
-            if (process.env.BDNA_MEAN_DELTA) body += `Mean Δ%: ${num(process.env.BDNA_MEAN_DELTA, '%')}\n`;
+            if (process.env.BDNA_MEDIAN_DELTA) body += `Median Δ%: ${num(process.env.BDNA_MEDIAN_DELTA, '%')}\n`;
             if (process.env.BDNA_WORST_DELTA)body += `Worst Δ%: ${num(process.env.BDNA_WORST_DELTA, '%')}\n`;
             if (process.env.NO_BDNA_HISTORY === 'true') {
               body += `\n> [!WARNING]\n> No BDNA historical data from main found — this run is initializing a new trend baseline.\n`;
