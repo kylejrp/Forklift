@@ -205,7 +205,6 @@ function Run-PushMain {
     -WorkflowPath '.github/workflows/benchmark.yml' `
     -Job          'benchmark-suite' `
     -EventJson    '.github/workflows/events/push-main.json' `
-    -Suite        'fast' `
     -DryRun `
     -LogPath      'act-push-main.log'
 }
@@ -216,7 +215,6 @@ function Run-Schedule {
     -WorkflowPath '.github/workflows/benchmark.yml' `
     -Job          'benchmark-suite' `
     -EventJson    '.github/workflows/events/schedule.json' `
-    -Suite        'full' `
     -DryRun `
     -LogPath      'act-schedule.log'
 }
@@ -227,7 +225,6 @@ function Run-CiPR {
     -WorkflowPath '.github/workflows/ci.yml' `
     -Job          'build-test' `
     -EventJson    '.github/workflows/events/pr.json' `
-    -Suite        'minimal' `
     -DryRun `
     -LogPath      'act-ci-pr.log'
 }
