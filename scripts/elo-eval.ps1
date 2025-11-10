@@ -194,8 +194,15 @@ try {
         } catch {
             $originMain = $null
         }
-        if ($originMain -and $headCommit -eq $originMain) {
-            return 'origin/main'
+        if ($originMain) {
+            if ($headCommit -eq $originMain) {
+                try {
+                    return (git rev-parse HEAD^).Trim()
+                } catch {
+                    return $null
+                }
+            }
+            return $originMain
         }
         try {
             return (git rev-parse HEAD^).Trim()
