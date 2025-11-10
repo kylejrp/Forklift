@@ -10,16 +10,80 @@ param(
   [string]$OptionalDefineConstants = "",                  # e.g. 'BAKE_TABLES;FLAG'
   [string]$Suite = "minimal",
   [int]   $Depth = 4,
+  [int]   $Threads,
+  [switch]$ParallelRoot,
 
-  [double]$TolerancePct = 3.0,                            # BDNA tolerance for regressions
+  [double]$TolerancePct = 1.0,                            # BDNA tolerance for regressions
   [int]   $MaxErrors = 0,                                 # 0 => any regression fails
-  [string]$Filter = "*.Candidate*",                       # limit analysis scope
+  [string]$Filter = "Candidate",                       # limit analysis scope
   [int]   $KeepRuns = 100,                                # rolling history size
 
-  [switch]$EnableBdna = $false
+  [switch]$EnableBdna = $false,
+  [switch]$Quiet = $false
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+  throw "This script requires pwsh / PowerShell 7+"
+}
+
+$script:createdWorktrees = @()   # track for cleanup
+$script:powerPlanChanged = $false
+$script:originalSchemeGuid = $null
+
+function Say($msg) { if (-not $Quiet) { Write-Host $msg } }
+
+function Add-Worktree {
+  param(
+    [Parameter(Mandatory)] [string]$Path,
+    [Parameter(Mandatory)] [string]$Ref
+  )
+  git worktree add --detach $Path $Ref
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to create worktree at $Path for ref '$Ref'"
+    exit $LASTEXITCODE
+  }
+  $script:createdWorktrees += $Path
+}
+
+function Remove-WorktreeSafe {
+  param([Parameter(Mandatory)] [string]$Path)
+  try { if (Test-Path $Path) { git worktree remove --force $Path 2>$null } } catch {}
+  try { if (Test-Path $Path) { Remove-Item -Recurse -Force $Path -ErrorAction SilentlyContinue } } catch {}
+}
+
+function Ensure-HighPerf {
+  try {
+    $HIGHPERF_SCHEME_GUID = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+    $script:originalSchemeGuid = ((powercfg /GETACTIVESCHEME) -replace '.*GUID:\s+([a-fA-F0-9-]+).*', '$1').ToLower()
+    if ($script:originalSchemeGuid -ne $HIGHPERF_SCHEME_GUID) {
+      powercfg /SETACTIVE SCHEME_MIN
+      $script:powerPlanChanged = $true
+    }
+  }
+  catch {}
+}
+
+function Restore-PowerPlan {
+  if ($script:powerPlanChanged -and $script:originalSchemeGuid) {
+    try { powercfg /SETACTIVE $script:originalSchemeGuid } catch {}
+  }
+}
+
+function Test-IsCI {
+  # Common CI environment flags across providers
+  $vars = @(
+    'GITHUB_ACTIONS', 'CI', 'TF_BUILD', 'BUILD_BUILDID', 'TEAMCITY_VERSION', 'JENKINS_URL',
+    'GITLAB_CI', 'CIRCLECI', 'TRAVIS', 'APPVEYOR', 'BUILDKITE', 'DRONE'
+  )
+  foreach ($v in $vars) {
+    $val = [Environment]::GetEnvironmentVariable($v)
+    if ($val -and $val.Trim().ToLowerInvariant() -ne 'false' -and $val.Trim() -ne '0') { return $true }
+  }
+  return $false
+}
+
 
 # --- Resolve repository root ---
 if (-not $RepositoryRoot) {
@@ -46,17 +110,25 @@ if (-not $ArtifactsRoot) {
 $ArtifactsRoot = (Resolve-Path (New-Item -ItemType Directory -Force -Path $ArtifactsRoot)).Path
 
 # --- Validation: ensure artifacts are not inside the repo ---
-$repoFull = [IO.Path]::GetFullPath($RepositoryRoot)
-$artFull = [IO.Path]::GetFullPath($ArtifactsRoot)
 
-# Normalize for case-insensitive filesystems
-if ($artFull.StartsWith($repoFull.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) {
-  throw "❌ ArtifactsRoot '$ArtifactsRoot' must not be inside RepositoryRoot '$RepositoryRoot'. " +
-  "Please set -ArtifactsRoot or `$env:FORKLIFT_ARTIFACTS to a sibling folder (e.g., $repoFullArtifacts)."
+# Normalize with a trailing separator on the repo (so siblings don't match)
+$ds = [IO.Path]::DirectorySeparatorChar
+$repoFull = [IO.Path]::GetFullPath( ($RepositoryRoot.TrimEnd('\', '/')) + $ds )
+$artFull = [IO.Path]::GetFullPath( $ArtifactsRoot )
+$rel = [IO.Path]::GetRelativePath($repoFull, $artFull)
+
+# Inside if the relative path doesn't climb out (doesn't start with '..') and isn't the repo itself ('.')
+$inside = ($rel -ne '.') -and (-not $rel.StartsWith('..'))
+
+if ($inside) {
+  $repoParent = Split-Path -Path $repoFull -Parent
+  $repoName = Split-Path -Leaf  $repoFull.TrimEnd('\', '/')
+  $suggest = Join-Path $repoParent ("{0}Artifacts" -f $repoName)
+
+  throw "❌ ArtifactsRoot '$ArtifactsRoot' must NOT be inside RepositoryRoot '$RepositoryRoot'." +
+  "`n   Suggested sibling: $suggest" +
+  "`n   Override via: -ArtifactsRoot <path>  or  `$env:FORKLIFT_ARTIFACTS=<path>"
 }
-
-Write-Host "RepositoryRoot: $RepositoryRoot"
-Write-Host "ArtifactsRoot : $ArtifactsRoot"
 
 # --- Derived paths ---
 $BaselineOutputDir = Join-Path $ArtifactsRoot "baseline"
@@ -67,15 +139,17 @@ $CandidateWorktreeDir = Join-Path $WorktreesRoot "candidate"
 
 $ResultsDir = Join-Path $RepositoryRoot "BenchmarkDotNet.Artifacts\results"
 $BdnaRoot = Join-Path $RepositoryRoot ".eval\bdna"
-$AggregatesDir = Join-Path $BdnaRoot "aggregates"
+$AggregatesDir = Join-Path $BdnaRoot "aggregates\$Suite"
 $ReportsDir = Join-Path $BdnaRoot "reports"
 $OutDir = Join-Path $ArtifactsRoot ".eval\out"
-$SummaryJsonPath = Join-Path $OutDir "bdna-summary.json"
-$SummaryMdPath = Join-Path $OutDir "bdna-summary.md"
+$BdnaSummaryJsonPath = Join-Path $OutDir "bdna-summary.json"
+$BdnaSummaryMdPath = Join-Path $OutDir "bdna-summary.md"
+$AbSummaryJsonPath = Join-Path $OutDir "ab-summary.json"
+$AbSummaryMdPath = Join-Path $OutDir "ab-summary.md"
 
 # --- Prep dirs ---
 New-Item -ItemType Directory -Force -Path $BaselineOutputDir, $CandidateOutputDir | Out-Null
-New-Item -ItemType Directory -Force -Path $WorktreesRoot, $AggregatesDir, $ReportsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $WorktreesRoot, $AggregatesDir, $ReportsDir, $OutDir | Out-Null
 
 # --- Clean any previous temp worktrees ---
 foreach ($dir in @($BaselineWorktreeDir, $CandidateWorktreeDir)) {
@@ -88,403 +162,602 @@ foreach ($dir in @($BaselineWorktreeDir, $CandidateWorktreeDir)) {
   }
 }
 
-# --- Create two detached worktrees (Baseline & Candidate) ---
-git -C $RepositoryRoot worktree add --force "$BaselineWorktreeDir"  "$BaselineGitRef"
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed to create baseline worktree at ref '$BaselineGitRef'"; exit $LASTEXITCODE }
+try {
+  Push-Location $RepositoryRoot
 
-git -C $RepositoryRoot worktree add --force "$CandidateWorktreeDir" "$CandidateGitRef"
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed to create candidate worktree at ref '$CandidateGitRef'"; exit $LASTEXITCODE }
+  Ensure-HighPerf
 
-# --- Restore once (determinism) ---
-dotnet restore "$RepositoryRoot\Forklift.sln"
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed to restore Forklift solution."; exit $LASTEXITCODE }
+  # --- Create two detached worktrees (Baseline & Candidate) ---
+  Add-Worktree -Path $BaselineWorktreeDir  -Ref $BaselineGitRef
+  if ($LASTEXITCODE -ne 0) { Write-Error "Failed to create baseline worktree at ref '$BaselineGitRef'"; exit $LASTEXITCODE }
 
-# --- Build BASELINE (detached worktree) ---
-$BaselineProject = Join-Path $BaselineWorktreeDir  "Forklift.Core\Forklift.Core.csproj"
-$BaselineBuildArgs = @("build", $BaselineProject, "-c", $Configuration, "-o", $BaselineOutputDir)
-if ($OptionalDefineConstants) { $BaselineBuildArgs += @("-p:DefineConstants=$OptionalDefineConstants") }
-dotnet @BaselineBuildArgs
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed to build baseline Forklift.Core at ref '$BaselineGitRef'"; exit $LASTEXITCODE }
+  $baseRef = (git -C $BaselineWorktreeDir rev-parse --short=12 HEAD)
+  Say "Baseline worktree at $BaselineGitRef -> $baseRef"
 
-# --- Build CANDIDATE (detached worktree) ---
-$CandidateProject = Join-Path $CandidateWorktreeDir "Forklift.Core\Forklift.Core.csproj"
-$CandidateBuildArgs = @("build", $CandidateProject, "-c", $Configuration, "-o", $CandidateOutputDir)
-if ($OptionalDefineConstants) { $CandidateBuildArgs += @("-p:DefineConstants=$OptionalDefineConstants") }
-dotnet @CandidateBuildArgs
-if ($LASTEXITCODE -ne 0) { Write-Error "Failed to build candidate Forklift.Core at ref '$CandidateGitRef'"; exit $LASTEXITCODE }
+  Add-Worktree -Path $CandidateWorktreeDir -Ref $CandidateGitRef
+  if ($LASTEXITCODE -ne 0) { Write-Error "Failed to create candidate worktree at ref '$CandidateGitRef'"; exit $LASTEXITCODE }
 
-# --- Tear down temp worktrees (artifacts remain) ---
-foreach ($dir in @($BaselineWorktreeDir, $CandidateWorktreeDir)) {
-  git -C $RepositoryRoot worktree remove --force "$dir"
-  if ($LASTEXITCODE -ne 0) { Write-Error "Failed to remove worktree at $dir"; exit $LASTEXITCODE }
-}
+  $candRef = (git -C $CandidateWorktreeDir rev-parse --short=12 HEAD)
+  Say "Candidate worktree at $CandidateGitRef -> $candRef"
 
-# --- Paths to feed the harness ---
-$BaselineDll = Join-Path $BaselineOutputDir  "Forklift.Core.dll"
-$CandidateDll = Join-Path $CandidateOutputDir "Forklift.Core.dll"
-Write-Host "`nBaseline:  $BaselineDll"
-Write-Host "Candidate: $CandidateDll`n"
+  # --- Optionally apply uncommitted diff if CandidateGitRef == HEAD (not CI) ---
+  if ($CandidateGitRef -eq "HEAD" -and -not (Test-IsCI)) {
+    Write-Host "Applying local uncommitted diff to candidate worktree..."
 
-# --- Run the benchmark harness (Program.cs loads both DLLs) ---
-dotnet run -c $Configuration --project "$RepositoryRoot\Forklift.Benchmark\Forklift.Benchmark.csproj" -- `
-  --baseline $BaselineDll `
-  --candidate $CandidateDll `
-  --suite $Suite `
-  --depth $Depth
-
-if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
-
-# --- Helper: latest BDN CSV & time parsing (for local summaries) ---
-function Get-LatestBdnCsv {
-  param([string]$ResultsDir)
-  Get-ChildItem -Path $ResultsDir -Filter *.csv -File -ErrorAction SilentlyContinue |
-  Sort-Object LastWriteTimeUtc -Descending |
-  Select-Object -First 1
-}
-
-function Convert-ToNumber([object]$x) {
-  if ($null -eq $x) { return $null }
-  $s = "$x".Trim()
-  if ($s -eq '') { return $null }
-  if ($s -match '^\s*([\d\.,]+)\s*([KMB])?/s\s*$') {
-    $n = [double]($matches[1] -replace ',', '')
-    switch ($matches[2]) { 'K' { return $n * 1e3 } 'M' { return $n * 1e6 } 'B' { return $n * 1e9 } default { return $n } }
-  }
-  [double]($s -replace ',', '')
-}
-
-function Convert-DurationToMs([string]$text) {
-  if (-not $text) { return $null }
-
-  # Normalize quotes and whitespace (regular + NBSP + NNBSP + thin)
-  $s = $text.Trim() -replace '[\u00A0\u202F\u2009]', ' '
-  $s = $s.Trim('"', "'")
-
-  # Normalize unit: map μ (Greek mu) and µ (micro sign) to 'u'
-  $s = $s -replace '([0-9]),([0-9]{3})', '$1,$2'  # keep thousands commas
-  $s = $s -replace 'μ', 'u'
-  $s = $s -replace 'µ', 'u'
-  $s = $s -replace '\s+', ' '                     # collapse spaces
-
-  # Match "<number> <unit>"
-  if ($s -match '^\s*([\d\.,]+)\s*(ns|us|ms|s)\s*$') {
-    $n = [double]($matches[1] -replace ',', '')
-    switch ($matches[2]) {
-      'ns' { return $n / 1e6 }  # nanoseconds -> ms
-      'us' { return $n / 1e3 }  # microseconds -> ms
-      'ms' { return $n }        # milliseconds
-      's' { return $n * 1e3 }  # seconds -> ms
+    # Apply staged + unstaged changes (tracked files) against HEAD directly to the candidate worktree
+    & git -C $RepositoryRoot diff --binary --no-color HEAD | git -C $CandidateWorktreeDir apply --whitespace=nowarn -
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning "⚠️ Failed to apply local diff to candidate worktree; continuing with clean commit version."
     }
-  }
-
-  # Fallback: try to parse as a bare number (assume ms)
-  try { return [double]($s -replace ',', '') } catch { return $null }
-}
-
-# --- Optionally run BDNA aggregate/analyse/report (CI) ---
-$HadRegressions = $false
-
-if ($EnableBdna) {
-  # Ensure tool is available (local manifest preferred)
-  if (-not (Test-Path (Join-Path $RepositoryRoot ".config\dotnet-tools.json"))) {
-    Push-Location $RepositoryRoot; dotnet new tool-manifest | Out-Null; Pop-Location
-  }
-  if (-not (dotnet tool list --tool-path $null 2>$null | Select-String -SimpleMatch "bdna")) {
-    Push-Location $RepositoryRoot; dotnet tool install bdna | Out-Null; Pop-Location
-  }
-
-  # Run metadata
-  $Branch = (git -C $RepositoryRoot rev-parse --abbrev-ref HEAD)
-  $Commit = (git -C $RepositoryRoot rev-parse HEAD)
-  $Build = (git -C $RepositoryRoot rev-parse --short=12 HEAD)
-  $BuildUri = ""
-  if (-not $BuildUri) {
-    if ($env:GITHUB_SERVER_URL -and $env:GITHUB_REPOSITORY -and $env:GITHUB_RUN_ID) {
-      $BuildUri = "$($env:GITHUB_SERVER_URL)/$($env:GITHUB_REPOSITORY)/actions/runs/$($env:GITHUB_RUN_ID)"
+    else {
+      Write-Host "✅ Local diff applied to candidate worktree."
     }
-    elseif ($env:BUILD_REPOSITORY_URI -and $env:BUILD_BUILDID) {
-      $BuildUri = "$($env:SYSTEM_TEAMFOUNDATIONSERVERURI)$($env:SYSTEM_TEAMPROJECT)/_build/results?buildId=$($env:BUILD_BUILDID)"
+
+    # Copy untracked (non-ignored) files as well
+    $untracked = git -C $RepositoryRoot ls-files --others --exclude-standard
+    foreach ($file in $untracked) {
+      $src = Join-Path $RepositoryRoot $file
+      $dst = Join-Path $CandidateWorktreeDir $file
+      New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+      Copy-Item $src $dst -Force -ErrorAction SilentlyContinue
     }
-    elseif ($env:CI_PIPELINE_URL) {
-      $BuildUri = $env:CI_PIPELINE_URL
-    }
+    if ($untracked) { Write-Host "✅ Copied untracked files into candidate worktree." }
+
+  }
+  else {
+    if (Test-IsCI) { Write-Host "CI detected; skipping local-diff application." }
   }
 
-  # Aggregate into rolling store
-  $aggArgs = @(
-    "aggregate",
-    "--new", $ResultsDir,
-    "--aggregates", $AggregatesDir,
-    "--output", $AggregatesDir,
-    "--runs", $KeepRuns,
-    "--build", $Build,
-    "--branch", $Branch,
-    "--commit", $Commit
+  # --- Restore once (determinism) ---
+  dotnet restore "$RepositoryRoot\Forklift.sln"
+  if ($LASTEXITCODE -ne 0) { Write-Error "Failed to restore Forklift solution."; exit $LASTEXITCODE }
+
+  # Shared deterministic flags
+  $RepoRoot = Resolve-Path $RepositoryRoot
+  $DeterministicFlags = @(
+    "-p:Deterministic=true",
+    "-p:ContinuousIntegrationBuild=true",
+    "-p:DebugType=portable",
+    "-p:EmbedAllSources=false",
+    "-p:PathMap=$RepoRoot=/src",
+    "-p:RepositoryRoot=$RepoRoot",
+    "-p:UseSharedCompilation=false",
+    "-p:TreatWarningsAsErrors=false"
   )
-  if ($BuildUri) { $aggArgs += @("--builduri", $BuildUri) }
 
-  & dotnet bdna @aggArgs
-  if ($LASTEXITCODE -ne 0) { Write-Error "BDNA aggregate failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
+  # --- Build BASELINE (detached worktree) ---
+  $BaselineProject = Join-Path $BaselineWorktreeDir "Forklift.Core\Forklift.Core.csproj"
+  $BaselineBuildArgs = @("build", $BaselineProject, "-c", $Configuration, "-o", $BaselineOutputDir) + $DeterministicFlags
+  if ($OptionalDefineConstants) { $BaselineBuildArgs += @("-p:DefineConstants=$OptionalDefineConstants") }
 
-  # Analyse drift vs store
-  dotnet bdna analyse `
-    --aggregates "$AggregatesDir" `
-    --tolerance  $TolerancePct `
-    --maxerrors  $MaxErrors `
-    --filter     $Filter `
-    --statistic  MedianTime
-
+  dotnet @BaselineBuildArgs
   if ($LASTEXITCODE -ne 0) {
-    $HadRegressions = $true
-    Write-Warning "Performance regressions detected by BDNA (exit $LASTEXITCODE)."
+    Write-Error "Failed to build baseline Forklift.Core at ref '$BaselineGitRef'"
+    exit $LASTEXITCODE
   }
 
-  # Export compact reports (CSV/JSON) for CI artifacts
-  dotnet bdna report `
-    --aggregates "$AggregatesDir" `
-    --reporter csv `
-    --reporter json `
-    --output    "$ReportsDir" `
-    --verbose
+  # --- Build CANDIDATE (detached worktree) ---
+  $CandidateProject = Join-Path $CandidateWorktreeDir "Forklift.Core\Forklift.Core.csproj"
+  $CandidateBuildArgs = @("build", $CandidateProject, "-c", $Configuration, "-o", $CandidateOutputDir) + $DeterministicFlags
+  if ($OptionalDefineConstants) { $CandidateBuildArgs += @("-p:DefineConstants=$OptionalDefineConstants") }
 
-  if ($LASTEXITCODE -ne 0) { Write-Error "BDNA report generation failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
-
-  Write-Host "`nBDNA reports written to: $ReportsDir"
-}
-
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-
-# === SHAPE RESULTS for comparison/table ===
-# Path A: BDNA enabled -> read store; Path B: BDNA disabled -> read latest BDN CSV directly.
-
-$Pairs = @()
-
-if ($EnableBdna) {
-  $AggregateFile = Join-Path $AggregatesDir "aggregatebenchmarks.data.json"
-  if (!(Test-Path $AggregateFile)) { Write-Warning "BDNA aggregate file not found: $AggregateFile"; return }
-
-  $Aggregate = Get-Content $AggregateFile -Raw | ConvertFrom-Json
-  if (-not $Aggregate) { Write-Warning "BDNA aggregate file is empty."; return }
-
-  $LatestBuild = $Aggregate | Select-Object -Last 1
-  $LatestRun = $LatestBuild.runs | Select-Object -Last 1
-  $Results = @($LatestRun.results)
-
-  function Get-PositionName([string]$parameters) {
-    if ($parameters -match 'PositionName=(.+)$') { return $Matches[1] }
-    return $parameters
+  dotnet @CandidateBuildArgs
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to build candidate Forklift.Core at ref '$CandidateGitRef'"
+    exit $LASTEXITCODE
+  }
+  function Get-BranchLabel {
+    param(
+      [string]$CandidateWorktreeDir,
+      [string]$BaselineGitRef,
+      [string]$CandidateGitRef
+    )
+    # CI-first: prefer GitHub env if available
+    $ghRefName = $env:GITHUB_REF_NAME
+    $ghHeadRef = $env:GITHUB_HEAD_REF   # PR head
+    $ghBaseRef = $env:GITHUB_BASE_REF   # PR base
+    if ($ghHeadRef) { return $ghHeadRef }              # pull_request runs
+    if ($ghRefName) { return $ghRefName }              # push / schedule
+    # Local / detached: try symbolic-ref, else fall back to input refs
+    $sym = (& git -C $CandidateWorktreeDir symbolic-ref --short -q HEAD 2>$null)
+    if ($sym) { return $sym }
+    if ($BaselineGitRef -eq 'main') { return 'main' }
+    if ($CandidateGitRef -and $CandidateGitRef -notmatch '^[0-9a-f]{7,40}$') { return $CandidateGitRef }
+    return 'local'
   }
 
-  $Shaped = foreach ($r in $Results) {
-    [pscustomobject]@{
-      FullName            = $r.fullName
-      Type                = $r.type
-      Method              = $r.method
-      PositionName        = Get-PositionName $r.parameters
-      MeanTimeNs          = [double]$r.meanTime
-      MedianTimeNs        = [double]$r.medianTime
-      Q1TimeNs            = [double]$r.q1Time
-      Q3TimeNs            = [double]$r.q3Time
-      MinTimeNs           = [double]$r.minTime
-      MaxTimeNs           = [double]$r.maxTime
-      Gen0                = [double]$r.gen0Collections
-      Gen1                = [double]$r.gen1Collections
-      Gen2                = [double]$r.gen2Collections
-      BytesAllocatedPerOp = [double]$r.bytesAllocatedPerOp
+  $Branch = Get-BranchLabel -CandidateWorktreeDir $CandidateWorktreeDir `
+    -BaselineGitRef $BaselineGitRef `
+    -CandidateGitRef $CandidateGitRef
+  $Commit = (git -C $CandidateWorktreeDir rev-parse HEAD)
+  $Build = (git -C $CandidateWorktreeDir rev-parse --short=12 HEAD)
+
+  Write-Host "Candidate build info: Branch='$Branch' Commit='$Commit' Build='$Build'"
+
+  # --- Calculate if builds are the byte-identical ---
+  # --- Define DLL output paths ---
+  $BaselineDll = Join-Path $BaselineOutputDir  "Forklift.Core.dll"
+  $CandidateDll = Join-Path $CandidateOutputDir "Forklift.Core.dll"
+
+  # Sanity check: ensure both exist
+  if (-not (Test-Path $BaselineDll)) { Write-Error "Missing baseline DLL at $BaselineDll"; exit 1 }
+  if (-not (Test-Path $CandidateDll)) { Write-Error "Missing candidate DLL at $CandidateDll"; exit 1 }
+
+  $BaselineHash = (Get-FileHash -Algorithm SHA256 $BaselineDll).Hash
+  $CandidateHash = (Get-FileHash -Algorithm SHA256 $CandidateDll).Hash
+
+  Write-Host "Baseline SHA256 : $BaselineHash"
+  Write-Host "Candidate SHA256: $CandidateHash"
+
+  if ($BaselineHash -ne $CandidateHash) {
+    Say "✅  Baseline and Candidate DLLs differ in content!"
+  }
+  else {
+    Write-Warning "⚠️ Baseline and Candidate DLLs are byte-identical."
+  }
+
+  # --- Tear down temp worktrees (artifacts remain) ---
+  foreach ($dir in @($BaselineWorktreeDir, $CandidateWorktreeDir)) {
+    git -C $RepositoryRoot worktree remove --force "$dir"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Failed to remove worktree at $dir"; exit $LASTEXITCODE }
+  }
+
+  # --- Paths to feed the harness ---
+  $BaselineDll = Join-Path $BaselineOutputDir  "Forklift.Core.dll"
+  $CandidateDll = Join-Path $CandidateOutputDir "Forklift.Core.dll"
+  Say "`nBaseline:  $BaselineDll"
+  Say "Candidate: $CandidateDll`n"
+
+  # --- Run the benchmark harness (Program.cs loads both DLLs) ---
+  $benchArgs = @(
+    '--baseline', $BaselineDll,
+    '--candidate', $CandidateDll,
+    '--suite', $Suite,
+    '--depth', $Depth
+  )
+  if ($PSBoundParameters.ContainsKey('Threads')) { $benchArgs += @('--threads', $Threads) }
+  if ($ParallelRoot.IsPresent) { $benchArgs += '--parallelRoot' }
+
+  dotnet run -c $Configuration --project "$RepositoryRoot\Forklift.Benchmark\Forklift.Benchmark.csproj" -- @benchArgs
+
+  if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
+
+  # --- Helper: latest BDN JSON & time parsing (for local summaries) ---
+  function Get-LatestFullReportJsonFile {
+    param([string]$ResultsDir)
+    $c = Get-ChildItem -Path $ResultsDir -Filter *-report-full.json -File -ErrorAction SilentlyContinue
+    if (-not $c) { throw "No *-report-full.json found in $ResultsDir" }
+    $c | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+  }
+
+  $full = Get-LatestFullReportJsonFile -ResultsDir $ResultsDir
+  $latestJson = Get-Content -Raw -Encoding UTF8 $full.FullName | ConvertFrom-Json
+
+  if ($null -eq $latestJson -or -not $latestJson.PSObject.Properties['Benchmarks']) {
+    Write-Error "Unexpected JSON. Expected top-level object with Benchmarks[]. File: $($full.FullName)"
+    exit 1
+  }
+  $rows = $latestJson.Benchmarks
+
+  if (-not $rows -or $rows.Count -eq 0) {
+    throw "No benchmarks found in '$($latestJson.FullName)'."
+  }
+  Say ("Found {0} benchmark row(s) in JSON" -f $rows.Count)
+
+  function Parse-Params([string]$qs) {
+    $m = @{}
+    foreach ($kv in $qs.Split('&')) {
+      $k, $v = $kv.Split('=', 2)
+      if ($null -ne $k -and $k -ne '') { $m[$k] = $v }
+    }
+    return $m
+  }
+  function Get-Role([object]$r) {
+    # Only accept Method exactly Baseline/Candidate (case-insensitive)
+    $m = [string]$r.Method
+    if ($m -match '^(?i)Baseline$') { return 'Baseline' }
+    if ($m -match '^(?i)Candidate$') { return 'Candidate' }
+    return $null
+  }
+
+  $byKey = @{}
+  $diag = @()
+
+  foreach ($r in $rows) {
+    $role = Get-Role $r
+    $ok = $true
+    $why = @()
+
+    if (-not $role) { $ok = $false; $why += 'Method not Baseline/Candidate' }
+
+    $params = $null
+    if ($ok) {
+      if (-not $r.PSObject.Properties['Parameters']) { $ok = $false; $why += 'Missing Parameters' }
+      else { $params = Parse-Params ([string]$r.Parameters) }
+    }
+
+    # Parameters are a query string: "PositionName=startpos&Depth=1&Threads=0&ParallelRoot=False"
+    # Extract and normalize key parts
+    $pos = $null; $dep = $null; $thr = $null; $par = $null
+    if ($ok) {
+      $pos = [string]$params['PositionName']
+      $dep = if ($params['Depth']) { [int]$params['Depth'] } else { $null }
+
+      # Normalize Threads: '?' or empty → $null; digits → int
+      if ($params['Threads'] -and $params['Threads'] -match '^\d+$') { $thr = [int]$params['Threads'] }
+      elseif (-not $params['Threads'] -or $params['Threads'] -eq '?' ) { $thr = $null }
+      else { $thr = $null } # any other token → treat as unspecified
+
+      # Normalize ParallelRoot
+      if ($params['ParallelRoot'] -match '^(?i:true)$') { $par = $true }
+      elseif ($params['ParallelRoot'] -match '^(?i:false)$') { $par = $false }
+      else { $par = $null }
+
+      if (-not $pos -or $dep -eq $null) { $ok = $false; $why += 'Missing PositionName/Depth' }
+    }
+
+    # Pull statistic: Median (ns) → convert to μs for our A/B output
+    $us = $null
+    if ($ok) {
+      $hasStats = $r.PSObject.Properties['Statistics'] -and $r.Statistics.PSObject.Properties['Median']
+      if (-not $hasStats) { $ok = $false; $why += 'Missing Statistics.Median' }
+      else { $us = [double]$r.Statistics.Median / 1000.0 }  # ns → μs
+    }
+
+    # Form the composite key (empty for nullables to align Baseline/Candidate)
+    if ($ok) {
+      $thrKey = if ($thr -eq $null) { '' } else { [string]$thr }
+      $parKey = if ($par -eq $null) { '' } else { if ($par) { 'True' } else { 'False' } }
+      $key = "$pos|$dep|$thrKey|$parKey"
+
+      if (-not $byKey.ContainsKey($key)) {
+        $byKey[$key] = @{
+          Pos = $pos; Dep = $dep; Thr = $thr; Par = $par
+          Baseline = $null
+          Candidate = $null
+        }
+      }
+      $byKey[$key][$role] = $us
+      $diag += [pscustomobject]@{ Key = $key; Role = $role; Us = $us; OK = $true; Why = "" }
+    }
+    else {
+      $diag += [pscustomobject]@{ Key = ""; Role = ""; Us = $null; OK = $false; Why = ($why -join '; ') }
     }
   }
 
-  $Pairs = $Shaped | Group-Object PositionName | ForEach-Object {
-    $group = $_.Group
-    $baseline = $group | Where-Object { $_.Method -eq 'Baseline' }  | Select-Object -First 1
-    $candidate = $group | Where-Object { $_.Method -eq 'Candidate' } | Select-Object -First 1
-    if (-not $baseline -or -not $candidate) { return }
+  # Warn if any rows lacked a role
+  $unclassified = @($rows | Where-Object { -not (Get-Role $_) })
+  if ($unclassified.Count -gt 0) {
+    Write-Warning ("Found {0} benchmark row(s) without a Baseline/Candidate role. First few method names: {1}" -f `
+        $unclassified.Count, (($unclassified | Select-Object -First 5 | ForEach-Object { "" + $_.Method }) -join ', '))
+  }
 
-    $baseMs = $baseline.MeanTimeNs / 1e6
-    $candMs = $candidate.MeanTimeNs / 1e6
-    $deltaMs = $candMs - $baseMs
-    $deltaPct = if ($baseMs) { ($deltaMs / $baseMs) * 100.0 } else { 0.0 }
-
-    $allocDeltaBytes = $candidate.BytesAllocatedPerOp - $baseline.BytesAllocatedPerOp
-    $allocDeltaPct = if ($baseline.BytesAllocatedPerOp) { ($allocDeltaBytes / $baseline.BytesAllocatedPerOp) * 100.0 } else { 0.0 }
-
-    [pscustomobject]@{
-      PositionName     = $_.Name
-      BaselineMeanMs   = [math]::Round($baseMs, 3)
-      CandidateMeanMs  = [math]::Round($candMs, 3)
-      DeltaMs          = [math]::Round($deltaMs, 3)
-      DeltaPct         = [math]::Round($deltaPct, 2)
-      BaselineAllocKB  = [math]::Round($baseline.BytesAllocatedPerOp / 1024.0, 2)
-      CandidateAllocKB = [math]::Round($candidate.BytesAllocatedPerOp / 1024.0, 2)
-      AllocDeltaKB     = [math]::Round($allocDeltaBytes / 1024.0, 2)
-      AllocDeltaPct    = [math]::Round($allocDeltaPct, 2)
-      BaselineGen0     = $baseline.Gen0
-      CandidateGen0    = $candidate.Gen0
-      BaselineGen1     = $baseline.Gen1
-      CandidateGen1    = $candidate.Gen1
-      BaselineGen2     = $baseline.Gen2
-      CandidateGen2    = $candidate.Gen2
+  # Build paired comparisons
+  $Pairs = @()
+  foreach ($e in $byKey.GetEnumerator()) {
+    $v = $e.Value
+    if ($v.Baseline -ne $null -and $v.Candidate -ne $null) {
+      $Pairs += [pscustomobject]@{
+        PositionName = $v.Pos
+        Depth        = $v.Dep
+        Threads      = $v.Thr
+        ParallelRoot = $v.Par
+        BaselineUs   = [double]$v.Baseline
+        CandidateUs  = [double]$v.Candidate
+        DeltaUs      = [double]$v.Candidate - [double]$v.Baseline
+        DeltaPct     = if ($v.Baseline -ne 0) { (([double]$v.Candidate - [double]$v.Baseline) / [double]$v.Baseline) * 100.0 } else { $null }
+      }
     }
   }
 
-  # Pull Nodes/Op, TotalNodes, Agg NPS from the latest BDN CSV (has the custom columns)
-  $latestCsv = Get-LatestBdnCsv -ResultsDir $ResultsDir
-  if ($latestCsv) {
-    $csvRows = Import-Csv -Path $latestCsv.FullName
-    $byKey = @{}
-    foreach ($r in $csvRows) { if ($r.PositionName -and $r.Method) { $byKey["$($r.PositionName)|$($r.Method)"] = $r } }
-    foreach ($p in $Pairs) {
-      $baseRow = $byKey["$($p.PositionName)|Baseline"]
-      $candRow = $byKey["$($p.PositionName)|Candidate"]
+  if (-not $Pairs -or $Pairs.Count -eq 0) {
+    Write-Warning "No A/B pairs formed. First few row diagnostics:"
+    $diag | Select-Object -First 6 | Format-Table -AutoSize | Out-String | Write-Host
+  }
 
-      $nodesPerOp = if ($candRow -and $candRow.'Nodes/Op') { Convert-ToNumber $candRow.'Nodes/Op' }
-      elseif ($baseRow -and $baseRow.'Nodes/Op') { Convert-ToNumber $baseRow.'Nodes/Op' }
-      else { $null }
+  # --- Optionally run BDNA aggregate/analyse/report (CI) ---
+  $HadRegressions = $false
 
-      $baseTotalNodes = if ($baseRow) { Convert-ToNumber $baseRow.'TotalNodes' } else { $null }
-      $candTotalNodes = if ($candRow) { Convert-ToNumber $candRow.'TotalNodes' } else { $null }
+  if ($EnableBdna) {
+    Push-Location $RepositoryRoot
+    dotnet tool restore | Out-Null
+    try { & dotnet tool run bdna --version | Out-Null }
+    catch { dotnet tool install --local bdna | Out-Null }
+    Pop-Location
 
-      $baseAggNpsStr = if ($baseRow) { $baseRow.'Agg NPS' } else { $null }
-      $candAggNpsStr = if ($candRow) { $candRow.'Agg NPS' } else { $null }
+    # Run metadata
+    $BuildUri = ""
+    if (-not $BuildUri) {
+      if ($env:GITHUB_SERVER_URL -and $env:GITHUB_REPOSITORY -and $env:GITHUB_RUN_ID) {
+        $BuildUri = "$($env:GITHUB_SERVER_URL)/$($env:GITHUB_REPOSITORY)/actions/runs/$($env:GITHUB_RUN_ID)"
+      }
+      elseif ($env:CI_PIPELINE_URL) {
+        $BuildUri = $env:CI_PIPELINE_URL
+      }
+      else {
+        Write-Warning "No build URI could be determined from environment variables."
+      }
+    }
 
-      Add-Member -InputObject $p -NotePropertyName NodesPerOp     -NotePropertyValue $nodesPerOp -Force
-      Add-Member -InputObject $p -NotePropertyName BaseTotalNodes -NotePropertyValue $baseTotalNodes -Force
-      Add-Member -InputObject $p -NotePropertyName CandTotalNodes -NotePropertyValue $candTotalNodes -Force
-      Add-Member -InputObject $p -NotePropertyName BaseAggNpsStr  -NotePropertyValue $baseAggNpsStr -Force
-      Add-Member -InputObject $p -NotePropertyName CandAggNpsStr  -NotePropertyValue $candAggNpsStr -Force
+    # Warn if no historical data found for BDNA trend comparison
+    if (-not (Test-Path (Join-Path $AggregatesDir "*"))) {
+      Write-Warning "No existing BDNA aggregate data found at '$AggregatesDir'."
+      Write-Warning "This run will initialize a new history store — future PRs will compare against this baseline."
+    }
+
+    # Aggregate into rolling store
+    $aggArgs = @(
+      "aggregate",
+      "--new", $ResultsDir,
+      "--aggregates", $AggregatesDir,
+      "--output", $AggregatesDir,
+      "--runs", $KeepRuns,
+      "--build", $Build,
+      "--branch", $Branch,
+      "--commit", $Commit
+    )
+    if ($BuildUri) { $aggArgs += @("--builduri", $BuildUri) }
+
+    Say ("dotnet tool run bdna " + ($aggArgs -join ' '))
+
+    & dotnet tool run bdna @aggArgs
+    if ($LASTEXITCODE -ne 0) { Write-Error "BDNA aggregate failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
+
+    Say "dotnet tool run bdna analyse --aggregates $AggregatesDir --tolerance $TolerancePct --maxerrors $MaxErrors --filter $Filter --statistic MedianTime"
+
+    # Analyse drift vs store
+    dotnet tool run bdna analyse `
+      --aggregates "$AggregatesDir" `
+      --tolerance  $TolerancePct `
+      --maxerrors  $MaxErrors `
+      --filter     $Filter `
+      --statistic  MedianTime
+
+    if ($LASTEXITCODE -ne 0) {
+      $HadRegressions = $true
+      Write-Warning "Performance regressions detected by BDNA (exit $LASTEXITCODE)."
+    }
+
+    # the command we're about to run
+    Say "dotnet tool run bdna report --aggregates $AggregatesDir --reporter csv --reporter json --output $ReportsDir --verbose"
+
+    # Export compact reports (CSV/JSON) for CI artifacts
+    dotnet tool run bdna report `
+      --aggregates "$AggregatesDir" `
+      --reporter csv `
+      --reporter json `
+      --output    "$ReportsDir" `
+      --verbose
+
+    if ($LASTEXITCODE -ne 0) { Write-Error "BDNA report generation failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
+
+    Say "`nBDNA reports written to: $ReportsDir"
+
+    # -----------------------------
+    # Build BDNA Trend Summary
+    # -----------------------------
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+
+    $NoBdnaHistory = $false
+    if (-not (Get-ChildItem -Path $AggregatesDir -Recurse -ErrorAction SilentlyContinue)) {
+      Write-Warning "No BDNA aggregates found from main history; trend analysis will start fresh for this run."
+      $NoBdnaHistory = $true
+    }
+
+    # Pull trend deltas from the compact report
+    $BenchJsonPath = Join-Path $ReportsDir "benchmarks.json"
+    $TrendMedianDeltaPct = $null
+    $TrendWorstDeltaPct = $null
+    $TrendBestDeltaPct = $null
+    $ComparedRows = 0
+
+    if (Test-Path $BenchJsonPath) {
+      try {
+        $root = Get-Content -Raw -Encoding UTF8 $BenchJsonPath | ConvertFrom-Json
+        if ($root -isnot [System.Array]) {
+          throw "Unexpected JSON: expected a top-level array of benchmark objects."
+        }
+
+        # Build maps of median times per key for Baseline and Candidate
+        $baselineMap = @{}
+        $candidateMap = @{}
+
+        function Get-Key([object]$cell) {
+          # Stable key priority: commitSha -> buildNumber -> creation
+          if ($cell.PSObject.Properties['commitSha'] -and $cell.commitSha) { return "commit:$($cell.commitSha)" }
+          if ($cell.PSObject.Properties['buildNumber'] -and $cell.buildNumber) { return "build:$($cell.buildNumber)" }
+          if ($cell.PSObject.Properties['creation'] -and $cell.creation) { return "ts:$($cell.creation)" }
+          return $null
+        }
+
+        foreach ($bench in $root) {
+          if (-not $bench.PSObject.Properties['method']) { continue }
+          if (-not $bench.PSObject.Properties['cells']) { continue }
+
+          $role = '' + $bench.method  # "Baseline" or "Candidate"
+          foreach ($cell in $bench.cells) {
+            $k = Get-Key $cell
+            if (-not $k) { continue }
+
+            # We use medianTime for trend (matches your BDNA analyse --statistic MedianTime)
+            if (-not $cell.PSObject.Properties['medianTime']) { continue }
+            $v = [double]$cell.medianTime
+
+            if ($role -eq 'Baseline') {
+              # Last write wins if duplicate key appears; that’s fine for rolling updates
+              $baselineMap[$k] = $v
+            }
+            elseif ($role -eq 'Candidate') {
+              $candidateMap[$k] = $v
+            }
+          }
+        }
+
+        # Pair by intersecting keys and compute delta%
+        $trendPairs = @()
+        foreach ($k in $baselineMap.Keys) {
+          if ($candidateMap.ContainsKey($k)) {
+            $b = $baselineMap[$k]
+            $c = $candidateMap[$k]
+            if ($b -ne $null -and $b -ne 0 -and $c -ne $null) {
+              $trendPairs += (($c - $b) / $b) * 100.0
+            }
+          }
+        }
+
+        if ($trendPairs.Count -gt 0) {
+          $ComparedRows = $trendPairs.Count
+          $sorted = @($trendPairs) ; [Array]::Sort($sorted)
+          $n = $sorted.Count
+          if ($n % 2 -eq 1) { $TrendMedianDeltaPct = [math]::Round($sorted[ [int]([math]::Floor($n / 2)) ], 2) }
+          else { $TrendMedianDeltaPct = [math]::Round( ($sorted[$n / 2 - 1] + $sorted[$n / 2]) / 2.0, 2) }
+          $TrendWorstDeltaPct = [math]::Round($sorted[-1], 2)
+          $TrendBestDeltaPct = [math]::Round($sorted[0], 2)
+        }
+      }
+      catch {
+        Write-Warning "Failed to parse BDNA benchmarks.json (strict parser): $($_.Exception.Message)"
+      }
+    }
+
+    $bdnaSummary = [pscustomobject]@{
+      HasBdnaRegression   = $HadRegressions
+      TolerancePct        = $TolerancePct
+      NoHistory           = $NoBdnaHistory
+      TrendMedianDeltaPct = $TrendMedianDeltaPct
+      TrendWorstDeltaPct  = $TrendWorstDeltaPct
+      TrendBestDeltaPct   = $TrendBestDeltaPct
+      ComparedRows        = $ComparedRows
+    }
+
+    $bdnaSummary | ConvertTo-Json -Depth 6 | Out-File -Encoding UTF8 $BdnaSummaryJsonPath
+
+    # Human-friendly markdown
+    $trendMedian = if ($TrendMedianDeltaPct -ne $null) { ('{0:N2} %' -f $TrendMedianDeltaPct) }   else { '—' }
+    $trendWorst = if ($TrendWorstDeltaPct -ne $null) { ('{0:N2} %' -f $TrendWorstDeltaPct) }  else { '—' }
+    $trendBest = if ($TrendBestDeltaPct -ne $null) { ('{0:N2} %' -f $TrendBestDeltaPct) }   else { '—' }
+    $tolStr = ('{0:N0} %' -f $TolerancePct)
+    $compRuns = if ($ComparedRows) { $ComparedRows } else { 0 }
+    $regressionDetectedEmoji = if (-not $HadRegressions) { '✅' } else { '❌' }
+
+    $bdnaMd = @()
+    $bdnaMd += "# 📈 BDNA Trend Summary (Candidate ↔ main)"
+    $bdnaMd += ""
+    $bdnaMd += "| Metric | Value | Interpretation |"
+    $bdnaMd += "|--------|------:|----------------|"
+    $bdnaMd += "| **Median Δ%** | $trendMedian | $(if ($TrendMedianDeltaPct -ne $null) { if ($TrendMedianDeltaPct -gt $TolerancePct) { 'Above tolerance ❌' } else { 'Within tolerance ✅' } } else { '—' }) |"
+    $bdnaMd += "| **Worst Δ%** | $trendWorst | Highest slowdown across benchmarks |"
+    $bdnaMd += "| **Best Δ%** | $trendBest | Largest speedup (negative is good) |"
+    $bdnaMd += "| **Tolerance** | $tolStr | Gate threshold |"
+    $bdnaMd += "| **Regression detected?** | $regressionDetectedEmoji | $(if ($HadRegressions) { 'Trend gate triggered' } else { 'No trend regressions' }) |"
+    $bdnaMd += "| **Compared Rows** | $compRuns | Benchmarks included in trend calc |"
+
+    $bdnaMd -join "`n" | Out-File -Encoding UTF8 $BdnaSummaryMdPath
+    $bdnaMd -join "`n" | Write-Host
+  }
+
+  # Ensure output dir exists
+  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+
+  # Compute A/B regression flags using TolerancePct (positive Δ% = slower)
+  $HasAbRegression = $false
+  $WorstDeltaPct = $null
+  $RegressingPairs = @()
+
+  foreach ($row in $Pairs) {
+    if ($row.BaselineUs -gt 0 -and $row.CandidateUs -gt 0) {
+      $d = (($row.CandidateUs - $row.BaselineUs) / $row.BaselineUs) * 100.0
+      if ($WorstDeltaPct -eq $null -or $d -gt $WorstDeltaPct) { $WorstDeltaPct = $d }
+      if ($d -gt $TolerancePct) {
+        $HasAbRegression = $true
+        $RegressingPairs += [pscustomobject]@{
+          PositionName = $row.PositionName; Depth = $row.Depth; Threads = $row.Threads; ParallelRoot = $row.ParallelRoot
+          BaselineUs = [math]::Round($row.BaselineUs, 3)
+          CandidateUs = [math]::Round($row.CandidateUs, 3)
+          DeltaUs = [math]::Round($row.DeltaUs, 3)
+          DeltaPct = [math]::Round($d, 2)
+        }
+      }
     }
   }
 
-}
-else {
-  # --- BDNA disabled: read the latest BDN CSV directly ---
-  $latestCsv = Get-LatestBdnCsv -ResultsDir $ResultsDir
-  if (-not $latestCsv) {
-    Write-Error "No BenchmarkDotNet CSV found in $ResultsDir. Cannot build summary."
+  # Persist machine-readable A/B summary (read by the GitHub Action)
+  $abSummary = [pscustomobject]@{
+    HasAbRegression = $HasAbRegression
+    WorstDeltaPct   = if ($WorstDeltaPct -ne $null) { [math]::Round($WorstDeltaPct, 2) } else { $null }
+    TolerancePct    = $TolerancePct
+    Pairs           = $Pairs | Select-Object PositionName, Depth, Threads, ParallelRoot, BaselineUs, CandidateUs, DeltaUs, DeltaPct
+    Regressions     = $RegressingPairs
+  }
+  $abSummary | ConvertTo-Json -Depth 6 | Out-File -Encoding UTF8 $AbSummaryJsonPath
+
+  # Human-readable A/B table (header now matches columns)
+  $md = New-Object System.Text.StringBuilder
+  $null = $md.AppendLine("# Forklift Benchmark Summary (A/B: Baseline vs Candidate)")
+  $null = $md.AppendLine()
+  $null = $md.AppendLine("| Position | Baseline (μs) | Candidate (μs) | Δ μs | Δ % |")
+  $null = $md.AppendLine("|---------:|--------------:|---------------:|-----:|----:|")
+
+  if (-not $Pairs -or $Pairs.Count -eq 0) {
+    $null = $md.AppendLine()
+    $null = $md.AppendLine("> _No benchmark pairs were found (ensure both **Baseline** and **Candidate** rows exist)._")
+  }
+  else {
+    foreach ($row in $Pairs | Sort-Object PositionName) {
+      $posLabel = "$($row.PositionName) depth=$($row.Depth ?? '?') threads=$($row.Threads ?? '?') parallelRoot=$($row.ParallelRoot ?? '?')"
+      $cols = @(
+        "**$posLabel**",
+        ('{0:N3}' -f $row.BaselineUs),
+        ('{0:N3}' -f $row.CandidateUs),
+        ('{0:N3}' -f $row.DeltaUs),
+        ('{0:N2}%' -f $row.DeltaPct)
+      )
+      $null = $md.AppendLine('| ' + ($cols -join ' | ') + ' |')
+    }
+  }
+  $md.ToString() | Out-File -Encoding UTF8 $AbSummaryMdPath
+
+
+  Write-Host ""
+  Write-Host "===== A/B Summary ====="
+  if (-not $Pairs -or $Pairs.Count -eq 0) {
+    Write-Host "> No A/B pairs were produced. Check JSON role parsing and parameter keys (see warnings above)."
+  }
+  else {
+    $Pairs |
+    Sort-Object PositionName |
+    Select-Object `
+    @{Name = 'Position'; Expression = { $_.PositionName } },
+    @{Name = 'Base(μs)'; Expression = { '{0:N3}' -f $_.BaselineUs } },
+    @{Name = 'Candidate(μs)'; Expression = { '{0:N3}' -f $_.CandidateUs } },
+    @{Name = 'Δ μs'; Expression = { '{0:N3}' -f $_.DeltaUs } },
+    @{Name = 'Δ%'; Expression = { '{0:N2}%' -f $_.DeltaPct } } |
+    Format-Table -AutoSize | Out-String | Write-Host
+  }
+
+  Write-Host "(Saved A/B JSON -> $AbSummaryJsonPath)"
+  Write-Host "(Saved A/B Markdown -> $AbSummaryMdPath)"
+
+  if ($EnableBdna) {
+    Write-Host "(Saved BDNA JSON -> $BdnaSummaryJsonPath)"
+    Write-Host "(Saved BDNA Markdown -> $BdnaSummaryMdPath)"
+  }
+
+  if ($HasAbRegression) {
+    Write-Host "Performance regressions detected in A/B comparison (exceeding $TolerancePct% tolerance)."
     exit 1
   }
 
-  $csvRows = Import-Csv -Path $latestCsv.FullName
-
-  # Index by (PositionName, Method)
-  $byPosition = $csvRows | Group-Object PositionName
-  foreach ($g in $byPosition) {
-    $pos = $g.Name
-    $baseRow = $g.Group | Where-Object { $_.Method -eq 'Baseline' }  | Select-Object -First 1
-    $candRow = $g.Group | Where-Object { $_.Method -eq 'Candidate' } | Select-Object -First 1
-    if (-not $baseRow -or -not $candRow) { continue }
-
-    # BDN CSV has "Mean" like "6.752 us" — convert to ms$baseMs = Convert-DurationToMs $baseRow.Mean
-    $candMs = Convert-DurationToMs $candRow.Mean
-
-    if ($baseMs -eq $null -or $candMs -eq $null) {
-      Write-Warning "Could not parse Mean for '$pos' (base='${($baseRow.Mean)}', cand='${($candRow.Mean)}'). Skipping."
-      continue
-    }
-    
-    $deltaMs = $candMs - $baseMs
-    $deltaPct = if ($baseMs) { ($deltaMs / $baseMs) * 100.0 } else { 0.0 }
-
-    $baseAllocKB = [math]::Round(([double]($baseRow.Allocated -replace ' KB', '' -replace ',', '')), 2)
-    $candAllocKB = [math]::Round(([double]($candRow.Allocated -replace ' KB', '' -replace ',', '')), 2)
-    $allocDeltaKB = $candAllocKB - $baseAllocKB
-    $allocDeltaPct = if ($baseAllocKB) { ($allocDeltaKB / $baseAllocKB) * 100.0 } else { 0.0 }
-
-    $nodesPerOp =
-    if ($candRow.'Nodes/Op') { Convert-ToNumber $candRow.'Nodes/Op' }
-    elseif ($baseRow.'Nodes/Op') { Convert-ToNumber $baseRow.'Nodes/Op' }
-    else { $null }
-
-    $baseTotalNodes = if ($baseRow.'TotalNodes') { Convert-ToNumber $baseRow.'TotalNodes' } else { $null }
-    $candTotalNodes = if ($candRow.'TotalNodes') { Convert-ToNumber $candRow.'TotalNodes' } else { $null }
-
-    $baseAggNpsStr = $baseRow.'Agg NPS'
-    $candAggNpsStr = $candRow.'Agg NPS'
-
-    $Pairs += [pscustomobject]@{
-      PositionName     = $pos
-      BaselineMeanMs   = [math]::Round($baseMs, 3)
-      CandidateMeanMs  = [math]::Round($candMs, 3)
-      DeltaMs          = [math]::Round($deltaMs, 3)
-      DeltaPct         = [math]::Round($deltaPct, 2)
-      BaselineAllocKB  = $baseAllocKB
-      CandidateAllocKB = $candAllocKB
-      AllocDeltaKB     = [math]::Round($allocDeltaKB, 2)
-      AllocDeltaPct    = [math]::Round($allocDeltaPct, 2)
-      BaselineGen0     = $baseRow.Gen0
-      CandidateGen0    = $candRow.Gen0
-      NodesPerOp       = $nodesPerOp
-      BaseTotalNodes   = $baseTotalNodes
-      CandTotalNodes   = $candTotalNodes
-      BaseAggNpsStr    = $baseAggNpsStr
-      CandAggNpsStr    = $candAggNpsStr
-    }
+  # If BDNA was enabled and flagged regressions, fail now (after writing artifacts)
+  if ($EnableBdna -and $HadRegressions) {
+    exit 2
   }
+
 }
+finally {
+  # Always attempt to restore environment & clean transient assets
+  try { Pop-Location } catch {}
+  Restore-PowerPlan
 
-# Persist machine-readable summary
-$Pairs | ConvertTo-Json -Depth 4 | Out-File -Encoding UTF8 $SummaryJsonPath
-
-# Emit Markdown summary
-$md = New-Object System.Text.StringBuilder
-$null = $md.AppendLine("# Forklift Benchmark Summary" + ($(if ($EnableBdna) { " (BDNA)" } else { "" })))
-$null = $md.AppendLine()
-$null = $md.AppendLine("| Position | Baseline (ms) | Candidate (ms) | Δ ms | Δ % | Nodes/Op | Base TotalNodes | Cand TotalNodes | Base AggNPS | Cand AggNPS | Baseline KB | Candidate KB | Δ KB | Δ % | Gen0 B | Gen0 C |")
-$null = $md.AppendLine("|---------:|--------------:|---------------:|-----:|----:|---------:|----------------:|----------------:|:-----------:|:-----------:|------------:|-------------:|-----:|----:|------:|------:|")
-
-foreach ($row in $Pairs | Sort-Object PositionName) {
-  $nodesPerOp = if ($row.NodesPerOp -ne $null) { '{0:N0}' -f $row.NodesPerOp } else { '' }
-  $baseTot = if ($row.BaseTotalNodes -ne $null) { '{0:N0}' -f $row.BaseTotalNodes } else { '' }
-  $candTot = if ($row.CandTotalNodes -ne $null) { '{0:N0}' -f $row.CandTotalNodes } else { '' }
-  $baseNps = if ($row.BaseAggNpsStr) { $row.BaseAggNpsStr } else { '' }
-  $candNps = if ($row.CandAggNpsStr) { $row.CandAggNpsStr } else { '' }
-
-  $null = $md.AppendLine(('{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}' -f
-      ("| **$($row.PositionName)** "),
-      (" {0,12:N3} " -f $row.BaselineMeanMs),
-      (" {0,13:N3} " -f $row.CandidateMeanMs),
-      (" {0,5:N3} " -f $row.DeltaMs),
-      (" {0,4:N2}%" -f $row.DeltaPct),
-      (" {0,9}" -f $nodesPerOp),
-      (" {0,16}" -f $baseTot),
-      (" {0,16}" -f $candTot),
-      (" {0,11}" -f $baseNps),
-      (" {0,11}" -f $candNps),
-      (" {0,10:N2} " -f $row.BaselineAllocKB),
-      (" {0,11:N2} " -f $row.CandidateAllocKB),
-      (" {0,5:N2} " -f $row.AllocDeltaKB),
-      (" {0,4:N2}%" -f $row.AllocDeltaPct),
-      (" {0,6}" -f $row.BaselineGen0),
-      (" {0,6}" -f $row.CandidateGen0)
-    ))
-}
-$md.ToString() | Out-File -Encoding UTF8 $SummaryMdPath
-
-Write-Host ""
-Write-Host "===== Summary ====="
-$Pairs |
-Sort-Object PositionName |
-Select-Object `
-@{Name = 'Position'; Expression = { $_.PositionName } },
-@{Name = 'Base(ms)'; Expression = { [math]::Round($_.BaselineMeanMs, 3) } },
-@{Name = 'Cand(ms)'; Expression = { [math]::Round($_.CandidateMeanMs, 3) } },
-@{Name = 'Δms'; Expression = { [math]::Round($_.DeltaMs, 3) } },
-@{Name = 'Δ%'; Expression = { "{0:N2}%" -f $_.DeltaPct } },
-@{Name = 'Nodes/Op'; Expression = { if ($_.NodesPerOp -ne $null) { '{0:N0}' -f $_.NodesPerOp } else { '' } } },
-@{Name = 'BaseNodes'; Expression = { if ($_.BaseTotalNodes -ne $null) { '{0:N0}' -f $_.BaseTotalNodes } else { '' } } },
-@{Name = 'CandNodes'; Expression = { if ($_.CandTotalNodes -ne $null) { '{0:N0}' -f $_.CandTotalNodes } else { '' } } },
-@{Name = 'BaseAggNPS'; Expression = { $_.BaseAggNpsStr } },
-@{Name = 'CandAggNPS'; Expression = { $_.CandAggNpsStr } },
-@{Name = 'BaseKB'; Expression = { [math]::Round($_.BaselineAllocKB, 2) } },
-@{Name = 'CandKB'; Expression = { [math]::Round($_.CandidateAllocKB, 2) } },
-@{Name = 'ΔKB'; Expression = { [math]::Round($_.AllocDeltaKB, 2) } },
-@{Name = 'Δ%Alloc'; Expression = { "{0:N2}%" -f $_.AllocDeltaPct } } |
-Format-Table -AutoSize | Out-String | Write-Host
-
-Write-Host "(Saved JSON -> $SummaryJsonPath)"
-Write-Host "(Saved Markdown -> $SummaryMdPath)"
-
-# If BDNA was enabled and flagged regressions, fail now (after writing artifacts)
-if ($EnableBdna -and $HadRegressions) {
-  exit 2
+  foreach ($wt in $script:createdWorktrees) { Remove-WorktreeSafe -Path $wt }
 }
