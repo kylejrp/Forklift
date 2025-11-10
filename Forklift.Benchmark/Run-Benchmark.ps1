@@ -1,6 +1,6 @@
 param(
-  [string]$RepositoryRoot = "C:\code\Forklift",
-  [string]$ArtifactsRoot = "C:\code\ForkliftArtifacts",
+  [string]$RepositoryRoot,
+  [string]$ArtifactsRoot,
 
   # Refs to compare (both become detached worktrees)
   [string]$BaselineGitRef = "main",
@@ -20,6 +20,43 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Resolve repository root ---
+if (-not $RepositoryRoot) {
+  try {
+    $RepositoryRoot = (git rev-parse --show-toplevel 2>$null).Trim()
+  }
+  catch {
+    $RepositoryRoot = (Split-Path -Path $PSScriptRoot -Parent)
+  }
+}
+$RepositoryRoot = (Resolve-Path $RepositoryRoot).Path
+
+# --- Default artifacts folder: sibling of the repo root ---
+if (-not $ArtifactsRoot) {
+  $ArtifactsRoot = $env:FORKLIFT_ARTIFACTS
+  if (-not $ArtifactsRoot) {
+    $repoParent = Split-Path -Path $RepositoryRoot -Parent
+    $repoName = Split-Path -Leaf $RepositoryRoot
+    $ArtifactsRoot = Join-Path $repoParent ("{0}Artifacts" -f $repoName)
+  }
+}
+
+# --- Resolve and create if needed ---
+$ArtifactsRoot = (Resolve-Path (New-Item -ItemType Directory -Force -Path $ArtifactsRoot)).Path
+
+# --- Validation: ensure artifacts are not inside the repo ---
+$repoFull = [IO.Path]::GetFullPath($RepositoryRoot)
+$artFull = [IO.Path]::GetFullPath($ArtifactsRoot)
+
+# Normalize for case-insensitive filesystems
+if ($artFull.StartsWith($repoFull.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) {
+  throw "❌ ArtifactsRoot '$ArtifactsRoot' must not be inside RepositoryRoot '$RepositoryRoot'. " +
+  "Please set -ArtifactsRoot or `$env:FORKLIFT_ARTIFACTS to a sibling folder (e.g., $repoFullArtifacts)."
+}
+
+Write-Host "RepositoryRoot: $RepositoryRoot"
+Write-Host "ArtifactsRoot : $ArtifactsRoot"
 
 # --- Derived paths ---
 $BaselineOutputDir = Join-Path $ArtifactsRoot "baseline"
@@ -117,19 +154,31 @@ function Convert-ToNumber([object]$x) {
 }
 
 function Convert-DurationToMs([string]$text) {
-  # Handles e.g. "6.752 us", "3.84 ms", "50.1 ms", "1.23 s"
   if (-not $text) { return $null }
-  if ($text -match '^\s*([\d\.,]+)\s*(us|µs|ms|s)\s*$') {
+
+  # Normalize quotes and whitespace (regular + NBSP + NNBSP + thin)
+  $s = $text.Trim() -replace '[\u00A0\u202F\u2009]', ' '
+  $s = $s.Trim('"', "'")
+
+  # Normalize unit: map μ (Greek mu) and µ (micro sign) to 'u'
+  $s = $s -replace '([0-9]),([0-9]{3})', '$1,$2'  # keep thousands commas
+  $s = $s -replace 'μ', 'u'
+  $s = $s -replace 'µ', 'u'
+  $s = $s -replace '\s+', ' '                     # collapse spaces
+
+  # Match "<number> <unit>"
+  if ($s -match '^\s*([\d\.,]+)\s*(ns|us|ms|s)\s*$') {
     $n = [double]($matches[1] -replace ',', '')
     switch ($matches[2]) {
-      'us' { return $n / 1000.0 }
-      'µs' { return $n / 1000.0 }
-      'ms' { return $n }
-      's' { return $n * 1000.0 }
+      'ns' { return $n / 1e6 }  # nanoseconds -> ms
+      'us' { return $n / 1e3 }  # microseconds -> ms
+      'ms' { return $n }        # milliseconds
+      's' { return $n * 1e3 }  # seconds -> ms
     }
   }
-  # Fallback: assume already ms
-  try { return [double]($text -replace ',', '') } catch { return $null }
+
+  # Fallback: try to parse as a bare number (assume ms)
+  try { return [double]($s -replace ',', '') } catch { return $null }
 }
 
 # --- Optionally run BDNA aggregate/analyse/report (CI) ---
@@ -325,9 +374,14 @@ else {
     $candRow = $g.Group | Where-Object { $_.Method -eq 'Candidate' } | Select-Object -First 1
     if (-not $baseRow -or -not $candRow) { continue }
 
-    # BDN CSV has "Mean" like "6.752 us" — convert to ms
-    $baseMs = Convert-DurationToMs $baseRow.Mean
+    # BDN CSV has "Mean" like "6.752 us" — convert to ms$baseMs = Convert-DurationToMs $baseRow.Mean
     $candMs = Convert-DurationToMs $candRow.Mean
+
+    if ($baseMs -eq $null -or $candMs -eq $null) {
+      Write-Warning "Could not parse Mean for '$pos' (base='${($baseRow.Mean)}', cand='${($candRow.Mean)}'). Skipping."
+      continue
+    }
+    
     $deltaMs = $candMs - $baseMs
     $deltaPct = if ($baseMs) { ($deltaMs / $baseMs) * 100.0 } else { 0.0 }
 

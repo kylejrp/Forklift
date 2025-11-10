@@ -14,6 +14,7 @@ namespace Forklift.Core
             {
                 if (Squares.IsOffboard((UnsafeSquare0x88)sq88)) continue;
                 var piece = (Piece)board.At(new Square0x88(sq88));
+                if (piece == Piece.Empty) continue;
                 score += (piece.IsWhite ? +1 : -1) * TypeValues[piece.TypeIndex];
             }
             return score;

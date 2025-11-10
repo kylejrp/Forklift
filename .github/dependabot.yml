@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: "dotnet-sdk"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps(dotnet-sdk)"
+      include: scope
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps(nuget)"
+      include: scope
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps(github-actions)"
+      include: scope
