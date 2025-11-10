@@ -267,7 +267,7 @@ namespace Forklift.Benchmark
             private bool _disposed;
             public string Identity =>
                 $"{Path.GetFileName(_coreAsm.Location)} " +
-                $"sha256={Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(_coreAsm.Location)))[..12]} " +
+                $"sha256={Convert.ToHexString(SHA256.HashData(File.OpenRead(_coreAsm.Location)))[..12]} " +
                 $"entry={_entry.DeclaringType!.FullName}.{_entry.Name}({string.Join(",", _entry.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name))})";
 
 
