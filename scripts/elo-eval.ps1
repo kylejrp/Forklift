@@ -58,17 +58,28 @@ try {
     }
 
     function Invoke-Checked {
-        param(
-            [Parameter(Mandatory=$true)][string]$Command,
-            [string[]]$Arguments,
-            [switch]$IgnoreExitCode
-        )
-        Write-Host "[elo-eval] $Command $($Arguments -join ' ')"
-        & $Command @Arguments
-        $exit = $LASTEXITCODE
-        if (-not $IgnoreExitCode -and $exit -ne 0) { throw "Command '$Command' failed with exit code $exit" }
-        return $exit
+    param(
+        [Parameter(Mandatory=$true)][string]$Command,
+        [string[]]$Arguments,
+        [switch]$IgnoreExitCode
+    )
+    Write-Host "[elo-eval] $Command $($Arguments -join ' ')"
+    & $Command @Arguments
+    $exit = $LASTEXITCODE
+
+    if ($IgnoreExitCode) {
+        # We chose to ignore this exit; prevent it from leaking and failing the script.
+        $global:LASTEXITCODE = 0
+        return
     }
+
+    if ($exit -ne 0) {
+        throw "Command '$Command' failed with exit code $exit"
+    }
+
+    # Successful native call; avoid letting any previous non-zero leak.
+    $global:LASTEXITCODE = 0
+}
 
     function Ensure-Directory {
         param([string]$Path)
