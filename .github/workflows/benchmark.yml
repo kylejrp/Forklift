@@ -29,12 +29,11 @@ permissions:
 
 jobs:
   benchmark-suite:
-    if: ${{ github.event_name != 'pull_request' || contains(join(github.event.pull_request.labels.*.name, ','), 'benchmark') }}
+    if: ${{ github.event_name != 'pull_request' || contains((github.event.pull_request.labels.*.name || fromJSON('[]')), 'benchmark') }}
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix:
-        suite: [minimal, fast, full]
+      matrix: ${{ fromJSON((github.event_name == 'pull_request' && '{"suite":["minimal"]}') || (github.event_name == 'workflow_dispatch' && (github.event.inputs.suite || 'all') != 'all' && format('{"suite":["{0}"]}', github.event.inputs.suite)) || '{"suite":["minimal","fast","full"]}') }}
     name: "Perft benchmark (${{ matrix.suite }})"
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -48,19 +47,10 @@ jobs:
       DOTNET_GCServer: "1"
       COMPlus_GCHeapCount: "1"
       SUITE: ${{ matrix.suite }}
-      SHOULD_SKIP: ${{ (github.event_name == 'pull_request' && matrix.suite != 'minimal') ||
-                       (github.event_name == 'workflow_dispatch' && github.event.inputs.suite != 'all' && matrix.suite != github.event.inputs.suite) }}
 
     steps:
-      # Log-and-bail step (just for clarity in the UI)
-      - name: Conditional skip
-        if: ${{ env.SHOULD_SKIP == 'true' }}
-        run: |
-          echo "Skipping suite ${{ matrix.suite }} for event ${{ github.event_name }}"
-
       # Everything real is guarded with the inverse
       - name: Debug - check operating system / architecture
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         run: |
           echo "Detected OS ID: $ImageOS"
           echo "Detected OS Version: $ImageVersion"
@@ -69,15 +59,12 @@ jobs:
           echo "Resolved SUITE: $SUITE"
 
       - uses: actions/checkout@v4
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-dotnet@v4
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         with: { dotnet-version: "9.0.x" }
 
       - name: Detect .NET SDK full version
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         id: dotnet
         shell: bash
         run: |
@@ -88,13 +75,12 @@ jobs:
           echo "majorMinor=$major.$minor" >> "$GITHUB_OUTPUT"
 
       - name: Install jq + pwsh + unzip
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq powershell unzip
 
       - name: Cache NuGet
-        if: ${{ env.SHOULD_SKIP != 'true' && !cancelled() }}
+        if: ${{ !cancelled() }}
         uses: actions/cache@v4
         with:
           path: |
@@ -106,7 +92,6 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Compute tolerance (by suite)
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -120,7 +105,6 @@ jobs:
           echo "Using TOLERANCE_PCT=$tol for SUITE=${SUITE}"
 
       - name: Compute environment-keyed artifact name
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         id: art
         shell: bash
         run: |
@@ -128,13 +112,11 @@ jobs:
           echo "agg_name=bdna-aggregates-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}" >> "$GITHUB_OUTPUT"
 
       - name: Debug – show computed artifact names
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         run: |
           echo "Artifact name (BDN):  ${{ steps.art.outputs.bdn_name }}"
           echo "Artifact name (BDNA): ${{ steps.art.outputs.agg_name }}"
 
       - name: Compute PR artifact name
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         id: prart
         shell: bash
         run: |
@@ -145,7 +127,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Fetch latest main BDNA aggregates (same environment)
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         uses: actions/github-script@v7
         env:
           ART_NAME: ${{ steps.art.outputs.agg_name }}
@@ -175,7 +156,6 @@ jobs:
             require('fs').writeFileSync('aggregates.zip', Buffer.from(dl.data))
 
       - name: Unpack BDNA aggregates into .eval/bdna/aggregates
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         run: |
           rm -rf .eval/bdna/aggregates
           mkdir -p .eval/bdna/aggregates
@@ -187,7 +167,6 @@ jobs:
           fi
 
       - name: Select baseline/candidate git refs
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         id: refs
         shell: bash
         run: |
@@ -213,7 +192,6 @@ jobs:
           fi
 
       - name: Run benchmark via project script (BDNA gate) [pwsh]
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         shell: pwsh
         run: |
           git fetch --all --prune
@@ -242,7 +220,7 @@ jobs:
           }
 
       - name: Upload BDN results (environment-keyed)
-        if: ${{ env.SHOULD_SKIP != 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'schedule') }}
+        if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.art.outputs.bdn_name }}
@@ -254,7 +232,6 @@ jobs:
           if-no-files-found: ignore
 
       - id: parse_ab
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         name: Read A/B summary (Baseline vs Candidate)
         shell: bash
         run: |
@@ -280,7 +257,6 @@ jobs:
 
 
       - id: parse_bdna
-        if: ${{ env.SHOULD_SKIP != 'true' }}
         name: Read BDNA trend summary (Candidate trend vs main)
         shell: bash
         run: |
@@ -308,9 +284,8 @@ jobs:
             jq -r '"bdna_worst_delta=\(.TrendWorstDeltaPct // "")"' "$BDNA_JSON" >> "$GITHUB_OUTPUT"
           fi
 
-
       - id: pr_texts
-        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name == 'pull_request' }}
+        if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.prart.outputs.name }}
@@ -328,7 +303,7 @@ jobs:
             ${{ github.workspace }}/.eval/artifacts/**/*
 
       - id: resolve_art_url
-        if: ${{ always() && env.SHOULD_SKIP != 'true' && env.DRY_RUN != 'true' }}
+        if: ${{ always() && github.event_name != 'pull_request' }}
         uses: actions/github-script@v7
         env:
           ART_NAME: ${{ steps.prart.outputs.name }}
@@ -344,7 +319,7 @@ jobs:
             core.setOutput('ui_url', a ? `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${a.id}` : '');
 
       - name: Comment results on PR (A/B + BDNA)
-        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name == 'pull_request' }}
+        if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/github-script@v7
         env:
           SUITE: ${{ matrix.suite }}
@@ -422,13 +397,13 @@ jobs:
 
       - id: gates
         name: Expose regression gates
-        if: ${{ always() && env.SHOULD_SKIP != 'true' }}
+        if: ${{ always() }}
         run: |
           echo "ab_regression=${{ steps.parse_ab.outputs.has_ab_regression }}" >> "$GITHUB_OUTPUT"
           echo "bdna_regression=${{ steps.parse_bdna.outputs.has_bdna_regression }}" >> "$GITHUB_OUTPUT"
 
       - name: Summarize results on main
-        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name != 'pull_request' }}
+        if: ${{ always() && github.event_name != 'pull_request' }}
         shell: bash --noprofile --norc -euo pipefail
         run: |
           {
@@ -461,7 +436,7 @@ jobs:
           echo "</details>" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Set commit status (failure) on regression
-        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name != 'pull_request' && (steps.gates.outputs.ab_regression == 'true' || steps.gates.outputs.bdna_regression == 'true') }}
+        if: ${{ always() && github.event_name != 'pull_request' && (steps.gates.outputs.ab_regression == 'true' || steps.gates.outputs.bdna_regression == 'true') }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -478,13 +453,13 @@ jobs:
 
       - name: Fail on regressions
         # temporarily disabled
-        if: ${{ false && always() && env.SHOULD_SKIP != 'true' && github.event_name == 'pull_request' && steps.parse_bdna.outputs.no_bdna_history != 'true' && steps.gates.outputs.bdna_regression == 'true' }}
+        if: ${{ false && always() && github.event_name == 'pull_request' && steps.parse_bdna.outputs.no_bdna_history != 'true' && steps.gates.outputs.bdna_regression == 'true' }}
         run: |
           echo "::error::Performance regression detected. A/B=${{ steps.gates.outputs.ab_regression }}, BDNA=${{ steps.gates.outputs.bdna_regression }}"
           exit 1
 
       - name: Annotate regressions on main (soft)
-        if: ${{ always() && env.SHOULD_SKIP != 'true' && github.event_name != 'pull_request' && (steps.gates.outputs.ab_regression == 'true' || steps.gates.outputs.bdna_regression == 'true') }}
+        if: ${{ always() && github.event_name != 'pull_request' && (steps.gates.outputs.ab_regression == 'true' || steps.gates.outputs.bdna_regression == 'true') }}
         run: |
           echo "::warning::Performance regression on main. A/B=${{ steps.gates.outputs.ab_regression }}, BDNA=${{ steps.gates.outputs.bdna_regression }}"
 
