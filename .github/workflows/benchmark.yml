@@ -336,6 +336,7 @@ jobs:
           PR_ART_NAME: ${{ steps.prart.outputs.name }}
           PR_ART_URL_RESOLVED: ${{ steps.resolve_art_url.outputs.ui_url }}
           PR_ART_URL_ACT: ${{ steps.pr_texts.outputs.artifact-url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           script: |
             const fs = require('fs');
@@ -368,7 +369,7 @@ jobs:
 
             const artName = (process.env.PR_ART_NAME && process.env.PR_ART_NAME !== 'null')
               ? process.env.PR_ART_NAME : '(no artifact name)';
-            const isDry = process.env.DRY_RUN === 'true' || !process.env.GITHUB_TOKEN;
+            const isDry = process.env.DRY_RUN === 'true' || !process.env.GH_TOKEN;
             const artUrl = isDry
               ? (process.env.PR_ART_URL_ACT && process.env.PR_ART_URL_ACT !== 'null' ? process.env.PR_ART_URL_ACT : '')
               : (process.env.PR_ART_URL_RESOLVED && process.env.PR_ART_URL_RESOLVED !== 'null' ? process.env.PR_ART_URL_RESOLVED : '');
