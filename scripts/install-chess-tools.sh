@@ -91,6 +91,10 @@ install_cutechess() {
     return 1
   fi
 
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  trap 'cleanup_tempdir "${tmpdir}"' RETURN
+
   # Ensure tools exist
   for cmd in curl jq; do
     command -v "$cmd" >/dev/null 2>&1 || { log "$cmd is required"; return 1; }
