@@ -439,7 +439,8 @@ try {
                 $ordoError = $null
                 $culture = [System.Globalization.CultureInfo]::InvariantCulture
 
-                if ($_.'RATING' -and [double]::TryParse($_.'RATING', [ref]([double]$null))) {
+                $temp = 0.0
+                if ($_.'RATING' -and [double]::TryParse($_.'RATING', [ref]$temp)) {
                     $rating = [double]::Parse($_.'RATING', $culture)
                 }
                 if ($_.'ERROR' -and $_.'ERROR' -ne '-' -and [double]::TryParse($_.'ERROR', [ref]([double]$null))) {
