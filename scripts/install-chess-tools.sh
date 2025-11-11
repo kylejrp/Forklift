@@ -91,45 +91,44 @@ install_cutechess() {
     return 1
   fi
 
-  local tmpdir
-  tmpdir=$(mktemp -d)
-  trap 'cleanup_tempdir "${tmpdir}"' RETURN
+  # Ensure tools exist
+  for cmd in curl jq; do
+    command -v "$cmd" >/dev/null 2>&1 || { log "$cmd is required"; return 1; }
+  done
 
-  log "Fetching latest cutechess release metadata..."
-  local asset_info
-  asset_info=$(python3 - <<'PY'
-import json
-import urllib.request
+  log "Fetching latest cutechess release metadata (curl + jq)..."
+  local asset_url asset_kind
 
-url = "https://api.github.com/repos/cutechess/cutechess/releases/latest"
-with urllib.request.urlopen(url) as response:
-    data = json.load(response)
-assets = data.get("assets", [])
+  # Pull latest release JSON
+  json=$(curl -fsSL "https://api.github.com/repos/cutechess/cutechess/releases/latest") || {
+    log "GitHub API request failed"; return 1;
+  }
 
-def choose(predicate):
-    for asset in assets:
-        name = asset.get("name", "").lower()
-        if predicate(name):
-            return asset.get("browser_download_url")
-    return None
+  # Choose preferred asset in order
+  asset_url=$(jq -r '
+    .assets[]?.browser_download_url as $u
+    | ($u | ascii_downcase) as $n
+    | {u:$u, n:$n}
+    | select((.n|contains("linux")) and (.n|contains("cli")))
+    | .u' <<<"$json" |
+    head -n1)
 
-preferred = choose(lambda name: "linux" in name and "cli" in name)
-if preferred is None:
-    preferred = choose(lambda name: name.endswith(".appimage") and "x86_64" in name)
-if preferred is None:
-    preferred = choose(lambda name: "linux" in name)
-
-if preferred:
-    kind = "appimage" if preferred.lower().endswith(".appimage") else "archive"
-    print(f"{preferred}|{kind}")
-PY
-  ) || true
-
-  local asset_url=""
-  local asset_kind=""
-  if [[ -n "${asset_info}" ]]; then
-    IFS='|' read -r asset_url asset_kind <<<"${asset_info}"
+  if [[ -z $asset_url ]]; then
+    asset_url=$(jq -r '
+      .assets[]?.browser_download_url
+      | select((ascii_downcase|endswith(".appimage")) and (ascii_downcase|contains("x86_64")))
+    ' <<<"$json" | head -n1)
   fi
+  if [[ -z $asset_url ]]; then
+    asset_url=$(jq -r '.assets[]?.browser_download_url | select(ascii_downcase|contains("linux"))' <<<"$json" | head -n1)
+  fi
+
+  if [[ -z $asset_url ]]; then
+    log "No suitable cutechess asset found"; return 1
+  fi
+
+  asset_kind=$([[ "${asset_url,,}" == *.appimage ]] && echo appimage || echo archive)
+
 
   local installed_via_release=false
 
