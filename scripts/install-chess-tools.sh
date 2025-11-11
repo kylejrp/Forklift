@@ -197,7 +197,7 @@ install_cutechess() {
     if ensure_command apt-get; then
       if [[ "${installed_via_release}" == true ]]; then
         log "cutechess release binary may require Qt runtime libraries; installing via apt"
-        install_packages qtbase5-dev qt6-base-dev qtchooser || log "Qt runtime installation failed via apt." >&2
+        install_packages qtbase5-runtime || log "Qt runtime installation failed via apt." >&2
       else
         log "Attempting to install cutechess-cli via apt"
       fi
