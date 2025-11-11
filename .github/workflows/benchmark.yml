@@ -398,8 +398,9 @@ jobs:
 
       - name: Summarize results on main
         if: ${{ always() && github.event_name != 'pull_request' }}
-        shell: bash --noprofile --norc -euo pipefail
+        shell: bash
         run: |
+          set -euo pipefail
           {
             echo "### 🧪 Forklift Benchmarks (main)"
             echo
