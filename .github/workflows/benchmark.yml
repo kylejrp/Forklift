@@ -64,20 +64,57 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          # we require 8.0 for the BDNA tooling, but 9.0 for building/running Forklift
+          dotnet-version: |
+            8.0.x
+            9.0.x
           cache: true
           cache-dependency-path: |
             **/packages.lock.json
 
-      - name: Detect .NET SDK full version
+      - name: Detect highest .NET SDK
         id: dotnet
         shell: bash
         run: |
           set -euo pipefail
-          version_string=$(dotnet --version | tr -d '\n' | xargs)
-          major=$(echo "$version_string" | cut -d'.' -f1)
-          minor=$(echo "$version_string" | cut -d'.' -f2)
-          echo "majorMinor=$major.$minor" >> "$GITHUB_OUTPUT"
+
+          # List installed SDK versions (first column of `dotnet --list-sdks`)
+          mapfile -t sdks < <(dotnet --list-sdks | awk '{print $1}')
+          if [ ${#sdks[@]} -eq 0 ]; then
+            echo "No .NET SDKs found" >&2
+            exit 1
+          fi
+
+          # Split into stable vs prerelease
+          stable=()
+          prerelease=()
+          for v in "${sdks[@]}"; do
+            if [[ "$v" =~ (preview|rc|alpha|beta) ]]; then
+              prerelease+=("$v")
+            else
+              stable+=("$v")
+            fi
+          done
+
+          pick_highest() { printf "%s\n" "$@" | sort -V | tail -1; }
+
+          if [ ${#stable[@]} -gt 0 ]; then
+            chosen="$(pick_highest "${stable[@]}")"
+            is_pre=false
+          else
+            chosen="$(pick_highest "${prerelease[@]}")"
+            is_pre=true
+          fi
+
+          major="${chosen%%.*}"
+          rest="${chosen#*.}"
+          minor="${rest%%.*}"
+
+          {
+            echo "fullVersion=$chosen"
+            echo "majorMinor=$major.$minor"
+            echo "isPrerelease=$is_pre"
+          } >> "$GITHUB_OUTPUT"
 
       - run: dotnet restore --locked-mode
 
@@ -473,13 +510,49 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: "9.0.x" }
 
-      - name: Detect .NET SDK full version
+      - name: Detect highest .NET SDK
         id: dotnet
         shell: bash
         run: |
           set -euo pipefail
-          v=$(dotnet --version | tr -d '\n' | xargs)
-          echo "majorMinor=$(echo "$v" | cut -d'.' -f1-2)" >> "$GITHUB_OUTPUT"
+
+          # List installed SDK versions (first column of `dotnet --list-sdks`)
+          mapfile -t sdks < <(dotnet --list-sdks | awk '{print $1}')
+          if [ ${#sdks[@]} -eq 0 ]; then
+            echo "No .NET SDKs found" >&2
+            exit 1
+          fi
+
+          # Split into stable vs prerelease
+          stable=()
+          prerelease=()
+          for v in "${sdks[@]}"; do
+            if [[ "$v" =~ (preview|rc|alpha|beta) ]]; then
+              prerelease+=("$v")
+            else
+              stable+=("$v")
+            fi
+          done
+
+          pick_highest() { printf "%s\n" "$@" | sort -V | tail -1; }
+
+          if [ ${#stable[@]} -gt 0 ]; then
+            chosen="$(pick_highest "${stable[@]}")"
+            is_pre=false
+          else
+            chosen="$(pick_highest "${prerelease[@]}")"
+            is_pre=true
+          fi
+
+          major="${chosen%%.*}"
+          rest="${chosen#*.}"
+          minor="${rest%%.*}"
+
+          {
+            echo "fullVersion=$chosen"
+            echo "majorMinor=$major.$minor"
+            echo "isPrerelease=$is_pre"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install jq + pwsh
         run: |
