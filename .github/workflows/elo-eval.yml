@@ -9,7 +9,12 @@ on:
   pull_request:
     types: [labeled, unlabeled, opened, synchronize, reopened]
     branches: ["*"]
-
+    paths:
+      - "Forklift.Core/**"
+      - ".github/workflows/elo-eval.yml"
+      - "scripts/elo-eval.ps1"
+      - "scripts/install-chess-tools.sh"
+      - "global.json"
 concurrency:
   group: elo-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.ref) }}
   cancel-in-progress: true

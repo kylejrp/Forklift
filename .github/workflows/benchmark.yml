@@ -7,6 +7,8 @@ on:
     paths:
       - "Forklift.Core/**"
       - ".github/workflows/benchmark.yml"
+      - "Forklift.Benchmark/Run-Benchmark.ps1"
+      - "global.json"
   workflow_dispatch:
     inputs:
       suite:
