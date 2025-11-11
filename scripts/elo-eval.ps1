@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$EngineProject = 'Forklift.ConsoleClient/Forklift.ConsoleClient.csproj',
-    [string]$EngineName = 'Forklift',
+    [string]$EngineName = 'Forklift.ConsoleClient',
     [switch]$VsParent,
     [string]$VsRef,
     [int]$Games = 300,
@@ -112,19 +112,35 @@ try {
     }
 
     function Normalize-EngineBinary {
-        param([string]$OutputDirectory, [string]$EngineNameParam)
-        $dll = Join-Path $OutputDirectory "$EngineNameParam.dll"
-        if (Test-Path $dll) { return $dll }  # framework-dependent: use dll
+        param(
+            [string]$OutputDirectory,
+            [string]$EngineNameParam
+        )
+        # 1) If caller gave us the exact dll name and it exists, use it.
+        $hintDll = if ($EngineNameParam) { Join-Path $OutputDirectory ($EngineNameParam + '.dll') } else { $null }
+        if ($hintDll -and (Test-Path $hintDll)) { return (Resolve-Path $hintDll).Path }
 
+        # 2) Framework-dependent app: look for *.runtimeconfig.json and pick its matching dll.
+        $rtConfigs = Get-ChildItem -Path $OutputDirectory -Filter '*.runtimeconfig.json' -ErrorAction SilentlyContinue
+        foreach ($cfg in $rtConfigs) {
+            $base = [System.IO.Path]::GetFileNameWithoutExtension($cfg.Name)
+            $dll = Join-Path $OutputDirectory ($base + '.dll')
+            if (Test-Path $dll) { return (Resolve-Path $dll).Path }
+        }
+
+        # 3) Fallback: self-contained apphost
         $expectedName = if ($IsWindows) { "$EngineNameParam.exe" } else { $EngineNameParam }
-        $expectedPath = Join-Path $OutputDirectory $expectedName
-        if (Test-Path $expectedPath) {
-            Set-Executable -Path $expectedPath
-            return $expectedPath
+        if ($EngineNameParam) {
+            $apphost = Join-Path $OutputDirectory $expectedName
+            if (Test-Path $apphost) {
+                if (-not $IsWindows) { & chmod '+x' $apphost }
+                return (Resolve-Path $apphost).Path
+            }
         }
 
         throw "Unable to find published engine in $OutputDirectory"
     }
+
 
 
     function Get-LogicalProcessorCount {
