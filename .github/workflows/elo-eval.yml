@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 60
     env:
       ENGINE_PROJECT: Forklift.ConsoleClient/Forklift.ConsoleClient.csproj
-      ENGINE_NAME: Forklift
+      ENGINE_NAME: Forklift.ConsoleClient
       MATCH_DIR: matches
       CURRENT_ENGINE_DIR: artifacts/current/engine
       PREVIOUS_ENGINE_DIR: artifacts/previous/engine
