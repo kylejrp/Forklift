@@ -3,6 +3,7 @@ param(
   [switch]$Schedule = $false,
   [switch]$BenchPR = $false,
   [switch]$CiPR = $false,
+  [switch]$EloEval = $false,
   [switch]$All = $false,
   $ArtifactsRoot = $null,
   $CacheServerPath = $null
@@ -15,6 +16,7 @@ if ($All) {
   $Schedule = $true
   $BenchPR = $true
   $CiPR = $true
+  $EloEval = $true
 }
 
 if (-not $ArtifactsRoot) { $ArtifactsRoot = Join-Path $env:TEMP 'act-artifacts' }
@@ -229,6 +231,16 @@ function Run-CiPR {
     -LogPath      'act-ci-pr.log'
 }
 
+function Run-EloEval {
+  Invoke-ActRun `
+    -Event        'pull_request' `
+    -WorkflowPath '.github/workflows/elo-eval.yml' `
+    -Job          'elo-evaluation' `
+    -EventJson    '.github/workflows/events/pr.json' `
+    -DryRun `
+    -LogPath      'act-elo-eval.log'
+}
+
 if (-not ($PushMain -or $Schedule -or $BenchPR -or $CiPR)) {
   Write-Host "No action specified. Use one or more of: -PushMain -Schedule -BenchPR -CiPR"
   exit 1
@@ -238,3 +250,4 @@ if ($PushMain) { Run-PushMain }
 if ($Schedule) { Run-Schedule }
 if ($BenchPR) { Run-BenchPR }
 if ($CiPR) { Run-CiPR }
+if ($EloEval) { Run-EloEval }
