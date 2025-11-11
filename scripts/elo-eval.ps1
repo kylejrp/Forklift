@@ -467,6 +467,15 @@ try {
             else {
                 Write-Warning 'Ordo output did not contain expected player entries.'
             }
+
+            $summary = [pscustomobject]@{
+                baseline  = $baselineRef
+                games     = $gameCount
+                sprt      = $sprtLine
+                ordo      = @{ new = $newRow?.Rating; old = $oldRow?.Rating; delta = $diff; err = $newRow?.Error }
+                cutechess = $cutechessCommandDebug
+            }
+            $summary | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $MatchDir 'summary.json')
         }
         catch {
             Write-Warning "Failed to parse Ordo output: $($_.Exception.Message)"
