@@ -274,7 +274,7 @@ try {
     $baselineBinary = Normalize-EngineBinary -OutputDirectory $PreviousOutDir -EngineNameParam $EngineName
 
     if (-not $IsWindows) {
-        if ($InstallTools.IsPresent) { Write-Host '[elo-eval] InstallTools switch has no effect on non-Windows platforms.' }
+        if ($InstallTools.IsPresent) { Write-Host '[elo-eval] Note: Tools are always installed automatically on non-Windows platforms; the InstallTools switch has no effect.' }
         Invoke-Checked -Command 'bash' -Arguments @('./scripts/install-chess-tools.sh')
     }
     else {
