@@ -352,11 +352,9 @@ try {
         $fallback | Set-Content -Path $openingsPath
     }
 
-    $currentBinary = Resolve-Path $currentBinary
-    $baselineBinary = Resolve-Path $baselineBinary
     if (-not $IsWindows) {
-        Set-Executable -Path $currentBinary.Path
-        Set-Executable -Path $baselineBinary.Path
+        Set-Executable -Path $currentBinary
+        Set-Executable -Path $baselineBinary
     }
 
     $resolvedConcurrency = Get-LogicalProcessorCount -Requested $Concurrency
@@ -367,13 +365,28 @@ try {
     if ($Sprt) { $sprtArgs = $Sprt -split '\s+' | Where-Object { $_ } }
 
     $dotnetCmd = (Get-Command dotnet).Source
-    $newEngineCmd = 'cmd=' + (Quote-CutechessArgument $dotnetCmd)
-    $oldEngineCmd = 'cmd=' + (Quote-CutechessArgument $dotnetCmd)
-    $openingsArg = 'file=' + (Quote-CutechessArgument $openingsPath)
 
-    $cutechessArgs = @(
-        '-engine', $newEngineCmd, 'arg=' + (Quote-CutechessArgument $currentBinary), 'name=New', 'proto=uci',
-        '-engine', $oldEngineCmd, 'arg=' + (Quote-CutechessArgument $baselineBinary), 'name=Old', 'proto=uci',
+    $engineNew = @(
+        '-engine',
+        "cmd=$dotnetCmd",
+        "arg=$currentBinary",
+        'name=New',
+        'proto=uci'
+    )
+    $engineOld = @(
+        '-engine',
+        "cmd=$dotnetCmd",
+        "arg=$baselineBinary",
+        'name=Old',
+        'proto=uci'
+    )
+
+    $openingsArg = "file=$openingsPath"
+
+    $cutechessArgs = @()
+    $cutechessArgs += $engineNew
+    $cutechessArgs += $engineOld
+    $cutechessArgs += @(
         '-each', "tc=$TimeControl", 'timemargin=100',
         '-games', $Games,
         '-repeat',
@@ -382,8 +395,11 @@ try {
         '-draw', 'movenumber=50', 'movecount=8', 'score=10',
         '-resign', 'movecount=8', 'score=800', 'twosided=true'
     )
-    if ($sprtArgs.Count -gt 0) { $cutechessArgs += '-sprt'; $cutechessArgs += $sprtArgs }
-    $cutechessArgs += @('-pgnout', (Quote-CutechessArgument $pgnPath))
+    if ($Sprt) {
+        $cutechessArgs += '-sprt'
+        $cutechessArgs += ($Sprt -split '\s+' | Where-Object { $_ })
+    }
+    $cutechessArgs += @('-pgnout', $pgnPath)
 
     $cutechess = Get-CommandOrNull 'cutechess-cli'
     $cutechessCommandDebug = $cutechess.Source + ' ' + ($cutechessArgs | Join-String ' ')
