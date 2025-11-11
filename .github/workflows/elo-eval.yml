@@ -62,14 +62,11 @@ jobs:
         env:
           USE_APT_CUTECHESS: "1"
         run: |
-          $output = ./scripts/elo-eval.ps1 `
+          $output = taskset -c 0 pwsh -File ./scripts/elo-eval.ps1 `
             -VsParent `
             -Games 300 `
             -TimeControl '1+0.1' `
             -Concurrency 0
-          if (-not (Test-Path 'matches')) {
-            New-Item -ItemType Directory -Path 'matches' | Out-Null
-          }
           $output | Tee-Object -FilePath 'matches/summary.txt'
           if ($env:GITHUB_STEP_SUMMARY) {
             $output | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
