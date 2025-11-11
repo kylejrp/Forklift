@@ -116,31 +116,61 @@ try {
             [string]$OutputDirectory,
             [string]$EngineNameParam
         )
-        # 1) If caller gave us the exact dll name and it exists, use it.
-        $hintDll = if ($EngineNameParam) { Join-Path $OutputDirectory ($EngineNameParam + '.dll') } else { $null }
-        if ($hintDll -and (Test-Path $hintDll)) { return (Resolve-Path $hintDll).Path }
-
-        # 2) Framework-dependent app: look for *.runtimeconfig.json and pick its matching dll.
-        $rtConfigs = Get-ChildItem -Path $OutputDirectory -Filter '*.runtimeconfig.json' -ErrorAction SilentlyContinue
-        foreach ($cfg in $rtConfigs) {
-            $base = [System.IO.Path]::GetFileNameWithoutExtension($cfg.Name)
-            $dll = Join-Path $OutputDirectory ($base + '.dll')
-            if (Test-Path $dll) { return (Resolve-Path $dll).Path }
+        # 0) Defensive: ensure directory exists
+        if (-not (Test-Path -LiteralPath $OutputDirectory -PathType Container)) {
+            throw "Publish output directory does not exist: $OutputDirectory"
         }
 
-        # 3) Fallback: self-contained apphost
-        $expectedName = if ($IsWindows) { "$EngineNameParam.exe" } else { $EngineNameParam }
+        # 1) If the hinted DLL exists, prefer it
         if ($EngineNameParam) {
-            $apphost = Join-Path $OutputDirectory $expectedName
-            if (Test-Path $apphost) {
+            $hintDll = Join-Path $OutputDirectory ($EngineNameParam + '.dll')
+            if (Test-Path -LiteralPath $hintDll) { return (Resolve-Path $hintDll).Path }
+            # Also check for a same-named apphost
+            $apphost = Join-Path $OutputDirectory ($IsWindows ? "$EngineNameParam.exe" : $EngineNameParam)
+            if (Test-Path -LiteralPath $apphost) {
                 if (-not $IsWindows) { & chmod '+x' $apphost }
                 return (Resolve-Path $apphost).Path
             }
         }
 
-        throw "Unable to find published engine in $OutputDirectory"
-    }
+        # 2) Framework-dependent: prefer *.runtimeconfig.json pairing
+        $rt = Get-ChildItem -LiteralPath $OutputDirectory -Filter '*.runtimeconfig.json' -ErrorAction SilentlyContinue
+        foreach ($cfg in $rt) {
+            $base = [System.IO.Path]::GetFileNameWithoutExtension($cfg.Name)  # name without .runtimeconfig.json
+            $dll = Join-Path $OutputDirectory ($base + '.dll')
+            if (Test-Path -LiteralPath $dll) { return (Resolve-Path $dll).Path }
+        }
 
+        # 3) Secondary heuristic: pair *.deps.json with *.dll
+        $deps = Get-ChildItem -LiteralPath $OutputDirectory -Filter '*.deps.json' -ErrorAction SilentlyContinue
+        foreach ($d in $deps) {
+            $base = [System.IO.Path]::GetFileNameWithoutExtension($d.Name)
+            $dll = Join-Path $OutputDirectory ($base + '.dll')
+            if (Test-Path -LiteralPath $dll) { return (Resolve-Path $dll).Path }
+        }
+
+        # 4) Self-contained apphost fallback (no runtimeconfig in some cases)
+        $apphosts = if ($IsWindows) {
+            Get-ChildItem -LiteralPath $OutputDirectory -Filter '*.exe' -ErrorAction SilentlyContinue
+        }
+        else {
+            # Likely a single, non-extension apphost; exclude *.dll/known data files
+            Get-ChildItem -LiteralPath $OutputDirectory -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -eq '' -and $_.Name -notmatch '^\.' }
+        }
+        foreach ($h in $apphosts) {
+            if (-not $IsWindows) { & chmod '+x' $h.FullName }
+            return (Resolve-Path $h.FullName).Path
+        }
+
+        # 5) Last resort: if exactly one *.dll exists, take it
+        $dlls = Get-ChildItem -LiteralPath $OutputDirectory -Filter '*.dll' -ErrorAction SilentlyContinue
+        if ($dlls.Count -eq 1) { return (Resolve-Path $dlls[0].FullName).Path }
+
+        # 6) Give a helpful error with a directory listing
+        $listing = (Get-ChildItem -LiteralPath $OutputDirectory | Select-Object Name, Length, LastWriteTime | Out-String)
+        throw "Unable to find published engine in $OutputDirectory. Contents:`n$listing"
+    }
 
 
     function Get-LogicalProcessorCount {
@@ -244,7 +274,10 @@ try {
         '-p:PublishSingleFile=false',
         '-o', $CurrentOutDir)
     Invoke-Checked -Command 'dotnet' -Arguments $publishArgs
+    Write-Host "[elo-eval] Contents of ${CurrentOutDir}:"
+    Get-ChildItem -LiteralPath $CurrentOutDir | ForEach-Object { Write-Host " - $($_.Name)" }
     $currentBinary = Normalize-EngineBinary -OutputDirectory $CurrentOutDir -EngineNameParam $EngineName
+
 
     # Build baseline from a temporary worktree
     if (Test-Path $PreviousOutDir) { Remove-Item $PreviousOutDir -Recurse -Force }
@@ -260,6 +293,8 @@ try {
         # Publish from inside the worktree so relative paths (EngineProject) resolve the same
         Invoke-Checked -Command 'dotnet' -Arguments @('restore', $EngineProject) -WorkingDirectory $baselineWorktree
         Invoke-Checked -Command 'dotnet' -Arguments @('publish', $EngineProject, '-c', 'Release', '--self-contained', 'false', '-p:PublishSingleFile=false', '-o', (Resolve-Path $PreviousOutDir)) -WorkingDirectory $baselineWorktree
+        Write-Host "[elo-eval] Contents of ${PreviousOutDir}:"
+        Get-ChildItem -LiteralPath $PreviousOutDir | ForEach-Object { Write-Host " - $($_.Name)" }
     }
     catch {
         $baselineBuildSuccess = $false
