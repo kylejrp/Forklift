@@ -14,10 +14,17 @@ concurrency:
   group: elo-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.ref) }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+  statuses: write
+
 jobs:
   elo:
     if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'elo') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       ENGINE_PROJECT: Forklift.ConsoleClient/Forklift.ConsoleClient.csproj
       ENGINE_NAME: Forklift
@@ -62,6 +69,7 @@ jobs:
         env:
           USE_APT_CUTECHESS: "1"
         run: |
+          set -euo pipefail
           $output = taskset -c 0 pwsh -File ./scripts/elo-eval.ps1 `
             -VsParent `
             -Games 300 `
