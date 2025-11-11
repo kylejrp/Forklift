@@ -32,6 +32,13 @@ jobs:
       CURRENT_ENGINE_DIR: artifacts/current/engine
       PREVIOUS_ENGINE_DIR: artifacts/previous/engine
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      COMPlus_ReadyToRun: "0"
+      COMPlus_TieredCompilation: "0"
+      COMPlus_TieredPGO: "0"
+      DOTNET_GCServer: "1"
+      COMPlus_GCHeapCount: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,6 +56,16 @@ jobs:
         run: dotnet --info
 
       - run: dotnet restore --locked-mode
+
+      - name: Detect .NET SDK full version
+        id: dotnet
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_string=$(dotnet --version | tr -d '\n' | xargs)
+          major=$(echo "$version_string" | cut -d'.' -f1)
+          minor=$(echo "$version_string" | cut -d'.' -f2)
+          echo "majorMinor=$major.$minor" >> "$GITHUB_OUTPUT"
 
       - name: Ensure PowerShell
         run: |
@@ -84,7 +101,12 @@ jobs:
         if: ${{ always() }}
         shell: pwsh
         run: |
+          if (-not (Test-Path 'matches/summary.json')) {
+            Write-Warning "matches/summary.json not found; skipping Elo gate."
+            return
+          }
           $s = Get-Content matches/summary.json | ConvertFrom-Json
+          # Gate only if we have a delta and enough games
           if ($s.ordo -and $s.games -ge 200 -and $s.ordo.delta -lt -5) {
             Write-Error "Elo regression: Δ $($s.ordo.delta) over $($s.games) games"
           }
@@ -92,7 +114,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: elo-eval-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor || 'unknown' }}-${{ github.event.pull_request.number || github.run_id }}
+          name: elo-eval-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-${{ github.event.pull_request.number || github.run_id }}
           path: |
             matches/latest-vs-previous.pgn
             matches/ratings.txt
@@ -105,24 +127,46 @@ jobs:
           if-no-files-found: warn
 
 
-      - name: Comment results on PR
+      - id: resolve_art
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@v7
+        env:
+          ART_NAME: elo-eval-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-${{ github.event.pull_request.number || github.run_id }}
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const run_id = context.runId;
+            const list = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              { owner, repo, run_id, per_page: 100 }
+            );
+            const a = list.find(x => x.name === process.env.ART_NAME && !x.expired);
+            core.setOutput('ui_url', a ? `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${a.id}` : '');
+
+      - name: Comment results on PR (rich)
+        if: ${{ github.event_name == 'pull_request' && hashFiles('matches/summary.json') != '' }}
+        uses: actions/github-script@v7
+        env:
+          ART_URL: ${{ steps.resolve_art.outputs.ui_url }}
         with:
           script: |
             const fs = require('fs')
             const sum = JSON.parse(fs.readFileSync('matches/summary.json','utf8'))
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            const artName = `elo-eval-${context.runId}`
-            const body = [
-              `**Elo Evaluation** for \`${context.sha.slice(0,7)}\``,
-              `- Baseline: \`${sum.baseline || 'auto'}\``,
-              `- Games: ${sum.games ?? '—'}`,
-              `- SPRT: ${sum.sprt ?? '—'}`,
-              sum.ordo ? `- Ordo Δ: **${sum.ordo.delta}** (±${sum.ordo.err})` : `- Ordo: (not run)`,
-              ``,
-              `Artifacts: [**${artName}**](${runUrl})`
-            ].join('\n')
+            const art = process.env.ART_URL ? `[**Artifacts**](${process.env.ART_URL})` : `[**Run**](${runUrl})`
+            const ord = sum.ordo
+              ? `- Ordo Δ: **${sum.ordo.delta}** (±${sum.ordo.err ?? '—'})\n`
+              : `- Ordo: (not run)\n`
+            const body =
+              `### ♟️ Elo Evaluation for \`${context.sha.slice(0,7)}\`\n` +
+              `- Baseline: \`${sum.baseline || 'auto'}\`\n` +
+              `- Games: ${sum.games ?? '—'}\n` +
+              `- SPRT: ${sum.sprt ?? '—'}\n` +
+              ord +
+              `\n${art}\n` +
+              (sum.cutechess
+                ? `\n<details><summary>cutechess-cli</summary>\n\n\`${sum.cutechess}\`\n</details>\n`
+                : '')
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -130,3 +174,52 @@ jobs:
               body
             })
 
+      - name: Summarize Elo results (main/schedule)
+        if: ${{ always() && github.event_name != 'pull_request' }}
+        shell: bash
+        run: |
+          {
+            echo "### ♟️ Elo Evaluation"
+            if [ -f matches/summary.json ]; then
+              jq -r '
+                def num(n): if n==null then "—" else (n|tostring) end;
+                "* Baseline:* \(.baseline // "auto")  \n" +
+                "* Games:* \(num(.games))  \n" +
+                "* SPRT:* \(.sprt // "—")  \n" +
+                (if .ordo then
+                  "* Ordo Δ:* **\(.ordo.delta)** (±\(.ordo.err // "—"))  \n"
+                else "* Ordo:* (not run)  \n" end)
+              ' matches/summary.json
+            else
+              echo "_No summary.json produced._"
+            fi
+            echo
+            echo "<details><summary>cutechess-cli command</summary>"
+            if [ -f matches/summary.json ]; then
+              jq -r '.cct_cmd // .cutechess // ""' matches/summary.json
+            fi
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set commit status (failure) on main regression
+        if: ${{ always() && github.event_name != 'pull_request' && hashFiles('matches/summary.json') != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sum = JSON.parse(fs.readFileSync('matches/summary.json','utf8'));
+            const isReg =
+              !!sum.ordo &&
+              typeof sum.ordo.delta === 'number' &&
+              typeof sum.games === 'number' &&
+              sum.games >= 200 &&
+              sum.ordo.delta < -5;
+            const {owner, repo} = context.repo;
+            await github.rest.repos.createCommitStatus({
+              owner, repo,
+              sha: context.sha,
+              state: isReg ? "failure" : "success",
+              context: "Forklift Elo",
+              description: isReg ? "Elo regression detected on main" : "Elo check passed",
+              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            });

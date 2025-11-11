@@ -414,6 +414,24 @@ try {
         }
     }
 
+    $gameCount = 0
+    $sprtLine = $null
+
+    if (Test-Path $pgnPath) {
+        $gameCount = (Select-String -Pattern '^\[Result "' -Path $pgnPath -ErrorAction SilentlyContinue | Measure-Object).Count
+    }
+
+    # Snapshot a default summary so gates/PRs never crash
+    $summaryPath = Join-Path $MatchDir 'summary.json'
+    $baseSummary = [pscustomobject]@{
+        baseline  = $baselineRef
+        games     = $gameCount
+        sprt      = $null
+        ordo      = $null
+        cutechess = $cutechessCommandDebug
+    }
+    $baseSummary | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
+
     $summaryLines = New-Object System.Collections.Generic.List[string]
     $summaryLines.Add("Baseline ref: $baselineRef")
     if ($gameCount -gt 0) {
@@ -422,7 +440,12 @@ try {
             $summaryLines.Add("Score (New vs Old): $($Matches[1])/$($Matches[2])/$($Matches[3])")
         }
         $sprtLine = $cutechessOutput | Where-Object { $_ -match 'SPRT' } | Select-Object -Last 1
-        if ($sprtLine) { $summaryLines.Add($sprtLine.Trim()) }
+        if ($sprtLine) {
+            $summaryLines.Add($sprtLine.Trim())
+            $existing = Get-Content $summaryPath | ConvertFrom-Json
+            $existing.sprt = $sprtLine
+            $existing | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
+        }
         $summaryLines.Add("Games played: $gameCount")
     }
     else {
@@ -468,14 +491,14 @@ try {
                 Write-Warning 'Ordo output did not contain expected player entries.'
             }
 
-            $summary = [pscustomobject]@{
-                baseline  = $baselineRef
-                games     = $gameCount
-                sprt      = $sprtLine
-                ordo      = @{ new = $newRow?.Rating; old = $oldRow?.Rating; delta = $diff; err = $newRow?.Error }
-                cutechess = $cutechessCommandDebug
+            $existing = Get-Content $summaryPath | ConvertFrom-Json
+            $existing.ordo = @{
+                new   = $newRow?.Rating
+                old   = $oldRow?.Rating
+                delta = $diff
+                err   = $newRow?.Error
             }
-            $summary | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $MatchDir 'summary.json')
+            $existing | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
         }
         catch {
             Write-Warning "Failed to parse Ordo output: $($_.Exception.Message)"
