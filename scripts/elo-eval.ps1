@@ -237,7 +237,7 @@ try {
     Invoke-Checked -Command 'dotnet' -Arguments $publishArgs
     Write-Host "[elo-eval] Contents of ${CurrentOutDir}:"
     Get-ChildItem -LiteralPath $CurrentOutDir | ForEach-Object { Write-Host " - $($_.Name)" }
-    $currentBinary = Normalize-EngineBinary -OutputDirectory $CurrentOutDir -EngineNameParam $EngineName
+    $currentBinary = Normalize-EngineBinary -OutputDirectory $CurrentOutDir -EngineName $EngineName
 
 
     # Build baseline from a temporary worktree
@@ -274,7 +274,7 @@ try {
         exit 0
     }
 
-    $baselineBinary = Normalize-EngineBinary -OutputDirectory $PreviousOutDir -EngineNameParam $EngineName
+    $baselineBinary = Normalize-EngineBinary -OutputDirectory $PreviousOutDir -EngineName $EngineName
 
     if (-not $IsWindows) {
         if ($InstallTools.IsPresent) { Write-Host '[elo-eval] Note: Tools are always installed automatically on non-Windows platforms; the InstallTools switch has no effect.' }
