@@ -29,48 +29,18 @@ jobs:
           cache-dependency-path: |
             **/packages.lock.json
 
-      - name: Detect highest .NET SDK
+      - name: Detect selected .NET SDK (respects global.json)
         id: dotnet
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-
-          # List installed SDK versions (first column of `dotnet --list-sdks`)
-          mapfile -t sdks < <(dotnet --list-sdks | awk '{print $1}')
-          if [ ${#sdks[@]} -eq 0 ]; then
-            echo "No .NET SDKs found" >&2
-            exit 1
-          fi
-
-          # Split into stable vs prerelease
-          stable=()
-          prerelease=()
-          for v in "${sdks[@]}"; do
-            if [[ "$v" =~ (preview|rc|alpha|beta) ]]; then
-              prerelease+=("$v")
-            else
-              stable+=("$v")
-            fi
-          done
-
-          pick_highest() { printf "%s\n" "$@" | sort -V | tail -1; }
-
-          if [ ${#stable[@]} -gt 0 ]; then
-            chosen="$(pick_highest "${stable[@]}")"
-            is_pre=false
-          else
-            chosen="$(pick_highest "${prerelease[@]}")"
-            is_pre=true
-          fi
-
-          major="${chosen%%.*}"
-          rest="${chosen#*.}"
-          minor="${rest%%.*}"
-
+          ver="$(dotnet --version | tr -d '\n' | xargs)"
+          major="${ver%%.*}"
+          minor="${ver#*.}"; minor="${minor%%.*}"
           {
-            echo "fullVersion=$chosen"
+            echo "fullVersion=$ver"
             echo "majorMinor=$major.$minor"
-            echo "isPrerelease=$is_pre"
           } >> "$GITHUB_OUTPUT"
 
       - run: dotnet restore --locked-mode
