@@ -97,15 +97,31 @@ jobs:
         env:
           USE_APT_CUTECHESS: "1"
         run: |
-          $output = taskset -c 0 pwsh -File ./scripts/elo-eval.ps1 `
-            -VsParent `
-            -Games 300 `
-            -TimeControl '1+0.1' `
-            -Concurrency 0
-          $output | Tee-Object -FilePath 'matches/summary.txt'
-          if ($env:GITHUB_STEP_SUMMARY) {
-            $output | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          New-Item -ItemType Directory -Path 'matches' -Force | Out-Null
+
+          $all = @()
+          try {
+            $all = @(taskset -c 0 pwsh -File ./scripts/elo-eval.ps1 `
+              -VsParent `
+              -Games 300 `
+              -TimeControl '1+0.1' `
+              -Concurrency 0 2>&1)
+          } catch {
+            # Preserve the exception text in the step output too
+            $all += $_.Exception.ToString()
           }
+
+          # Always tee what we captured so far
+          $all | Tee-Object -FilePath 'matches/summary.txt'
+
+          # Only append to the step summary if it exists
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $all -join [Environment]::NewLine | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+
+          # Re-throw if the script actually failed so the job fails correctly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 
       - name: Gate on Elo regression
         if: ${{ always() }}
