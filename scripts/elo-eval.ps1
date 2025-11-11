@@ -439,17 +439,19 @@ try {
                 $ordoError = $null
                 $culture = [System.Globalization.CultureInfo]::InvariantCulture
 
-                if ($_.'RATING' -and [double]::TryParse($_.'RATING', [ref]([double]$null))) {
-                    $rating = [double]::Parse($_.'RATING', $culture)
+                $parsedRating = $null
+                if ($_.'RATING' -and [double]::TryParse($_.'RATING', [ref]$parsedRating)) {
+                    $rating = $parsedRating
                 }
-                if ($_.'ERROR' -and $_.'ERROR' -ne '-' -and [double]::TryParse($_.'ERROR', [ref]([double]$null))) {
-                    $ordoError = [double]::Parse($_.'ERROR', $culture)
+                $parsedError = $null
+                if ($_.'ERROR' -and $_.'ERROR' -ne '-' -and [double]::TryParse($_.'ERROR', [ref]$parsedError)) {
+                    $ordoError = $parsedError
                 }
 
                 [pscustomobject]@{
                     Player = $_.'PLAYER'
-                    Rating = $rating
-                    Error  = $ordoError      # may be $null for the anchor
+                    Rating = $parsedRating
+                    Error  = $parsedError      # may be $null for the anchor
                 }
             }
 
