@@ -10,18 +10,18 @@
 		<ProjectReference Include="..\Forklift.Analyzers\Forklift.Analyzers.csproj"
 			OutputItemType="Analyzer"
 			ReferenceOutputAssembly="false" />
-		<PackageReference Include="coverlet.collector" Version="6.0.4">
+		<PackageReference Include="coverlet.collector">
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 			<PrivateAssets>all</PrivateAssets>
 		</PackageReference>
 
-		<PackageReference Include="FluentAssertions" Version="8.8.0" />
-		<PackageReference Include="FsCheck" Version="3.3.2" />
-		<PackageReference Include="FsCheck.Xunit" Version="3.3.2" />
-		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.0" />
+		<PackageReference Include="FluentAssertions" />
+		<PackageReference Include="FsCheck" />
+		<PackageReference Include="FsCheck.Xunit" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" />
 
-		<PackageReference Include="xunit" Version="2.9.3" />
-		<PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
+		<PackageReference Include="xunit" />
+		<PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
 	</ItemGroup>
 
 
@@ -32,7 +32,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Forklift.Core\Forklift.Core.csproj" />
   </ItemGroup>
-  
+
   <ItemGroup>
     <None Update="xunit.runner.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
