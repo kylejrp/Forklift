@@ -51,6 +51,8 @@ jobs:
         with:
           dotnet-version: '9.0.x'
           cache: true
+          cache-dependency-path: |
+            **/packages.lock.json
 
       - name: Display .NET info
         run: dotnet --info
