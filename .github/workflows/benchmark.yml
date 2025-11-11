@@ -47,6 +47,7 @@ jobs:
       DOTNET_GCServer: "1"
       COMPlus_GCHeapCount: "1"
       SUITE: ${{ matrix.suite }}
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
     steps:
       # Everything real is guarded with the inverse
@@ -62,7 +63,9 @@ jobs:
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: "9.0.x" }
+        with:
+          dotnet-version: "9.0.x"
+          cache: true
 
       - name: Detect .NET SDK full version
         id: dotnet
@@ -74,22 +77,12 @@ jobs:
           minor=$(echo "$version_string" | cut -d'.' -f2)
           echo "majorMinor=$major.$minor" >> "$GITHUB_OUTPUT"
 
+      - run: dotnet restore --locked-mode
+
       - name: Install jq + pwsh + unzip
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq powershell unzip
-
-      - name: Cache NuGet
-        if: ${{ !cancelled() }}
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.nuget/packages
-            ~/.local/share/NuGet/v3-cache
-          key: ${{ runner.os }}-nuget-${{ steps.dotnet.outputs.majorMinor }}-${{ hashFiles('**/*.csproj','**/Directory.Packages.props','**/global.json') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-${{ steps.dotnet.outputs.majorMinor }}-
-            ${{ runner.os }}-nuget-
 
       - name: Compute tolerance (by suite)
         shell: bash
