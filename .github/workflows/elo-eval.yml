@@ -88,7 +88,6 @@ jobs:
         env:
           USE_APT_CUTECHESS: "1"
         run: |
-          set -euo pipefail
           $output = taskset -c 0 pwsh -File ./scripts/elo-eval.ps1 `
             -VsParent `
             -Games 300 `
