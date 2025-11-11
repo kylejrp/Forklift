@@ -450,8 +450,8 @@ try {
 
                 [pscustomobject]@{
                     Player = $_.'PLAYER'
-                    Rating = $parsedRating
-                    Error  = $parsedError      # may be $null for the anchor
+                    Rating = $rating
+                    Error  = $ordoError      # may be $null for the anchor
                 }
             }
 
