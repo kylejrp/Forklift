@@ -112,10 +112,10 @@ try {
     }
 
     function Normalize-EngineBinary {
-        param(
-            [string]$OutputDirectory,
-            [string]$EngineNameParam
-        )
+        param([string]$OutputDirectory, [string]$EngineNameParam)
+        $dll = Join-Path $OutputDirectory "$EngineNameParam.dll"
+        if (Test-Path $dll) { return $dll }  # framework-dependent: use dll
+
         $expectedName = if ($IsWindows) { "$EngineNameParam.exe" } else { $EngineNameParam }
         $expectedPath = Join-Path $OutputDirectory $expectedName
         if (Test-Path $expectedPath) {
@@ -123,19 +123,9 @@ try {
             return $expectedPath
         }
 
-        $published = Get-ChildItem -Path $OutputDirectory -File | Sort-Object LastWriteTime -Descending
-        foreach ($file in $published) {
-            try {
-                Move-Item -LiteralPath $file.FullName -Destination $expectedPath -Force
-                Set-Executable -Path $expectedPath
-                return $expectedPath
-            }
-            catch {
-                continue
-            }
-        }
-        throw "Unable to normalize published binary in $OutputDirectory"
+        throw "Unable to find published engine in $OutputDirectory"
     }
+
 
     function Get-LogicalProcessorCount {
         param([int]$Requested)
@@ -230,12 +220,13 @@ try {
     }
     Write-Host "[elo-eval] Baseline ref: $baselineRef"
 
-    $runtime = if ($IsWindows) { 'win-x64' } else { 'linux-x64' }
-
     # Build current from the main working tree
     if (Test-Path $CurrentOutDir) { Remove-Item $CurrentOutDir -Recurse -Force }
     Ensure-Directory -Path $CurrentOutDir
-    $publishArgs = @('publish', $EngineProject, '-c', 'Release', '-r', $runtime, '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-o', $CurrentOutDir)
+    $publishArgs = @('publish', $EngineProject, '-c', 'Release',
+        '--self-contained', 'false',
+        '-p:PublishSingleFile=false',
+        '-o', $CurrentOutDir)
     Invoke-Checked -Command 'dotnet' -Arguments $publishArgs
     $currentBinary = Normalize-EngineBinary -OutputDirectory $CurrentOutDir -EngineNameParam $EngineName
 
@@ -252,7 +243,7 @@ try {
 
         # Publish from inside the worktree so relative paths (EngineProject) resolve the same
         Invoke-Checked -Command 'dotnet' -Arguments @('restore', $EngineProject) -WorkingDirectory $baselineWorktree
-        Invoke-Checked -Command 'dotnet' -Arguments @('publish', $EngineProject, '-c', 'Release', '-r', $runtime, '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-o', (Resolve-Path $PreviousOutDir)) -WorkingDirectory $baselineWorktree
+        Invoke-Checked -Command 'dotnet' -Arguments @('publish', $EngineProject, '-c', 'Release', '--self-contained', 'false', '-p:PublishSingleFile=false', '-o', (Resolve-Path $PreviousOutDir)) -WorkingDirectory $baselineWorktree
     }
     catch {
         $baselineBuildSuccess = $false
@@ -363,13 +354,14 @@ try {
     $sprtArgs = @()
     if ($Sprt) { $sprtArgs = $Sprt -split '\s+' | Where-Object { $_ } }
 
-    $newEngineCmd = 'cmd=' + (Quote-CutechessArgument $currentBinary.Path)
-    $oldEngineCmd = 'cmd=' + (Quote-CutechessArgument $baselineBinary.Path)
+    $dotnetCmd = (Get-Command dotnet).Source
+    $newEngineCmd = 'cmd=' + (Quote-CutechessArgument $dotnetCmd)
+    $oldEngineCmd = 'cmd=' + (Quote-CutechessArgument $dotnetCmd)
     $openingsArg = 'file=' + (Quote-CutechessArgument $openingsPath)
 
     $cutechessArgs = @(
-        '-engine', $newEngineCmd, 'name=New', 'proto=uci',
-        '-engine', $oldEngineCmd, 'name=Old', 'proto=uci',
+        '-engine', $newEngineCmd, 'arg=' + (Quote-CutechessArgument $currentBinary.Path), 'name=New', 'proto=uci',
+        '-engine', $oldEngineCmd, 'arg=' + (Quote-CutechessArgument $baselineBinary.Path), 'name=Old', 'proto=uci',
         '-each', "tc=$TimeControl", 'timemargin=100',
         '-games', $Games,
         '-repeat',

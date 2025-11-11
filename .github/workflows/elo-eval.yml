@@ -122,7 +122,6 @@ jobs:
           # Re-throw if the script actually failed so the job fails correctly
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-
       - name: Gate on Elo regression
         if: ${{ always() }}
         shell: pwsh
