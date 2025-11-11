@@ -51,7 +51,7 @@ jobs:
       - name: Install jq + curl + pwsh
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq curl powershell
+          sudo apt-get install -y jq curl
 
       - name: Elo evaluation (PowerShell)
         shell: pwsh
