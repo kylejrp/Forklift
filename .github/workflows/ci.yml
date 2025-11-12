@@ -22,23 +22,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup .NET SDK 9.0.x
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/packages.lock.json
 
-      - name: Cache NuGet
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.nuget/packages
-            ~/.local/share/NuGet/v3-cache
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/global.json', '**/packages.lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
+      - name: Detect selected .NET SDK (respects global.json)
+        id: dotnet
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          ver="$(dotnet --version | tr -d '\n' | xargs)"
+          major="${ver%%.*}"
+          minor="${ver#*.}"; minor="${minor%%.*}"
+          {
+            echo "fullVersion=$ver"
+            echo "majorMinor=$major.$minor"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Restore
-        run: dotnet restore
+      - run: dotnet restore --locked-mode
 
       - name: Build
         run: dotnet build --configuration Release --no-restore

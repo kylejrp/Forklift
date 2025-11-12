@@ -1,0 +1,217 @@
+name: Elo Evaluation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  schedule:
+    - cron: "0 3 * * *"
+  pull_request:
+    types: [labeled, unlabeled, opened, synchronize, reopened]
+    branches: ["*"]
+    paths:
+      - "Forklift.Core/**"
+      - ".github/workflows/elo-eval.yml"
+      - "scripts/elo-eval.ps1"
+      - "scripts/install-chess-tools.sh"
+      - "global.json"
+
+concurrency:
+  group: elo-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.ref) }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+  statuses: write
+
+jobs:
+  elo:
+    if: ${{ github.event_name != 'pull_request' || contains((github.event.pull_request.labels.*.name || fromJSON('[]')), 'elo') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      ENGINE_PROJECT: Forklift.ConsoleClient/Forklift.ConsoleClient.csproj
+      ENGINE_NAME: Forklift.ConsoleClient
+      MATCH_DIR: matches
+      CURRENT_ENGINE_DIR: artifacts/current/engine
+      PREVIOUS_ENGINE_DIR: artifacts/previous/engine
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      COMPlus_ReadyToRun: "0"
+      COMPlus_TieredCompilation: "0"
+      COMPlus_TieredPGO: "0"
+      DOTNET_GCServer: "1"
+      COMPlus_GCHeapCount: "1"
+
+    steps:
+      - name: Debug - OS / arch
+        run: |
+          echo "ImageOS=$ImageOS"
+          echo "ImageVersion=$ImageVersion"
+          echo "runner.os=${{ runner.os }}"
+          echo "runner.arch=${{ runner.arch }}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            **/packages.lock.json
+
+      - name: Display .NET info
+        run: dotnet --info
+
+      - run: dotnet restore --locked-mode
+
+      - name: Detect selected .NET SDK (respects global.json)
+        id: dotnet
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(dotnet --version | tr -d '\n' | xargs)"
+          major="${ver%%.*}"
+          minor="${ver#*.}"; minor="${minor%%.*}"
+          {
+            echo "fullVersion=$ver"
+            echo "majorMinor=$major.$minor"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Ensure PowerShell + jq + unzip
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y powershell jq curl unzip
+
+      - name: Elo evaluation (PowerShell)
+        shell: pwsh
+        env:
+          USE_APT_CUTECHESS: "1"
+        run: |
+          ./scripts/elo-eval.ps1 `
+            -EngineProject   '${{ env.ENGINE_PROJECT }}' `
+            -EngineName      '${{ env.ENGINE_NAME }}' `
+            -MatchDir        '${{ env.MATCH_DIR }}' `
+            -CurrentOutDir   '${{ env.CURRENT_ENGINE_DIR }}' `
+            -PreviousOutDir  '${{ env.PREVIOUS_ENGINE_DIR }}'
+
+      - id: calculate_artifact_name
+        name: Calculate artifact name
+        run: |
+          echo "ART_NAME=elo-eval-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-${{ github.event.pull_request.number || github.run_id }}" >> "$GITHUB_ENV"
+
+      - id: upload_art
+        name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ART_NAME }}
+          if-no-files-found: warn
+          path: |
+            matches/latest-vs-previous.pgn
+            matches/ratings.txt
+            matches/ratings.csv
+            matches/summary.json
+            matches/summary.md
+            matches/logs/**
+            matches/tool-versions.txt
+
+      - id: resolve_art
+        if: ${{ always() && !env.DRY_RUN }}
+        uses: actions/github-script@v7
+        env:
+          ART_NAME: ${{ env.ART_NAME }}
+        with:
+          script: |
+            try {
+              const {owner, repo} = context.repo;
+              const run_id = context.runId;
+              const arts = await github.paginate(
+                github.rest.actions.listWorkflowRunArtifacts,
+                { owner, repo, run_id, per_page: 100 }
+              );
+              const target = arts.find(a => a.name === process.env.ART_NAME && !a.expired);
+              core.setOutput('ui_url', target
+                ? `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${target.id}`
+                : '');
+            } catch (err) {
+              core.info(`resolve_art: ${err?.message || err}`);
+              core.setOutput('ui_url', '');
+            }
+
+      # --- Comment on PR, preferring API URL, else uploader output, else run URL ---
+      - name: Comment results on PR
+        if: ${{ github.event_name == 'pull_request' && always() }}
+        uses: actions/github-script@v7
+        env:
+          ART_URL_API:   ${{ steps.resolve_art.outputs.ui_url }}
+          ART_URL_UPLOAD: ${{ steps.upload_art.outputs.artifact-url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          script: |
+            const fs = require('fs');
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const artUrl = process.env.ART_URL_API || process.env.ART_URL_UPLOAD || runUrl;
+
+            try {
+              const summary = fs.readFileSync('matches/summary.md','utf8');
+              const body = summary +
+                `\n\nArtifacts: [**download**](${artUrl})\n`;
+
+              const isDry = process.env.DRY_RUN === 'true' || !process.env.GH_TOKEN;
+              await core.summary.addRaw(body).write();
+              if (isDry) {
+                console.log('Dry run - comment body:\n' + body);
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body
+                });
+              }
+            } catch {}
+
+
+
+      - name: Gate on Elo regression (soft)
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "matches/summary.json")) {
+            Write-Warning "matches/summary.json not found; skipping Elo gate."
+          }
+
+      - name: Set commit status (failure) on main regression
+        if: ${{ always() && github.event_name != 'pull_request' && hashFiles('matches/summary.json') != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sum = JSON.parse(fs.readFileSync('matches/summary.json','utf8'));
+            const isReg =
+              !!sum.ordo &&
+              typeof sum.ordo.delta === 'number' &&
+              typeof sum.games === 'number' &&
+              sum.games >= 200 &&
+              sum.ordo.delta < -5;
+            const {owner, repo} = context.repo;
+            await github.rest.repos.createCommitStatus({
+              owner, repo,
+              sha: context.sha,
+              state: isReg ? "failure" : "success",
+              context: "Forklift Elo",
+              description: isReg ? "Elo regression detected on main" : "Elo check passed",
+              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            });
+

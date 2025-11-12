@@ -7,6 +7,8 @@ on:
     paths:
       - "Forklift.Core/**"
       - ".github/workflows/benchmark.yml"
+      - "Forklift.Benchmark/Run-Benchmark.ps1"
+      - "global.json"
   workflow_dispatch:
     inputs:
       suite:
@@ -47,6 +49,7 @@ jobs:
       DOTNET_GCServer: "1"
       COMPlus_GCHeapCount: "1"
       SUITE: ${{ matrix.suite }}
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
     steps:
       # Everything real is guarded with the inverse
@@ -62,34 +65,35 @@ jobs:
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: "9.0.x" }
+        with:
+          # we require 8.0 for the BDNA tooling, but 9.0 for building/running Forklift
+          dotnet-version: |
+            8.0.x
+            9.0.x
+          cache: true
+          cache-dependency-path: |
+            **/packages.lock.json
 
-      - name: Detect .NET SDK full version
+      - name: Detect selected .NET SDK (respects global.json)
         id: dotnet
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          version_string=$(dotnet --version | tr -d '\n' | xargs)
-          major=$(echo "$version_string" | cut -d'.' -f1)
-          minor=$(echo "$version_string" | cut -d'.' -f2)
-          echo "majorMinor=$major.$minor" >> "$GITHUB_OUTPUT"
+          ver="$(dotnet --version | tr -d '\n' | xargs)"
+          major="${ver%%.*}"
+          minor="${ver#*.}"; minor="${minor%%.*}"
+          {
+            echo "fullVersion=$ver"
+            echo "majorMinor=$major.$minor"
+          } >> "$GITHUB_OUTPUT"
+
+      - run: dotnet restore --locked-mode
 
       - name: Install jq + pwsh + unzip
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq powershell unzip
-
-      - name: Cache NuGet
-        if: ${{ !cancelled() }}
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.nuget/packages
-            ~/.local/share/NuGet/v3-cache
-          key: ${{ runner.os }}-nuget-${{ steps.dotnet.outputs.majorMinor }}-${{ hashFiles('**/*.csproj','**/Directory.Packages.props','**/global.json') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-${{ steps.dotnet.outputs.majorMinor }}-
-            ${{ runner.os }}-nuget-
 
       - name: Compute tolerance (by suite)
         shell: bash
@@ -405,8 +409,9 @@ jobs:
 
       - name: Summarize results on main
         if: ${{ always() && github.event_name != 'pull_request' }}
-        shell: bash --noprofile --norc -euo pipefail
+        shell: bash
         run: |
+          set -euo pipefail
           {
             echo "### 🧪 Forklift Benchmarks (main)"
             echo
@@ -477,13 +482,19 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: "9.0.x" }
 
-      - name: Detect .NET SDK full version
+      - name: Detect selected .NET SDK (respects global.json)
         id: dotnet
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          v=$(dotnet --version | tr -d '\n' | xargs)
-          echo "majorMinor=$(echo "$v" | cut -d'.' -f1-2)" >> "$GITHUB_OUTPUT"
+          ver="$(dotnet --version | tr -d '\n' | xargs)"
+          major="${ver%%.*}"
+          minor="${ver#*.}"; minor="${minor%%.*}"
+          {
+            echo "fullVersion=$ver"
+            echo "majorMinor=$major.$minor"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install jq + pwsh
         run: |

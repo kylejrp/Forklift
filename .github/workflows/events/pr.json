@@ -13,6 +13,9 @@
     "labels": [
       {
         "name": "benchmark"
+      },
+      {
+        "name": "elo"
       }
     ],
     "head": {
