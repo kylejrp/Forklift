@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           # we require 8.0 for the BDNA tooling, but 9.0 for building/running Forklift
           dotnet-version: |
@@ -479,7 +479,7 @@ jobs:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with: { dotnet-version: "9.0.x" }
 
       - name: Detect selected .NET SDK (respects global.json)
