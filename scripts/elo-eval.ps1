@@ -480,14 +480,15 @@ try {
             $norm = $csv | ForEach-Object {
                 $rating = $null
                 $ordoError = $null
-                $culture = [System.Globalization.CultureInfo]::InvariantCulture
+                $style = [System.Globalization.NumberStyles]::Float
+                $cult = [System.Globalization.CultureInfo]::InvariantCulture
 
-                $parsedRating = $null
-                if ($_.'RATING' -and [double]::TryParse($_.'RATING', [ref]$parsedRating)) {
+                $parsedRating = 0.0
+                if ($_.'RATING' -and [double]::TryParse($_.'RATING', $style, $cult, [ref]$parsedRating)) {
                     $rating = $parsedRating
                 }
-                $parsedError = $null
-                if ($_.'ERROR' -and $_.'ERROR' -ne '-' -and [double]::TryParse($_.'ERROR', [ref]$parsedError)) {
+                $parsedError = 0.0
+                if ($_.'ERROR' -and $_.'ERROR' -ne '-' -and [double]::TryParse($_.'ERROR', $style, $cult, [ref]$parsedError)) {
                     $ordoError = $parsedError
                 }
 
@@ -511,12 +512,17 @@ try {
                 Write-Warning 'Ordo output did not contain expected player entries.'
             }
 
+            # Safe accessors (work on every PS version you'll hit on runners)
+            $nr = if ($null -ne $newRow) { $newRow.Rating } else { $null }
+            $ne = if ($null -ne $newRow) { $newRow.Error } else { $null }
+            $or = if ($null -ne $oldRow) { $oldRow.Rating } else { $null }
+
             $existing = Get-Content $summaryPath | ConvertFrom-Json
             $existing.ordo = @{
-                new   = $newRow?.Rating
-                old   = $oldRow?.Rating
+                new   = $nr
+                old   = $or
                 delta = $diff
-                err   = $newRow?.Error
+                err   = $ne
             }
             $existing | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
         }

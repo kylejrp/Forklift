@@ -235,14 +235,14 @@ function Run-EloEval {
   Invoke-ActRun `
     -Event        'pull_request' `
     -WorkflowPath '.github/workflows/elo-eval.yml' `
-    -Job          'elo-evaluation' `
+    -Job          'elo' `
     -EventJson    '.github/workflows/events/pr.json' `
     -DryRun `
     -LogPath      'act-elo-eval.log'
 }
 
-if (-not ($PushMain -or $Schedule -or $BenchPR -or $CiPR)) {
-  Write-Host "No action specified. Use one or more of: -PushMain -Schedule -BenchPR -CiPR"
+if (-not ($PushMain -or $Schedule -or $BenchPR -or $CiPR -or $EloEval)) {
+  Write-Host "No action specified. Use -All or one or more of: -PushMain -Schedule -BenchPR -CiPR -EloEval"
   exit 1
 }
 
