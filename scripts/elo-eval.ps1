@@ -248,6 +248,7 @@ try {
     Write-Host "[elo-eval] Contents of ${CurrentOutDir}:"
     Get-ChildItem -LiteralPath $CurrentOutDir | ForEach-Object { Write-Host " - $($_.Name)" }
     $currentBinary = Normalize-EngineBinary -OutputDirectory $CurrentOutDir -EngineName $EngineName
+    $currentRef = (git rev-parse HEAD).Trim()
 
 
     # Build baseline from a temporary worktree
@@ -461,6 +462,7 @@ try {
     $summaryPath = Join-Path $MatchDir 'summary.json'
     $baseSummary = [pscustomobject]@{
         baseline          = $baselineRef
+        candidate         = $currentRef
         games             = 0
         sprt              = $null
         cutechess_command = $cutechessCommand
@@ -469,7 +471,10 @@ try {
     $baseSummary | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
 
     $summaryLines = New-Object System.Collections.Generic.List[string]
+    $summaryLines.Add("### Elo evaluation summary")
+    $summaryLines.Add("")
     $summaryLines.Add("Baseline ref: $baselineRef")
+    $summaryLines.Add("Candidate ref: $currentRef")
 
     if ($gameCount -gt 0) {
         $scoreLine = $cutechessOutput | Where-Object { $_ -match 'Score of New vs Old:' } | Select-Object -Last 1
@@ -535,7 +540,6 @@ try {
                 Write-Warning 'Ordo output did not contain expected player entries.'
             }
 
-            # Safe accessors (work on every PS version you'll hit on runners)
             $nr = if ($null -ne $newRow) { $newRow.Rating } else { $null }
             $ne = if ($null -ne $newRow) { $newRow.Error } else { $null }
             $or = if ($null -ne $oldRow) { $oldRow.Rating } else { $null }
@@ -550,14 +554,17 @@ try {
             $existing | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
         }
         catch {
+            $summaryLines.Add('Ordo: Failed to parse ratings output.')
             Write-Warning "Failed to parse Ordo output: $($_.Exception.Message)"
         }
     }
     if ($gameCount -lt 10) {
+        $summaryLines.Add("Fewer than 10 games were played; statistics may be unreliable.")
         Write-Warning 'Fewer than 10 games were played; statistics may be unreliable.'
     }
 
     foreach ($line in $summaryLines) { Write-Output $line }
+    foreach ($line in $summaryLines) { Add-Content -Path (Join-Path $MatchDir 'summary.md') -Value $line }
 }
 finally {
     Pop-Location

@@ -65,9 +65,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          # require 9.x for Forklift, 10 runtime may exist on host but not needed here
-          dotnet-version: |
-            9.0.x
+          dotnet-version: 9.0.x
+          global-json-file: global.json
           cache: true
           cache-dependency-path: |
             **/packages.lock.json
