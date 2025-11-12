@@ -484,9 +484,12 @@ try {
             $summaryLines.Add("| Score (New vs Old) | $($Matches[1])/$($Matches[2])/$($Matches[3]) |")
         }
 
+        # Here, sprtLine looks like "SPRT: llr -0.126 (-4.3%), lbound -2.94, ubound 2.94"
+        # We want to convert it to "| SPRT | llr -0.126 (-4.3%), lbound -2.94, ubound 2.94 |"
         $sprtLine = ($cutechessOutput | Select-String -Pattern '\bSPRT\b' | Select-Object -Last 1).Line
+        $sprtMdLine = if ($sprtLine) { "| SPRT | " + $sprtLine.Trim() + " |" } else { $null }
         if ($sprtLine) {
-            $summaryLines.Add($sprtLine.Trim())
+            $summaryLines.Add($sprtMdLine)
         }
 
         $summaryLines.Add("| Games played | $gameCount |")
