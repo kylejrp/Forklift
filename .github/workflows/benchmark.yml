@@ -61,7 +61,7 @@ jobs:
           echo "Detected runner.arch: ${{ runner.arch }}"
           echo "Resolved SUITE: $SUITE"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-dotnet@v4
@@ -476,7 +476,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-dotnet@v4
