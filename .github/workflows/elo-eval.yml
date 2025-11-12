@@ -163,27 +163,26 @@ jobs:
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const artUrl = process.env.ART_URL_API || process.env.ART_URL_UPLOAD || runUrl;
 
-            // Optional: include a terse summary if present
-            let summary = '';
             try {
-              summary = fs.readFileSync('matches/summary.md','utf8');
+              const summary = fs.readFileSync('matches/summary.md','utf8');
+              const body = summary +
+                `\n\nArtifacts: [**download**](${artUrl})\n`;
+
+              const isDry = process.env.DRY_RUN === 'true' || !process.env.GH_TOKEN;
+              await core.summary.addRaw(body).write();
+              if (isDry) {
+                console.log('Dry run - comment body:\n' + body);
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body
+                });
+              }
             } catch {}
 
-            const body = summary +
-              `\n\nArtifacts: [**download**](${artUrl})\n`;
 
-            const isDry = process.env.DRY_RUN === 'true' || !process.env.GH_TOKEN;
-            await core.summary.addRaw(body).write();
-            if (isDry) {
-              console.log('Dry run - comment body:\n' + body);
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body
-              });
-            }
 
       - name: Gate on Elo regression (soft)
         if: ${{ always() }}
