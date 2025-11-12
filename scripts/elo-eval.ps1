@@ -471,15 +471,17 @@ try {
     $baseSummary | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
 
     $summaryLines = New-Object System.Collections.Generic.List[string]
-    $summaryLines.Add("### Elo evaluation summary")
+    $summaryLines.Add("### ♟️ Elo evaluation")
     $summaryLines.Add("")
-    $summaryLines.Add("Baseline ref: $baselineRef")
-    $summaryLines.Add("Candidate ref: $currentRef")
+    $summaryLines.Add("| Name | Value |")
+    $summaryLines.Add("|---|---|")
+    $summaryLines.Add("| Baseline ref | $baselineRef |")
+    $summaryLines.Add("| Candidate ref | $currentRef |")
 
     if ($gameCount -gt 0) {
         $scoreLine = $cutechessOutput | Where-Object { $_ -match 'Score of New vs Old:' } | Select-Object -Last 1
         if ($scoreLine -and $scoreLine -match 'Score of New vs Old:\s+([0-9\.]+)\s*-\s*([0-9\.]+)\s*-\s*([0-9\.]+)') {
-            $summaryLines.Add("Score (New vs Old): $($Matches[1])/$($Matches[2])/$($Matches[3])")
+            $summaryLines.Add("| Score (New vs Old) | $($Matches[1])/$($Matches[2])/$($Matches[3]) |")
         }
 
         $sprtLine = ($cutechessOutput | Select-String -Pattern '\bSPRT\b' | Select-Object -Last 1).Line
@@ -487,10 +489,10 @@ try {
             $summaryLines.Add($sprtLine.Trim())
         }
 
-        $summaryLines.Add("Games played: $gameCount")
+        $summaryLines.Add("| Games played | $gameCount |")
     }
     else {
-        $summaryLines.Add('No completed games recorded in PGN.')
+        $summaryLines.Add('| Games played | N/A |')
     }
 
     $existing = Get-Content $summaryPath | ConvertFrom-Json
@@ -532,7 +534,7 @@ try {
 
             if ($newRow -and $oldRow) {
                 $diff = ($newRow.Rating - $oldRow.Rating)
-                $line = "Ordo: New {0:F2} vs Old {1:F2} (Δ {2:F2})" -f $newRow.Rating, $oldRow.Rating, $diff
+                $line = "| Ordo | New {0:F2} vs Old {1:F2} (Δ {2:F2}) |" -f $newRow.Rating, $oldRow.Rating, $diff
                 if ($newRow.Error -ne $null) { $line += " ±{0:F2}" -f $newRow.Error }
                 $summaryLines.Add($line)
             }
@@ -554,11 +556,12 @@ try {
             $existing | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
         }
         catch {
-            $summaryLines.Add('Ordo: Failed to parse ratings output.')
+            $summaryLines.Add('| Ordo | Failed to parse ratings output. |')
             Write-Warning "Failed to parse Ordo output: $($_.Exception.Message)"
         }
     }
     if ($gameCount -lt 10) {
+        $summaryLines.Add("")
         $summaryLines.Add("Fewer than 10 games were played; statistics may be unreliable.")
         Write-Warning 'Fewer than 10 games were played; statistics may be unreliable.'
     }

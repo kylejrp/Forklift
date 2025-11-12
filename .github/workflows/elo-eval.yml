@@ -169,12 +169,11 @@ jobs:
               summary = fs.readFileSync('matches/summary.md','utf8');
             } catch {}
 
-            const body =
-              `### ♟️ Elo Evaluation\n` +
-              summary +
-              `\nArtifacts: [**download**](${artUrl})\n`;
+            const body = summary +
+              `\n\nArtifacts: [**download**](${artUrl})\n`;
 
             const isDry = process.env.DRY_RUN === 'true' || !process.env.GH_TOKEN;
+            echo body >> $GITHUB_STEP_SUMMARY
             if (isDry) {
               console.log('Dry run - comment body:\n' + body);
             } else {
