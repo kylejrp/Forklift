@@ -121,7 +121,6 @@ jobs:
             matches/latest-vs-previous.pgn
             matches/ratings.txt
             matches/ratings.csv
-            matches/summary.txt
             matches/summary.json
             matches/logs/**
             matches/tool-versions.txt
