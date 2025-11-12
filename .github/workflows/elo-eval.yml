@@ -128,7 +128,7 @@ jobs:
 
       - id: resolve_art
         if: ${{ always() && !env.DRY_RUN }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           ART_NAME: ${{ env.ART_NAME }}
         with:
@@ -152,7 +152,7 @@ jobs:
       # --- Comment on PR, preferring API URL, else uploader output, else run URL ---
       - name: Comment results on PR
         if: ${{ github.event_name == 'pull_request' && always() }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           ART_URL_API:   ${{ steps.resolve_art.outputs.ui_url }}
           ART_URL_UPLOAD: ${{ steps.upload_art.outputs.artifact-url }}
@@ -194,7 +194,7 @@ jobs:
 
       - name: Set commit status (failure) on main regression
         if: ${{ always() && github.event_name != 'pull_request' && hashFiles('matches/summary.json') != '' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
