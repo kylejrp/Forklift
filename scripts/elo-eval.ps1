@@ -487,7 +487,7 @@ try {
         # Here, sprtLine looks like "SPRT: llr -0.126 (-4.3%), lbound -2.94, ubound 2.94"
         # We want to convert it to "| SPRT | llr -0.126 (-4.3%), lbound -2.94, ubound 2.94 |"
         $sprtLine = ($cutechessOutput | Select-String -Pattern '\bSPRT\b' | Select-Object -Last 1).Line
-        $sprtMdLine = if ($sprtLine) { "| SPRT | " + $sprtLine.Trim() + " |" } else { $null }
+        $sprtMdLine = if ($sprtLine) { "| SPRT | " + $sprtLine.Trim().Substring(5) + " |" } else { $null }
         if ($sprtLine) {
             $summaryLines.Add($sprtMdLine)
         }
