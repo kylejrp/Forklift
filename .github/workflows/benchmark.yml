@@ -61,10 +61,10 @@ jobs:
           echo "Detected runner.arch: ${{ runner.arch }}"
           echo "Resolved SUITE: $SUITE"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           # we require 8.0 for the BDNA tooling, but 9.0 for building/running Forklift
           dotnet-version: |
@@ -131,7 +131,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Fetch latest main BDNA aggregates (same environment)
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           ART_NAME: ${{ steps.art.outputs.agg_name }}
         with:
@@ -225,7 +225,7 @@ jobs:
 
       - name: Upload BDN results (environment-keyed)
         if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.art.outputs.bdn_name }}
           path: |
@@ -290,7 +290,7 @@ jobs:
 
       - id: pr_texts
         if: ${{ always() && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.prart.outputs.name }}
           if-no-files-found: warn
@@ -308,7 +308,7 @@ jobs:
 
       - id: resolve_art_url
         if: ${{ always() && github.event_name != 'pull_request' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           ART_NAME: ${{ steps.prart.outputs.name }}
         with:
@@ -324,7 +324,7 @@ jobs:
 
       - name: Comment results on PR (A/B + BDNA)
         if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           SUITE: ${{ matrix.suite }}
           RUNNER_OS: ${{ runner.os }}
@@ -443,7 +443,7 @@ jobs:
 
       - name: Set commit status (failure) on regression
         if: ${{ always() && github.event_name != 'pull_request' && (steps.gates.outputs.ab_regression == 'true' || steps.gates.outputs.bdna_regression == 'true') }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const {owner, repo} = context.repo;
@@ -476,10 +476,10 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with: { dotnet-version: "9.0.x" }
 
       - name: Detect selected .NET SDK (respects global.json)
@@ -511,7 +511,7 @@ jobs:
           echo "bdn_full=bdn-results-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-full" >> "$GITHUB_OUTPUT"
 
       - name: Fetch latest main BDNA aggregates (same environment)
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           ART_NAME: ${{ steps.art.outputs.agg_name }}
         with:
@@ -549,7 +549,7 @@ jobs:
           fi
 
       - name: Download per-suite BDN result artifacts from this run
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           BDN_MIN:  ${{ steps.art.outputs.bdn_min }}
           BDN_FAST: ${{ steps.art.outputs.bdn_fast }}
@@ -621,7 +621,7 @@ jobs:
           Add-Run ".res/full"
 
       - name: Upload combined BDNA aggregates (env-keyed)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.art.outputs.agg_name }}
           path: .eval/bdna/aggregates/**
