@@ -113,7 +113,7 @@ jobs:
 
       - id: upload_art
         name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ env.ART_NAME }}
           if-no-files-found: warn
