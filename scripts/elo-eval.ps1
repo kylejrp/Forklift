@@ -137,33 +137,45 @@ try {
         param([int]$Requested)
         if ($Requested -gt 0) { return $Requested }
         try {
-            if ($IsWindows) {
-                $count = (Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum
-                if ($count -gt 0) { return [int]$count }
-            }
-            elseif ($IsLinux) {
-                $nproc = Get-CommandOrNull 'nproc'
+            if ($IsLinux) {
+                # Prefer cgroup quota (containers)
+                $quotaPath = '/sys/fs/cgroup/cpu.max'
+                if (Test-Path $quotaPath) {
+                    $cpuMax = (Get-Content $quotaPath).Trim()  # e.g. "200000 100000" or "max 100000"
+                    $parts = $cpuMax -split '\s+'
+                    if ($parts.Length -ge 2 -and $parts[0] -ne 'max') {
+                        $quota = [double]$parts[0]
+                        $period = [double]$parts[1]
+                        $cg = [int][math]::Floor($quota / $period + 0.0001)
+                        if ($cg -gt 0) { return $cg }
+                    }
+                }
+                $nproc = Get-Command nproc -ErrorAction SilentlyContinue
                 if ($nproc) {
-                    $value = (& $nproc.Source).Trim()
-                    $parsed = 0
-                    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+                    $v = (& $nproc.Source).Trim()
+                    $p = 0; if ([int]::TryParse($v, [ref]$p) -and $p -gt 0) { return $p }
                 }
                 $cpuinfo = Get-Content -ErrorAction SilentlyContinue /proc/cpuinfo | Where-Object { $_ -like 'processor*' }
-                $count = $cpuinfo.Count
-                if ($count -gt 0) { return [int]$count }
+                if ($cpuinfo.Count -gt 0) { return [int]$cpuinfo.Count }
+            }
+            elseif ($IsWindows) {
+                $sum = (Get-CimInstance Win32_Processor | Measure-Object NumberOfLogicalProcessors -Sum).Sum
+                if ($sum -gt 0) { return [int]$sum }
             }
             elseif ($IsMacOS) {
-                $sysctl = Get-CommandOrNull 'sysctl'
+                $sysctl = Get-Command sysctl -ErrorAction SilentlyContinue
                 if ($sysctl) {
-                    $value = (& $sysctl.Source -n hw.logicalcpu).Trim()
-                    $parsed = 0
-                    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+                    $v = (& $sysctl.Source -n hw.logicalcpu).Trim()
+                    $p = 0; if ([int]::TryParse($v, [ref]$p) -and $p -gt 0) { return $p }
                 }
             }
         }
         catch { }
         return 1
     }
+
+    $resolvedConcurrency = Get-LogicalProcessorCount -Requested $Concurrency
+    $resolvedConcurrency = [Math]::Max(1, [Math]::Min($resolvedConcurrency, 8))
 
     function Download-File {
         param([string]$Uri, [string]$Destination)
@@ -190,7 +202,6 @@ try {
         try { return (git rev-parse HEAD^).Trim() } catch { return $null }
     }
 
-    # --- New: Worktree helpers ---
     function New-TemporaryDirectory {
         $base = Join-Path ([System.IO.Path]::GetTempPath()) ('eloeval_' + [System.Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Force -Path $base | Out-Null
@@ -216,7 +227,6 @@ try {
             try { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop } catch { }
         }
     }
-    # --- End new helpers ---
 
     $baselineRef = Get-BaselineRef
     if (-not $baselineRef) {
@@ -281,8 +291,8 @@ try {
         Invoke-Checked -Command 'bash' -Arguments @('./scripts/install-chess-tools.sh')
     }
     else {
-        $cutechessCmd = Get-CommandOrNull 'cutechess-cli'
-        if (-not $cutechessCmd -and $InstallTools) {
+        $cutechess = Get-CommandOrNull 'cutechess-cli'
+        if (-not $cutechess -and $InstallTools) {
             $toolsRoot = Join-Path $repoRoot '.tools'
             $cutechessRoot = Join-Path $toolsRoot 'cutechess'
             Ensure-Directory -Path $cutechessRoot
@@ -300,9 +310,9 @@ try {
             catch {
                 Write-Warning "Failed to install cutechess-cli automatically: $($_.Exception.Message)"
             }
-            $cutechessCmd = Get-CommandOrNull 'cutechess-cli'
+            $cutechess = Get-CommandOrNull 'cutechess-cli'
         }
-        if (-not $cutechessCmd) { throw 'cutechess-cli is required but was not found on PATH.' }
+        if (-not $cutechess) { throw 'cutechess-cli is required but was not found on PATH.' }
         if (-not (Get-CommandOrNull 'ordo')) { Write-Warning 'ordo not found; ratings will be skipped.' }
     }
 
@@ -318,14 +328,20 @@ try {
     $toolLines = @()
     try { $toolLines += "cutechess-cli: $(& $cutechess.Source --version | Select-Object -First 1)" }
     catch { $toolLines += 'cutechess-cli: (version unavailable)' }
+
     if ($ordoCmd) {
-        try { $toolLines += "ordo: $(& $ordoCmd.Source -h 2>&1 | Select-Object -First 1)" }
+        try {
+            $ov = & $ordoCmd.Source -v | Select-Object -First 1   # e.g. "ordo 1.2.6"
+            $ver = ($ov -split '\s+')[1]
+            $toolLines += "ordo: $ver"
+        }
         catch { $toolLines += 'ordo: (version unavailable)' }
     }
     else {
         $toolLines += 'ordo: not available'
     }
     $toolLines | Set-Content -Path $toolVersionsPath
+
 
     $openingsPath = if ([System.IO.Path]::IsPathRooted($OpeningsFile)) { $OpeningsFile } else { Join-Path $repoRoot $OpeningsFile }
     Ensure-Directory -Path (Split-Path -Parent $openingsPath)
@@ -359,10 +375,9 @@ try {
 
     $resolvedConcurrency = Get-LogicalProcessorCount -Requested $Concurrency
     $pgnPath = Join-Path $MatchDir 'latest-vs-previous.pgn'
+    if (Test-Path $pgnPath) { Remove-Item $pgnPath -Force -ErrorAction SilentlyContinue }
     $logPath = Join-Path $MatchDir 'logs/cutechess-cli.log'
-
-    $sprtArgs = @()
-    if ($Sprt) { $sprtArgs = $Sprt -split '\s+' | Where-Object { $_ } }
+    if (Test-Path $logPath) { Remove-Item $logPath -Force -ErrorAction SilentlyContinue }
 
     $dotnetCmd = (Get-Command dotnet).Source
 
@@ -401,13 +416,14 @@ try {
     }
     $cutechessArgs += @('-pgnout', $pgnPath)
 
-    $cutechess = Get-CommandOrNull 'cutechess-cli'
-    $cutechessCommandDebug = $cutechess.Source + ' ' + ($cutechessArgs | Join-String ' ')
-    Write-Host "[elo-eval] Running cutechess-cli command: $cutechessCommandDebug"
+    $cutechessCommand = "$($cutechess.Source) " + ($cutechessArgs -join ' ')
+    Write-Host "[elo-eval] Running cutechess-cli command: $cutechessCommand"
+
     $cutechessOutput = & $cutechess.Source @cutechessArgs 2>&1 | Tee-Object -FilePath $logPath
     $cutechessExit = $LASTEXITCODE
     if ($cutechessExit -ne 0) {
-        Write-Host "[elo-eval] cutechess-cli output: $cutechessOutput"
+        Write-Host "[elo-eval] cutechess-cli output:"
+        $cutechessOutput | ForEach-Object { Write-Host "  $_" }
         throw "cutechess-cli exited with code $cutechessExit"
     }
 
@@ -444,33 +460,40 @@ try {
     # Snapshot a default summary so gates/PRs never crash
     $summaryPath = Join-Path $MatchDir 'summary.json'
     $baseSummary = [pscustomobject]@{
-        baseline  = $baselineRef
-        games     = $gameCount
-        sprt      = $null
-        ordo      = $null
-        cutechess = $cutechessCommandDebug
+        baseline          = $baselineRef
+        games             = 0
+        sprt              = $null
+        cutechess_command = $cutechessCommand
+        ordo              = $null
     }
     $baseSummary | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
 
     $summaryLines = New-Object System.Collections.Generic.List[string]
     $summaryLines.Add("Baseline ref: $baselineRef")
+
     if ($gameCount -gt 0) {
         $scoreLine = $cutechessOutput | Where-Object { $_ -match 'Score of New vs Old:' } | Select-Object -Last 1
         if ($scoreLine -and $scoreLine -match 'Score of New vs Old:\s+([0-9\.]+)\s*-\s*([0-9\.]+)\s*-\s*([0-9\.]+)') {
             $summaryLines.Add("Score (New vs Old): $($Matches[1])/$($Matches[2])/$($Matches[3])")
         }
-        $sprtLine = $cutechessOutput | Where-Object { $_ -match 'SPRT' } | Select-Object -Last 1
+
+        $sprtLine = ($cutechessOutput | Select-String -Pattern '\bSPRT\b' | Select-Object -Last 1).Line
         if ($sprtLine) {
             $summaryLines.Add($sprtLine.Trim())
-            $existing = Get-Content $summaryPath | ConvertFrom-Json
-            $existing.sprt = $sprtLine
-            $existing | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
         }
+
         $summaryLines.Add("Games played: $gameCount")
     }
     else {
         $summaryLines.Add('No completed games recorded in PGN.')
     }
+
+    $existing = Get-Content $summaryPath | ConvertFrom-Json
+    $existing.games = $gameCount
+    $existing.cutechess_command = $cutechessCommand
+    $existing.sprt = if ($sprtLine) { $sprtLine.Trim() } else { $null }
+    $existing | ConvertTo-Json -Depth 5 | Set-Content $summaryPath
+
     if ($ordoRan -and (Test-Path $ratingsCsv)) {
         try {
             $file = (Get-Content -Path $ratingsCsv) -replace '^"#"', '"NUMBER"'
