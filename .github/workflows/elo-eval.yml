@@ -122,6 +122,7 @@ jobs:
             matches/ratings.txt
             matches/ratings.csv
             matches/summary.json
+            matches/summary.md
             matches/logs/**
             matches/tool-versions.txt
 
