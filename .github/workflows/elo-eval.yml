@@ -173,7 +173,7 @@ jobs:
               `\n\nArtifacts: [**download**](${artUrl})\n`;
 
             const isDry = process.env.DRY_RUN === 'true' || !process.env.GH_TOKEN;
-            echo body >> $GITHUB_STEP_SUMMARY
+            await core.summary.addRaw(body).write();
             if (isDry) {
               console.log('Dry run - comment body:\n' + body);
             } else {
