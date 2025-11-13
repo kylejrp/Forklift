@@ -318,7 +318,9 @@ try {
   if ($PSBoundParameters.ContainsKey('Threads')) { $benchArgs += @('--threads', $Threads) }
   if ($ParallelRoot.IsPresent) { $benchArgs += '--parallelRoot' }
 
-  dotnet run -c $Configuration --project "$RepositoryRoot\Forklift.Benchmark\Forklift.Benchmark.csproj" -- @benchArgs
+  $benchProject = Join-Path $RepositoryRoot "Forklift.Benchmark/Forklift.Benchmark.csproj"
+
+  dotnet run -c $Configuration --project $benchProject -- @benchArgs
 
   if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
 
