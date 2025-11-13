@@ -25,7 +25,7 @@ namespace Forklift.Core
             for (int sq88 = 0; sq88 < 128; sq88++)
             {
                 if (Squares.IsOffboard((UnsafeSquare0x88)sq88)) continue;
-                var piece = (Piece)board.At(new Square0x88(sq88));
+                var piece = board.At(new Square0x88(sq88));
                 if (piece == Piece.Empty) continue;
 
                 int delta = TypeValues[piece.TypeIndex];
@@ -39,11 +39,11 @@ namespace Forklift.Core
                 if ((Piece.PieceType)piece.TypeIndex == Piece.PieceType.Pawn)
                 {
                     // White center pawns
-                    if (piece.IsWhite && (file == 3 || file == 4) && (rank == 3 || rank == 4 || rank == 5 || rank == 6))
+                    if (piece.IsWhite && (file == 3 || file == 4) && (rank == 3 || rank == 4))
                         delta += 10;
 
                     // Black center pawns
-                    if (!piece.IsWhite && (file == 3 || file == 4) && (rank == 3 || rank == 4 || rank == 5 || rank == 6))
+                    if (!piece.IsWhite && (file == 3 || file == 4) && (rank == 3 || rank == 4))
                         delta += 10; // still positive; sign comes from IsWhite below
                 }
 
@@ -51,6 +51,17 @@ namespace Forklift.Core
             }
 
             return score;
+        }
+
+        /// <summary>
+        /// Evaluates the board position from the perspective of the side to move.
+        /// </summary>
+        /// <param name="board">The board to evaluate.</param>
+        /// <returns>The evaluation score from the perspective of the side to move, positive if favorable to the side to move, negative if unfavorable.</returns>
+        public static int EvaluateForSideToMove(Board board)
+        {
+            int staticScore = StaticEvaluate(board);
+            return board.SideToMove == Color.White ? staticScore : -staticScore;
         }
     }
 }

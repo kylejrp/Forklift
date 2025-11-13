@@ -1,4 +1,5 @@
-﻿using Forklift.Core;
+﻿using System.Diagnostics;
+using Forklift.Core;
 
 var board = new Board();
 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -116,7 +117,7 @@ while (true)
             }
         }
 
-        depth ??= 10; // default depth
+        depth ??= 5; // default depth
 
         lock (searchLock)
         {
@@ -141,6 +142,9 @@ while (true)
             {
                 try
                 {
+                    if (debugMode) Console.WriteLine("info string search started");
+                    var stopwatch = Stopwatch.StartNew();
+
                     var (bestMove, bestScore) = Search.FindBestMove(boardSnapshot, depth.Value, cancellationToken);
 
                     // If this search was cancelled, we can bail silently
@@ -151,6 +155,11 @@ while (true)
                     }
 
                     Console.WriteLine($"info depth {depth.Value} score cp {bestScore} pv {move.ToUCIString()}");
+                    var elapsedMs = stopwatch.ElapsedMilliseconds;
+                    if (debugMode)
+                    {
+                        Console.WriteLine($"info string search completed in {elapsedMs / 1000.0:F2}s");
+                    }
                     Console.WriteLine($"bestmove {move.ToUCIString()}");
 
                 }
