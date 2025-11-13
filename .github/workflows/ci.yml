@@ -2,6 +2,8 @@ name: CI (Linux)
 
 on:
   pull_request:
+    types: [labeled, unlabeled, opened, synchronize, reopened]
+    branches: ["*"]
   push:
     branches: [ "main" ]
 
@@ -24,7 +26,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: "10.0.x"
           cache: true
           cache-dependency-path: |
             **/packages.lock.json

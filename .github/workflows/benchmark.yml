@@ -4,6 +4,8 @@ on:
   push:
     branches: [ main ]
   pull_request:
+    types: [labeled, unlabeled, opened, synchronize, reopened]
+    branches: ["*"]
     paths:
       - "Forklift.Core/**"
       - ".github/workflows/benchmark.yml"
@@ -66,10 +68,10 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
         with:
-          # we require 8.0 for the BDNA tooling, but 9.0 for building/running Forklift
+          # we require 8.0 for the BDNA tooling, but 10.0 for building/running Forklift
           dotnet-version: |
             8.0.x
-            9.0.x
+            10.0.x
           cache: true
           cache-dependency-path: |
             **/packages.lock.json
@@ -480,7 +482,13 @@ jobs:
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-dotnet@v5
-        with: { dotnet-version: "9.0.x" }
+        with:
+          # we require 8.0 for the BDNA tooling
+          dotnet-version: |
+            8.0.x
+          cache: true
+          cache-dependency-path: |
+            **/packages.lock.json
 
       - name: Detect selected .NET SDK (respects global.json)
         id: dotnet
