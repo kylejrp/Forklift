@@ -1,9 +1,10 @@
-﻿
-using Forklift.Core;
+﻿using Forklift.Core;
 
 var board = new Board();
 Console.OutputEncoding = System.Text.Encoding.UTF8;
-
+CancellationTokenSource? currentSearchCancellationTokenSource = null;
+Task? currentSearchTask = null;
+object searchLock = new();
 
 // UCI engine options
 var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -13,7 +14,6 @@ var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     { "OwnBook", "false" }
 };
 bool debugMode = false;
-bool stopSearch = false;
 
 while (true)
 {
@@ -51,11 +51,6 @@ while (true)
     {
         board.SetStartPosition();
         if (debugMode) Console.WriteLine("info string ucinewgame called");
-    }
-    else if (line == "stop")
-    {
-        stopSearch = true;
-        if (debugMode) Console.WriteLine("info string stop called");
     }
     else if (line.StartsWith("debug"))
     {
@@ -100,29 +95,67 @@ while (true)
     }
     else if (line.StartsWith("go"))
     {
-        stopSearch = false;
+        lock (searchLock)
+        {
+            // Cancel any existing search
+            currentSearchCancellationTokenSource?.Cancel();
 
-        // Use minimax search to find best move
-        int searchDepth = 2; // You can adjust this for speed/strength
-        var (bestMove, bestScore) = Search.FindBestMove(board, searchDepth);
-        if (bestMove is Board.Move move)
-        {
-            string uci = Squares.ToAlgebraic(move.From88).ToString().ToLower() + Squares.ToAlgebraic(move.To88).ToString().ToLower();
-            if (move.IsPromotion)
+            // Snapshot the position for this search so later 'position" commands don't interfere
+            var boardSnapshot = board.Copy();
+
+            var cancellationTokenSource = new CancellationTokenSource();
+            currentSearchCancellationTokenSource = cancellationTokenSource;
+            var cancellationToken = cancellationTokenSource.Token;
+
+            int searchDepth = 2;
+
+            currentSearchTask = Task.Run(() =>
             {
-                char promoChar = char.ToLower(Piece.ToFENChar(move.Promotion));
-                uci += promoChar;
-            }
-            Console.WriteLine($"info depth {searchDepth} score cp {bestScore} pv {uci}");
-            Console.WriteLine($"bestmove {uci}");
+                try
+                {
+                    var (bestMove, bestScore) = Search.FindBestMove(boardSnapshot, searchDepth, cancellationToken);
+
+                    // If this search was cancelled, we can bail silently
+                    if (cancellationToken.IsCancellationRequested || bestMove is not Board.Move move)
+                    {
+                        // don't send a bestmove if cancelled
+                        return;
+                    }
+
+                    Console.WriteLine($"info depth {searchDepth} score cp {bestScore} pv {move.ToUCIString()}");
+                    Console.WriteLine($"bestmove {move.ToUCIString()}");
+
+                }
+                catch (OperationCanceledException)
+                {
+                    // Search stopped due to cancellation; do nothing.
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"info string search error: {ex.Message}");
+                    Console.WriteLine("bestmove 0000");
+                }
+            });
         }
-        else
+    }
+    else if (line == "stop")
+    {
+        if (debugMode) Console.WriteLine("info string stop called");
+        lock (searchLock)
         {
-            Console.WriteLine("bestmove (none)");
+            currentSearchCancellationTokenSource?.Cancel();
         }
+        currentSearchTask?.Wait();
+        currentSearchCancellationTokenSource = null;
+        currentSearchTask = null;
     }
     else if (line == "quit")
     {
+        lock (searchLock)
+        {
+            currentSearchCancellationTokenSource?.Cancel();
+        }
+        currentSearchTask?.Wait(100);
         break;
     }
 }

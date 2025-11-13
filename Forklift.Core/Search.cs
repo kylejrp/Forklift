@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Forklift.Core;
 
 namespace Forklift.Core
@@ -7,7 +8,7 @@ namespace Forklift.Core
     public static class Search
     {
         // Minimax search, returns best move and score
-        public static (Board.Move? bestMove, int bestScore) FindBestMove(Board board, int depth)
+        public static (Board.Move? bestMove, int bestScore) FindBestMove(Board board, int depth, CancellationToken cancellationToken = default)
         {
             var legalMoves = board.GenerateLegal();
             Board.Move? bestMove = null;
@@ -16,8 +17,10 @@ namespace Forklift.Core
 
             foreach (var move in legalMoves)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var undo = board.MakeMove(move);
-                int score = Minimax(board, depth - 1, !whiteToMove);
+                int score = Minimax(board, depth - 1, !whiteToMove, cancellationToken);
                 board.UnmakeMove(move, undo);
 
                 if (whiteToMove)
@@ -40,8 +43,10 @@ namespace Forklift.Core
             return (bestMove, bestScore);
         }
 
-        private static int Minimax(Board board, int depth, bool maximizingPlayer)
+        private static int Minimax(Board board, int depth, bool maximizingPlayer, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (depth == 0)
                 return Evaluator.Evaluate(board);
 
@@ -50,9 +55,11 @@ namespace Forklift.Core
             int bestScore = maximizingPlayer ? int.MinValue : int.MaxValue;
             foreach (var move in legalMoves)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 hasMoves = true;
                 var undo = board.MakeMove(move);
-                int score = Minimax(board, depth - 1, !maximizingPlayer);
+                int score = Minimax(board, depth - 1, !maximizingPlayer, cancellationToken);
                 board.UnmakeMove(move, undo);
 
                 if (maximizingPlayer)
