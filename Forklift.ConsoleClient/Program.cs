@@ -150,7 +150,7 @@ while (true)
                     // If this search was cancelled, we can bail silently
                     if (bestMove is not Board.Move move)
                     {
-                        Console.WriteLine("bestmove 0000");
+                        Console.WriteLine("bestmove (none)");
                         return;
                     }
 
@@ -166,7 +166,7 @@ while (true)
                 catch (Exception ex)
                 {
                     Console.WriteLine($"info string search error: {ex.Message}");
-                    Console.WriteLine("bestmove 0000");
+                    Console.WriteLine("bestmove (none)");
                 }
             });
         }
