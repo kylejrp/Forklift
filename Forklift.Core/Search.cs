@@ -1,66 +1,77 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Forklift.Core;
 
 namespace Forklift.Core
 {
     public static class Search
     {
-        // Minimax search, returns best move and score
-        public static (Board.Move? bestMove, int bestScore) FindBestMove(Board board, int depth)
+        private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
+        private const int MaximumScore = int.MaxValue; // No overflow risk when negating
+
+        // Negamax search, returns best move and score
+        public static (Board.Move? bestMove, int bestScore) FindBestMove(Board board, int depth, CancellationToken cancellationToken = default)
         {
-            var legalMoves = board.GenerateLegal();
-            Board.Move? bestMove = null;
-            bool whiteToMove = board.SideToMove == Color.White;
-            int bestScore = whiteToMove ? int.MinValue : int.MaxValue;
-
-            foreach (var move in legalMoves)
-            {
-                var undo = board.MakeMove(move);
-                int score = Minimax(board, depth - 1, !whiteToMove);
-                board.UnmakeMove(move, undo);
-
-                if (whiteToMove)
-                {
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        bestMove = move;
-                    }
-                }
-                else
-                {
-                    if (score < bestScore)
-                    {
-                        bestScore = score;
-                        bestMove = move;
-                    }
-                }
-            }
-            return (bestMove, bestScore);
+            return Negamax(board, depth, MinimumScore, MaximumScore, cancellationToken);
         }
 
-        private static int Minimax(Board board, int depth, bool maximizingPlayer)
+        private static (Board.Move? bestMove, int bestScore) Negamax(Board board, int depth, int alpha, int beta, CancellationToken cancellationToken = default)
         {
-            if (depth == 0)
-                return Evaluator.Evaluate(board);
+            if (depth == 0 || cancellationToken.IsCancellationRequested)
+            {
+                return (null, Evaluator.EvaluateForSideToMove(board));
+            }
 
             var legalMoves = board.GenerateLegal();
-            bool hasMoves = false;
-            int bestScore = maximizingPlayer ? int.MinValue : int.MaxValue;
+
+            if (legalMoves.Count() == 0)
+            {
+                return (null, Evaluator.EvaluateForSideToMove(board));
+            }
+
+            Board.Move? bestMove = null;
+            int bestScore = MinimumScore;
+
             foreach (var move in legalMoves)
             {
-                hasMoves = true;
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // Soft stop: return best move so far
+                    break;
+                }
+
                 var undo = board.MakeMove(move);
-                int score = Minimax(board, depth - 1, !maximizingPlayer);
+                // Negamax recursion: score from child, then negate score
+                var (_, childScore) = Negamax(board, depth - 1, -beta, -alpha, cancellationToken);
+                int score = -childScore;
+
                 board.UnmakeMove(move, undo);
 
-                if (maximizingPlayer)
-                    bestScore = Math.Max(bestScore, score);
-                else
-                    bestScore = Math.Min(bestScore, score);
+                if (score > bestScore || bestMove is null)
+                {
+                    bestScore = score;
+                    bestMove = move;
+                }
+
+                if (score > alpha)
+                {
+                    alpha = score;
+                }
+
+                if (alpha >= beta)
+                {
+                    // Beta cutoff: no need to consider remaining moves
+                    break;
+                }
             }
-            return hasMoves ? bestScore : Evaluator.Evaluate(board);
+
+            // Fallback: if we got cancelled before examining any move, just static eval
+            if (bestMove is null)
+            {
+                return (null, Evaluator.EvaluateForSideToMove(board));
+            }
+            return (bestMove, bestScore);
         }
     }
 }

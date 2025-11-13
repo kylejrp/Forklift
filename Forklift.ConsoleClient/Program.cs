@@ -1,9 +1,11 @@
-﻿
+﻿using System.Diagnostics;
 using Forklift.Core;
 
 var board = new Board();
 Console.OutputEncoding = System.Text.Encoding.UTF8;
-
+CancellationTokenSource? currentSearchCancellationTokenSource = null;
+Task? currentSearchTask = null;
+object searchLock = new();
 
 // UCI engine options
 var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -13,7 +15,6 @@ var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     { "OwnBook", "false" }
 };
 bool debugMode = false;
-bool stopSearch = false;
 
 while (true)
 {
@@ -51,11 +52,6 @@ while (true)
     {
         board.SetStartPosition();
         if (debugMode) Console.WriteLine("info string ucinewgame called");
-    }
-    else if (line == "stop")
-    {
-        stopSearch = true;
-        if (debugMode) Console.WriteLine("info string stop called");
     }
     else if (line.StartsWith("debug"))
     {
@@ -100,29 +96,99 @@ while (true)
     }
     else if (line.StartsWith("go"))
     {
-        stopSearch = false;
+        var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-        // Use minimax search to find best move
-        int searchDepth = 2; // You can adjust this for speed/strength
-        var (bestMove, bestScore) = Search.FindBestMove(board, searchDepth);
-        if (bestMove is Board.Move move)
+        int? depth = null;
+        int? moveTimeMs = null;
+
+        for (int i = 1; i < tokens.Length; i++)
         {
-            string uci = Squares.ToAlgebraic(move.From88).ToString().ToLower() + Squares.ToAlgebraic(move.To88).ToString().ToLower();
-            if (move.IsPromotion)
+            switch (tokens[i])
             {
-                char promoChar = char.ToLower(Piece.ToFENChar(move.Promotion));
-                uci += promoChar;
+                case "depth" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var d):
+                    depth = d;
+                    i++; // skip value
+                    break;
+
+                case "movetime" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var mt):
+                    moveTimeMs = mt;
+                    i++; // skip value
+                    break;
             }
-            Console.WriteLine($"info depth {searchDepth} score cp {bestScore} pv {uci}");
-            Console.WriteLine($"bestmove {uci}");
         }
-        else
+
+        depth ??= 4; // default depth
+
+        lock (searchLock)
         {
-            Console.WriteLine("bestmove (none)");
+            // Cancel any existing search
+            currentSearchCancellationTokenSource?.Cancel();
+
+            // Snapshot the position for this search so later 'position" commands don't interfere
+            var boardSnapshot = board.Copy();
+
+            var cancellationTokenSource = new CancellationTokenSource();
+
+            if (moveTimeMs.HasValue && moveTimeMs.Value > 0)
+            {
+                cancellationTokenSource.CancelAfter(moveTimeMs.Value);
+            }
+
+            currentSearchCancellationTokenSource = cancellationTokenSource;
+            var cancellationToken = cancellationTokenSource.Token;
+
+
+            currentSearchTask = Task.Run(() =>
+            {
+                try
+                {
+                    if (debugMode) Console.WriteLine("info string search started");
+                    var stopwatch = Stopwatch.StartNew();
+
+                    var (bestMove, bestScore) = Search.FindBestMove(boardSnapshot, depth.Value, cancellationToken);
+
+                    // If this search was cancelled, we can bail silently
+                    if (bestMove is not Board.Move move)
+                    {
+                        Console.WriteLine("bestmove (none)");
+                        return;
+                    }
+
+                    Console.WriteLine($"info depth {depth.Value} score cp {bestScore} pv {move.ToUCIString()}");
+                    var elapsedMs = stopwatch.ElapsedMilliseconds;
+                    if (debugMode)
+                    {
+                        Console.WriteLine($"info string search completed in {elapsedMs / 1000.0:F2}s");
+                    }
+                    Console.WriteLine($"bestmove {move.ToUCIString()}");
+
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"info string search error: {ex.Message}");
+                    Console.WriteLine("bestmove (none)");
+                }
+            });
         }
+    }
+    else if (line == "stop")
+    {
+        if (debugMode) Console.WriteLine("info string stop called");
+        lock (searchLock)
+        {
+            currentSearchCancellationTokenSource?.Cancel();
+        }
+        currentSearchTask?.Wait();
+        currentSearchCancellationTokenSource = null;
+        currentSearchTask = null;
     }
     else if (line == "quit")
     {
+        lock (searchLock)
+        {
+            currentSearchCancellationTokenSource?.Cancel();
+        }
+        currentSearchTask?.Wait(100);
         break;
     }
 }

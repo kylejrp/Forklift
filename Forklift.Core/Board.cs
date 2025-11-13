@@ -256,6 +256,22 @@ public sealed class Board
             string captureStr = IsCapture ? "x" : "-";
             return $"{fromAlg}{captureStr}{toAlg}{promoStr}";
         }
+
+        public string ToUCIString()
+        {
+            var from = Squares.ToAlgebraicString(From88).ToLower();
+            var to = Squares.ToAlgebraicString(To88).ToLower();
+
+            if (IsPromotion)
+            {
+                char promoChar = char.ToLower(Piece.ToFENChar(Promotion));
+                return $"{from}{to}{promoChar}";
+            }
+            else
+            {
+                return $"{from}{to}";
+            }
+        }
     }
 
     public readonly record struct Undo(

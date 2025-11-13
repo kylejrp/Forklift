@@ -112,6 +112,7 @@ jobs:
           echo "ART_NAME=elo-eval-${{ runner.os }}-${{ runner.arch }}-net${{ steps.dotnet.outputs.majorMinor }}-${{ github.event.pull_request.number || github.run_id }}" >> "$GITHUB_ENV"
 
       - id: upload_art
+        if: ${{ always() }}
         name: Upload artifacts
         uses: actions/upload-artifact@v5
         with:
@@ -151,7 +152,7 @@ jobs:
 
       # --- Comment on PR, preferring API URL, else uploader output, else run URL ---
       - name: Comment results on PR
-        if: ${{ github.event_name == 'pull_request' && always() }}
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@v8
         env:
           ART_URL_API:   ${{ steps.resolve_art.outputs.ui_url }}
