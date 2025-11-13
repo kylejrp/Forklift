@@ -11,12 +11,40 @@ namespace Forklift.Core
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
 
         // Negamax search, returns best move and score
-        public static (Board.Move? bestMove, int bestScore) FindBestMove(Board board, int depth, CancellationToken cancellationToken = default)
+        public static (Board.Move? bestMove, int bestScore) FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
         {
-            return Negamax(board, depth, MinimumScore, MaximumScore, cancellationToken);
+            Board.Move? finalBestMove = null;
+            int finalBestScore = MinimumScore;
+
+            Board.Move? pvMove = null;
+
+            for (int depth = 1; depth <= maxDepth; depth++)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+
+                var (bestMove, bestScore) = Negamax(board, depth, MinimumScore, MaximumScore, pvMove, cancellationToken);
+
+                if (bestMove is not null)
+                {
+                    finalBestMove = bestMove;
+                    finalBestScore = bestScore;
+                    pvMove = bestMove;
+                }
+            }
+
+            if (finalBestMove is null)
+            {
+                return (null, Evaluator.EvaluateForSideToMove(board));
+            }
+
+            return (finalBestMove, finalBestScore);
         }
 
-        private static (Board.Move? bestMove, int bestScore) Negamax(Board board, int depth, int alpha, int beta, CancellationToken cancellationToken = default)
+        private static (Board.Move? bestMove, int bestScore) Negamax(Board board, int depth, int alpha, int beta, Board.Move? preferredMove = null, CancellationToken cancellationToken = default)
         {
             if (depth == 0 || cancellationToken.IsCancellationRequested)
             {
@@ -28,6 +56,15 @@ namespace Forklift.Core
             if (legalMoves.Count() == 0)
             {
                 return (null, Evaluator.EvaluateForSideToMove(board));
+            }
+
+            if (preferredMove is Board.Move pm)
+            {
+                int index = Array.FindIndex(legalMoves, m => m.Equals(pm));
+                if (index > 0)
+                {
+                    (legalMoves[0], legalMoves[index]) = (legalMoves[index], legalMoves[0]); // Swap to front
+                }
             }
 
             Board.Move? bestMove = null;
@@ -43,7 +80,7 @@ namespace Forklift.Core
 
                 var undo = board.MakeMove(move);
                 // Negamax recursion: score from child, then negate score
-                var (_, childScore) = Negamax(board, depth - 1, -beta, -alpha, cancellationToken);
+                var (_, childScore) = Negamax(board, depth - 1, -beta, -alpha, preferredMove: null, cancellationToken: cancellationToken);
                 int score = -childScore;
 
                 board.UnmakeMove(move, undo);
