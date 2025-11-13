@@ -31,9 +31,9 @@ namespace Forklift.Core
                 int delta = TypeValues[piece.TypeIndex];
 
                 // simple positional term:
-                // bonus for white pawn on e4/d4, penalty for black pawn on e5/d5
+                // bonus for any pawns on e4/d4/e5/d5
                 var safeSq88 = (Square0x88)sq88;
-                var file = safeSq88.File; // depends on your helpers
+                var file = safeSq88.File;
                 var rank = safeSq88.Rank;
 
                 if ((Piece.PieceType)piece.TypeIndex == Piece.PieceType.Pawn)
