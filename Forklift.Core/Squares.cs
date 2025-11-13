@@ -54,6 +54,9 @@ public readonly struct Square0x64
 {
     public int Value { get; }
 
+    public int Rank => Value >> 3;
+    public int File => Value & 7;
+
     public Square0x64(int value)
     {
         if (value < 0 || value >= 64)
@@ -158,6 +161,9 @@ public readonly struct Square0x88
 
         Value = value;
     }
+
+    public int Rank => Value >> 4;
+    public int File => Value & 0xF;
 
     public static implicit operator int(Square0x88 square) => square.Value;
     public static explicit operator Square0x88(int value) => new Square0x88(value);

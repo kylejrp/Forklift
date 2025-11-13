@@ -95,6 +95,29 @@ while (true)
     }
     else if (line.StartsWith("go"))
     {
+        var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        int? depth = null;
+        int? moveTimeMs = null;
+
+        for (int i = 1; i < tokens.Length; i++)
+        {
+            switch (tokens[i])
+            {
+                case "depth" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var d):
+                    depth = d;
+                    i++; // skip value
+                    break;
+
+                case "movetime" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var mt):
+                    moveTimeMs = mt;
+                    i++; // skip value
+                    break;
+            }
+        }
+
+        depth ??= 10; // default depth
+
         lock (searchLock)
         {
             // Cancel any existing search
@@ -104,31 +127,32 @@ while (true)
             var boardSnapshot = board.Copy();
 
             var cancellationTokenSource = new CancellationTokenSource();
+
+            if (moveTimeMs.HasValue && moveTimeMs.Value > 0)
+            {
+                cancellationTokenSource.CancelAfter(moveTimeMs.Value);
+            }
+
             currentSearchCancellationTokenSource = cancellationTokenSource;
             var cancellationToken = cancellationTokenSource.Token;
 
-            int searchDepth = 2;
 
             currentSearchTask = Task.Run(() =>
             {
                 try
                 {
-                    var (bestMove, bestScore) = Search.FindBestMove(boardSnapshot, searchDepth, cancellationToken);
+                    var (bestMove, bestScore) = Search.FindBestMove(boardSnapshot, depth.Value, cancellationToken);
 
                     // If this search was cancelled, we can bail silently
-                    if (cancellationToken.IsCancellationRequested || bestMove is not Board.Move move)
+                    if (bestMove is not Board.Move move)
                     {
-                        // don't send a bestmove if cancelled
+                        Console.WriteLine("bestmove 0000");
                         return;
                     }
 
-                    Console.WriteLine($"info depth {searchDepth} score cp {bestScore} pv {move.ToUCIString()}");
+                    Console.WriteLine($"info depth {depth.Value} score cp {bestScore} pv {move.ToUCIString()}");
                     Console.WriteLine($"bestmove {move.ToUCIString()}");
 
-                }
-                catch (OperationCanceledException)
-                {
-                    // Search stopped due to cancellation; do nothing.
                 }
                 catch (Exception ex)
                 {
