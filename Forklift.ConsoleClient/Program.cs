@@ -117,7 +117,7 @@ while (true)
             }
         }
 
-        depth ??= 5; // default depth
+        depth ??= 4; // default depth
 
         lock (searchLock)
         {
