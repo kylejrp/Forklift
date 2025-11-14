@@ -17,8 +17,6 @@ on:
         type: choice
         options: [all, minimal, fast, full]
         default: all
-  schedule:
-    - cron: "0 8 * * *"
 
 concurrency:
   group: benchmarks-${{ github.ref }}-${{ github.event_name }}
