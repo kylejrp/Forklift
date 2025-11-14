@@ -203,15 +203,16 @@ while (true)
                     var elapsedMs = stopwatch.ElapsedMilliseconds;
                     if (debugMode)
                     {
-                        var budgetDisplay = allocatedTimeMs.HasValue ? allocatedTimeMs.Value.ToString() : "unbounded";
-                        Console.WriteLine($"info string search completed in {elapsedMs / 1000.0:F2}s (budget {budgetDisplay}ms)");
+                        var budgetDisplay = allocatedTimeMs.HasValue ? $" (budget {allocatedTimeMs.Value.ToString()})" : string.Empty;
+                        Console.WriteLine($"info string search completed in {elapsedMs / 1000.0:F2}s{budgetDisplay}");
                     }
                     Console.WriteLine($"bestmove {move.ToUCIString()}");
 
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"info string search error: {ex.Message}");
+                    var sanitizedMessage = ex.Message.Replace('\r', '').Replace('\n', "\\n");
+                    Console.WriteLine($"info string search error: {sanitizedMessage}");
                     Console.WriteLine("bestmove (none)");
                 }
             });
