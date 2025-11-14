@@ -211,7 +211,7 @@ while (true)
                 }
                 catch (Exception ex)
                 {
-                    var sanitizedMessage = ex.Message.Replace('\r', '').Replace('\n', "\\n");
+                    var sanitizedMessage = ex.Message.Replace("\r", "").Replace("\n", "\\n");
                     Console.WriteLine($"info string search error: {sanitizedMessage}");
                     Console.WriteLine("bestmove (none)");
                 }
