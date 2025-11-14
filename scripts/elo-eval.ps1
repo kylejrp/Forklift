@@ -420,11 +420,11 @@ try {
     $cutechessCommand = "$($cutechess.Source) " + ($cutechessArgs -join ' ')
     Write-Host "[elo-eval] Running cutechess-cli command: $cutechessCommand"
 
+    $cutechessOutput = ""
     & $cutechess.Source @cutechessArgs 2>&1 | Tee-Object -Variable $cutechessOutput | Tee-Object -FilePath $logPath
     $cutechessExit = $LASTEXITCODE
     if ($cutechessExit -ne 0) {
         Write-Host "[elo-eval] cutechess-cli output:"
-        $cutechessOutput | ForEach-Object { Write-Host "  $_" }
         throw "cutechess-cli exited with code $cutechessExit"
     }
 
