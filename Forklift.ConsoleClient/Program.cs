@@ -2,7 +2,8 @@
 using Forklift.Core;
 
 const int DefaultSearchDepth = 8;
-const int MaxSearchDepthForTimedMode = 64;
+const int MaxSearchDepthForTimedMode = 16;
+const int SafetyMarginMs = 25;
 
 var board = new Board();
 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -173,7 +174,7 @@ while (true)
 
             if (allocatedTimeMs.HasValue && allocatedTimeMs.Value > 0)
             {
-                cancellationTokenSource.CancelAfter(allocatedTimeMs.Value);
+                cancellationTokenSource.CancelAfter(allocatedTimeMs.Value - SafetyMarginMs);
             }
 
             currentSearchCancellationTokenSource = cancellationTokenSource;
@@ -186,8 +187,10 @@ while (true)
                 {
                     if (debugMode) Console.WriteLine("info string search started");
                     var stopwatch = Stopwatch.StartNew();
-
-                    var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken);
+                    var sufficientTimeToAttemptDepth = allocatedTimeMs.HasValue
+                        ? new Func<bool>(() => stopwatch.ElapsedMilliseconds < allocatedTimeMs.Value - SafetyMarginMs) // TODO: better time management here
+                        : null;
+                    var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, sufficientTimeToAttemptDepth, cancellationToken);
                     var bestMove = summary.BestMove;
                     var bestScore = summary.BestScore;
                     var completedDepth = summary.CompletedDepth;
@@ -203,7 +206,7 @@ while (true)
                     var elapsedMs = stopwatch.ElapsedMilliseconds;
                     if (debugMode)
                     {
-                        var budgetDisplay = allocatedTimeMs.HasValue ? $" (budget {allocatedTimeMs.Value.ToString()})" : string.Empty;
+                        var budgetDisplay = allocatedTimeMs.HasValue ? $" (budget {allocatedTimeMs.Value})" : string.Empty;
                         Console.WriteLine($"info string search completed in {elapsedMs / 1000.0:F2}s{budgetDisplay}");
                     }
                     Console.WriteLine($"bestmove {move.ToUCIString()}");
