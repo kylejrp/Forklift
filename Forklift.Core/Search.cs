@@ -7,14 +7,19 @@ namespace Forklift.Core
 {
     public static class Search
     {
+        public readonly record struct SearchSummary(Board.Move? BestMove, int BestScore, int CompletedDepth);
+
+        private readonly record struct SearchNodeResult(Board.Move? BestMove, int BestScore, bool IsComplete);
+
         private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
 
         // Negamax search, returns best move and score
-        public static (Board.Move? bestMove, int bestScore) FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
+        public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
         {
             Board.Move? finalBestMove = null;
             int finalBestScore = MinimumScore;
+            int completedDepth = 0;
 
             Board.Move? pvMove = null;
 
@@ -25,37 +30,62 @@ namespace Forklift.Core
                     break;
                 }
 
+                var result = Negamax(board, depth, MinimumScore, MaximumScore, pvMove, cancellationToken);
 
-                var (bestMove, bestScore) = Negamax(board, depth, MinimumScore, MaximumScore, pvMove, cancellationToken);
-
-                if (bestMove is not null)
+                if (!result.IsComplete)
                 {
-                    finalBestMove = bestMove;
-                    finalBestScore = bestScore;
-                    pvMove = bestMove;
+                    break;
+                }
+
+                completedDepth = depth;
+
+                if (result.BestMove is not null)
+                {
+                    finalBestMove = result.BestMove;
+                    finalBestScore = result.BestScore;
+                    pvMove = result.BestMove;
+                }
+                else if (finalBestMove is null)
+                {
+                    finalBestScore = result.BestScore;
+                }
+            }
+
+            if (completedDepth == 0)
+            {
+                var panicMoves = board.GenerateLegal();
+                if (panicMoves.Length > 0)
+                {
+                    finalBestMove = panicMoves[0];
+                    finalBestScore = Evaluator.EvaluateForSideToMove(board);
                 }
             }
 
             if (finalBestMove is null)
             {
-                return (null, Evaluator.EvaluateForSideToMove(board));
+                return new SearchSummary(null, Evaluator.EvaluateForSideToMove(board), completedDepth);
             }
 
-            return (finalBestMove, finalBestScore);
+            return new SearchSummary(finalBestMove, finalBestScore, completedDepth);
         }
 
-        private static (Board.Move? bestMove, int bestScore) Negamax(Board board, int depth, int alpha, int beta, Board.Move? preferredMove = null, CancellationToken cancellationToken = default)
+        private static SearchNodeResult Negamax(Board board, int depth, int alpha, int beta, Board.Move? preferredMove = null, CancellationToken cancellationToken = default)
         {
-            if (depth == 0 || cancellationToken.IsCancellationRequested)
+            if (depth == 0)
             {
-                return (null, Evaluator.EvaluateForSideToMove(board));
+                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), true);
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), false);
             }
 
             var legalMoves = board.GenerateLegal();
 
-            if (legalMoves.Count() == 0)
+            if (legalMoves.Length == 0)
             {
-                return (null, Evaluator.EvaluateForSideToMove(board));
+                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), true);
             }
 
             if (preferredMove is Board.Move pm)
@@ -69,21 +99,28 @@ namespace Forklift.Core
 
             Board.Move? bestMove = null;
             int bestScore = MinimumScore;
+            bool completed = true;
 
             foreach (var move in legalMoves)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    // Soft stop: return best move so far
+                    completed = false;
                     break;
                 }
 
                 var undo = board.MakeMove(move);
                 // Negamax recursion: score from child, then negate score
-                var (_, childScore) = Negamax(board, depth - 1, -beta, -alpha, preferredMove: null, cancellationToken: cancellationToken);
-                int score = -childScore;
-
+                var childResult = Negamax(board, depth - 1, -beta, -alpha, preferredMove: null, cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
+
+                if (!childResult.IsComplete)
+                {
+                    completed = false;
+                    break;
+                }
+
+                int score = -childResult.BestScore;
 
                 if (score > bestScore || bestMove is null)
                 {
@@ -103,12 +140,12 @@ namespace Forklift.Core
                 }
             }
 
-            // Fallback: if we got cancelled before examining any move, just static eval
             if (bestMove is null)
             {
-                return (null, Evaluator.EvaluateForSideToMove(board));
+                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), completed);
             }
-            return (bestMove, bestScore);
+
+            return new SearchNodeResult(bestMove, bestScore, completed);
         }
     }
 }
