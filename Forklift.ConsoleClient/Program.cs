@@ -280,56 +280,31 @@ static int? ComputeTimeBudget(Color sideToMove, int? moveTimeMs, int? whiteTimeM
         return 0;
     }
 
-    double? allocation = null;
-    string allocationSource;
-
-    if (remainingTimeMs.HasValue && remainingTimeMs.Value > 0)
-    {
-        allocation = remainingTimeMs.Value / (double)DivisorForRemaining;
-        allocationSource = "remaining";
-
-        if (incrementMs.HasValue && incrementMs.Value > 0)
-        {
-            allocation += incrementMs.Value;
-            allocationSource = "remaining+increment";
-        }
-    }
-    else if (incrementMs.HasValue && incrementMs.Value > 0)
-    {
-        allocation = incrementMs.Value;
-        allocationSource = "increment";
-    }
-    else
-    {
-        allocationSource = "none";
-    }
-
-    if (allocation is null)
+    if (!remainingTimeMs.HasValue && !incrementMs.HasValue)
     {
         if (debugMode)
         {
-            Console.WriteLine("info string no usable time controls; running until depth limit");
+            Console.WriteLine("info string no time control; unlimited time");
         }
 
         return null;
     }
 
-    int allocatedMs = (int)Math.Round(allocation.Value, MidpointRounding.AwayFromZero);
-    allocatedMs = Math.Max(allocatedMs, MinMoveTimeMs);
+    double allocation = 0.0;
 
-    if (remainingTimeMs.HasValue && remainingTimeMs.Value > 0)
-    {
-        int remaining = remainingTimeMs.Value;
-        int maxShare = (int)Math.Round(remaining * MaxFractionOfRemaining, MidpointRounding.AwayFromZero);
-        maxShare = Math.Max(maxShare, MinMoveTimeMs);
-        allocatedMs = Math.Min(allocatedMs, Math.Min(maxShare, remaining));
-    }
+    if (remainingTimeMs.HasValue)
+        allocation += remainingTimeMs!.Value / 20.0;
+
+    if (incrementMs.HasValue)
+        allocation += incrementMs!.Value / 2.0;
+
+    int allocatedMs = (int)Math.Round(allocation, MidpointRounding.AwayFromZero);
 
     if (debugMode)
     {
         string remainingDisplay = remainingTimeMs?.ToString() ?? "-";
         string incrementDisplay = incrementMs?.ToString() ?? "-";
-        Console.WriteLine($"info string allocated time: {allocatedMs}ms (source={allocationSource}, remaining={remainingDisplay}, increment={incrementDisplay})");
+        Console.WriteLine($"info string allocated time: {allocatedMs}ms (remaining={remainingDisplay}, increment={incrementDisplay})");
     }
 
     return allocatedMs;

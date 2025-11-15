@@ -13,7 +13,8 @@ param(
     [string]$CurrentOutDir = 'artifacts/current/engine',
     [string]$PreviousOutDir = 'artifacts/previous/engine',
     [int]$AnchorOld = 2500,
-    [switch]$InstallTools
+    [switch]$InstallTools,
+    [switch]$DebugCutechessOutput
 )
 
 # Must be after the param block
@@ -416,6 +417,9 @@ try {
         $cutechessArgs += ($Sprt -split '\s+' | Where-Object { $_ })
     }
     $cutechessArgs += @('-pgnout', $pgnPath)
+    if ($DebugCutechessOutput){
+        $cutechessArgs += @('-debug', 'on')
+    }
 
     $cutechessCommand = "$($cutechess.Source) " + ($cutechessArgs -join ' ')
     Write-Host "[elo-eval] Running cutechess-cli command: $cutechessCommand"
