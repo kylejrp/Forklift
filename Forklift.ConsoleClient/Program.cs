@@ -155,7 +155,7 @@ while (true)
 
             var cancellationTokenSource = new CancellationTokenSource();
             var sideToMove = boardSnapshot.SideToMove;
-            int? allocatedTimeMs = ComputeTimeBudget(sideToMove, moveTimeMs, whiteTimeMs, blackTimeMs, whiteIncrementMs, blackIncrementMs, debugMode);
+            int? allocatedTimeMs = null; //ComputeTimeBudget(sideToMove, moveTimeMs, whiteTimeMs, blackTimeMs, whiteIncrementMs, blackIncrementMs, debugMode);
             bool useFailSafeDepth = allocatedTimeMs.HasValue && allocatedTimeMs.Value <= 0;
 
             int searchDepth;
