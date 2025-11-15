@@ -1,8 +1,8 @@
 ﻿using System.Diagnostics;
 using Forklift.Core;
 
-const int DefaultSearchDepth = 8;
-const int MaxSearchDepthForTimedMode = 16;
+const int DefaultSearchDepth = 4;
+const int MaxSearchDepthForTimedMode = 4;
 const int SafetyMarginMs = 25;
 
 var board = new Board();
