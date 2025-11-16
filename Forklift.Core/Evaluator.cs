@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Forklift.Core;
 
 namespace Forklift.Core
@@ -14,11 +15,13 @@ namespace Forklift.Core
             0    // King
         };
 
+        public const int MaxEvaluationScore = 30_000; // Arbitrary large value representing a decisive advantage
+
         /// <summary>
         /// Static evaluation of the board position.
         /// </summary>
         /// <param name="board">The board to evaluate.</param>
-        /// <returns>The static evaluation score of the board position, positive if favorable to White, negative if favorable to Black.</returns>
+        /// <returns>The static evaluation score of the board position, positive if favorable to White, negative if favorable to Black. Will always be between -<see cref="MaxEvaluationScore"/> and <see cref="MaxEvaluationScore"/>.</returns>
         public static int StaticEvaluate(Board board)
         {
             int score = 0;
@@ -50,6 +53,8 @@ namespace Forklift.Core
                 score += (piece.IsWhite ? +1 : -1) * delta;
             }
 
+            Debug.Assert(score >= -MaxEvaluationScore && score <= MaxEvaluationScore, $"Evaluation score of {score} out of bounds of ±{MaxEvaluationScore} for position {board.GetFEN()}.");
+
             return score;
         }
 
@@ -57,7 +62,7 @@ namespace Forklift.Core
         /// Evaluates the board position from the perspective of the side to move.
         /// </summary>
         /// <param name="board">The board to evaluate.</param>
-        /// <returns>The evaluation score from the perspective of the side to move, positive if favorable to the side to move, negative if unfavorable.</returns>
+        /// <returns>The evaluation score from the perspective of the side to move, positive if favorable to the side to move, negative if unfavorable. Will always be between -<see cref="MaxEvaluationScore"/> and <see cref="MaxEvaluationScore"/>.</returns>
         public static int EvaluateForSideToMove(Board board)
         {
             int staticScore = StaticEvaluate(board);

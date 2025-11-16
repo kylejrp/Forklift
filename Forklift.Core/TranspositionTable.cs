@@ -17,7 +17,7 @@ public sealed class TranspositionTable
     // MateValue must always be larger than any evaluation score returned by
     // Evaluator.EvaluateForSideToMove so mate scores cannot be confused with
     // regular evaluation values.
-    internal const int MateValue = 30_000;
+    internal const int MateValue = Evaluator.MaxEvaluationScore * 2;
     // TODO: Revisit MateValue if evaluation scaling in Evaluator changes.
     internal const int MateScoreThreshold = MateValue - 512;
 
