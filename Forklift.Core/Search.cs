@@ -11,6 +11,8 @@ namespace Forklift.Core
 
         private readonly record struct SearchNodeResult(Board.Move? BestMove, int BestScore, bool IsComplete);
 
+        private readonly record struct QuiescenceResult(int BestScore, bool IsComplete);
+
         private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
         private const int MateScore = 30000;
@@ -80,8 +82,8 @@ namespace Forklift.Core
 
             if (depth == 0)
             {
-                int quiescenceScore = Quiescence(board, alpha, beta, cancellationToken);
-                return new SearchNodeResult(null, quiescenceScore, true);
+                QuiescenceResult q = Quiescence(board, alpha, beta, cancellationToken);
+                return new SearchNodeResult(null, q.BestScore, q.IsComplete);
             }
 
             var legalMoves = board.GenerateLegal();
@@ -173,11 +175,11 @@ namespace Forklift.Core
             return new SearchNodeResult(bestMove, bestScore, completed);
         }
 
-        private static int Quiescence(Board board, int alpha, int beta, CancellationToken cancellationToken)
+        private static QuiescenceResult Quiescence(Board board, int alpha, int beta, CancellationToken cancellationToken)
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return alpha;
+                return new QuiescenceResult(alpha, false);
             }
 
             bool inCheck = board.InCheck(board.SideToMove);
@@ -188,23 +190,30 @@ namespace Forklift.Core
 
                 int currentAlpha = alpha;
                 bool exploredMove = false;
+                bool allComplete = true;
 
                 foreach (var move in legalMoves)
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        return exploredMove ? currentAlpha : alpha;
+                        return new QuiescenceResult(exploredMove ? currentAlpha : alpha, false);
                     }
 
                     var undo = board.MakeMove(move);
-                    int score = -Quiescence(board, -beta, -currentAlpha, cancellationToken);
+                    QuiescenceResult child = Quiescence(board, -beta, -currentAlpha, cancellationToken);
+                    int score = -child.BestScore;
                     board.UnmakeMove(move, undo);
 
                     exploredMove = true;
+                    if (!child.IsComplete)
+                    {
+                        allComplete = false;
+                    }
 
                     if (score >= beta)
                     {
-                        return beta;
+                        // Normal beta cutoff: "complete" unless some child was incomplete
+                        return new QuiescenceResult(beta, allComplete);
                     }
 
                     if (score > currentAlpha)
@@ -215,17 +224,19 @@ namespace Forklift.Core
 
                 if (!exploredMove)
                 {
-                    return EvaluateTerminal(board);
+                    // No legal moves in check => mate
+                    return new QuiescenceResult(EvaluateTerminal(board), true);
                 }
 
-                return currentAlpha;
+                return new QuiescenceResult(currentAlpha, allComplete);
             }
 
             int standPat = Evaluator.EvaluateForSideToMove(board);
 
             if (standPat >= beta)
             {
-                return beta;
+                // Fail-high on stand pat is a normal, complete result
+                return new QuiescenceResult(beta, true);
             }
 
             if (standPat > alpha)
@@ -238,6 +249,7 @@ namespace Forklift.Core
             var pseudoMoves = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
             var sideToMove = board.SideToMove;
             bool exploredCapture = false;
+            bool allCompleteCaptures = true;
 
             foreach (var move in pseudoMoves)
             {
@@ -248,7 +260,7 @@ namespace Forklift.Core
 
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return alpha;
+                    return new QuiescenceResult(alpha, false);
                 }
 
                 var undo = board.MakeMove(move);
@@ -260,12 +272,18 @@ namespace Forklift.Core
                 }
 
                 exploredCapture = true;
-                int score = -Quiescence(board, -beta, -alpha, cancellationToken);
+                QuiescenceResult child = Quiescence(board, -beta, -alpha, cancellationToken);
+                int score = -child.BestScore;
                 board.UnmakeMove(move, undo);
+
+                if (!child.IsComplete)
+                {
+                    allCompleteCaptures = false;
+                }
 
                 if (score >= beta)
                 {
-                    return beta;
+                    return new QuiescenceResult(beta, allCompleteCaptures);
                 }
 
                 if (score > alpha)
@@ -276,10 +294,11 @@ namespace Forklift.Core
 
             if (!exploredCapture && !board.HasAnyLegalMoves())
             {
-                return EvaluateTerminal(board);
+                // No captures searched and no legal moves at all => stalemate or mate
+                return new QuiescenceResult(EvaluateTerminal(board), true);
             }
 
-            return alpha;
+            return new QuiescenceResult(alpha, allCompleteCaptures);
         }
 
         private static int EvaluateTerminal(Board board)
