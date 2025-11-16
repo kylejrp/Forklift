@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace Forklift.Core;
@@ -44,6 +45,13 @@ public readonly struct UnsafeSquare0x64
     {
         string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraicString(new Square0x64(Value)) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x64 {Value})" : $"{algebraic} (0x64 {Value})";
+    }
+
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is UnsafeSquare0x64 square && Value == square.Value;
+
+    public override int GetHashCode()
+    {
+        return Value;
     }
 }
 
@@ -95,6 +103,13 @@ public readonly struct Square0x64
         string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraicString(this) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x64 {Value})" : $"{algebraic} (0x64 {Value})";
     }
+
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is Square0x64 square && Value == square.Value;
+
+    public override int GetHashCode()
+    {
+        return Value;
+    }
 }
 
 
@@ -143,6 +158,13 @@ public readonly struct UnsafeSquare0x88
     {
         return new UnsafeSquare0x88(square.Value - 1);
     }
+
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is UnsafeSquare0x88 square && Value == square.Value;
+
+    public override int GetHashCode()
+    {
+        return Value;
+    }
 }
 
 /// <summary>
@@ -188,6 +210,13 @@ public readonly struct Square0x88
     {
         string algebraic = ((Value & 0x88) == 0) ? Squares.ToAlgebraicString(this) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x88 {Value})" : $"{algebraic} (0x88 {Value})";
+    }
+
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is Square0x88 square && Value == square.Value;
+
+    public override int GetHashCode()
+    {
+        return Value;
     }
 }
 
