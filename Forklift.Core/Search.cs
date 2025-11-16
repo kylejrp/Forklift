@@ -15,6 +15,13 @@ namespace Forklift.Core
 
         private static readonly TranspositionTable _transpositionTable = new();
 
+        private const int MaxPly = 128;
+        private const int PieceTypeCount = 6;
+        private static readonly Board.Move?[] _killerMovesPrimary = new Board.Move?[MaxPly];
+        private static readonly Board.Move?[] _killerMovesSecondary = new Board.Move?[MaxPly];
+        private static readonly int[,] _historyScores = new int[PieceTypeCount, 64];
+        private static readonly int[] _pieceOrderingValues = { 100, 320, 330, 500, 900, 2000 };
+
         public static void ClearTranspositionTable() => _transpositionTable.Clear();
 
         // Negamax search, returns best move and score
@@ -138,18 +145,25 @@ namespace Forklift.Core
             /// <param name="targetIndex">The index in the move list to which the move should be promoted.</param>
             /// <param name="moveCount">The number of valid moves in the move list.</param>
             /// </summary>
-            static void PromoteMove(Board.Move[] moves, Board.Move move, int targetIndex, int moveCount)
+            static bool PromoteMove(Board.Move[] moves, Board.Move move, int targetIndex, int moveCount)
             {
                 if (targetIndex < 0 || targetIndex >= moveCount)
                 {
-                    return;
+                    return false;
                 }
 
                 int index = Array.FindIndex(moves, targetIndex, moveCount - targetIndex, m => m.Equals(move));
+                if (index < 0)
+                {
+                    return false;
+                }
+
                 if (index > targetIndex)
                 {
                     (moves[targetIndex], moves[index]) = (moves[index], moves[targetIndex]);
                 }
+
+                return true;
             }
 
             // Promote PV move and TT move with clear semantics:
@@ -163,21 +177,84 @@ namespace Forklift.Core
             //
             // - If there is no PV move at this node, we let the TT move lead.
 
+            int orderedCount = 0;
+
             if (preferredMove is Board.Move pv)
             {
                 // PV is our primary candidate: it must be searched first.
-                PromoteMove(legalMoves, pv, targetIndex: 0, moveCount: legalMoveCount);
+                if (PromoteMove(legalMoves, pv, targetIndex: orderedCount, moveCount: legalMoveCount))
+                {
+                    orderedCount++;
+                }
 
                 // If TT move exists and is distinct, let it be second.
                 if (ttMove is Board.Move tt && !tt.Equals(pv))
                 {
-                    PromoteMove(legalMoves, tt, targetIndex: 1, moveCount: legalMoveCount);
+                    if (PromoteMove(legalMoves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
+                    {
+                        orderedCount++;
+                    }
                 }
             }
             else if (ttMove is Board.Move tt)
             {
                 // No PV for this node: TT move can take slot 0.
-                PromoteMove(legalMoves, tt, targetIndex: 0, moveCount: legalMoveCount);
+                if (PromoteMove(legalMoves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
+                {
+                    orderedCount++;
+                }
+            }
+
+            // Captures ordered by MVV-LVA.
+            int captureCount = 0;
+            for (int i = orderedCount; i < legalMoveCount; i++)
+            {
+                if (legalMoves[i].IsCapture)
+                {
+                    captureCount++;
+                }
+            }
+
+            if (captureCount > 0)
+            {
+                OrderCapturesByMvvLva(legalMoves, orderedCount, legalMoveCount);
+                orderedCount += captureCount;
+            }
+
+            // Killer moves.
+            if (ply < MaxPly)
+            {
+                if (_killerMovesPrimary[ply] is Board.Move killer1 && IsQuietMove(killer1))
+                {
+                    if (PromoteMove(legalMoves, killer1, orderedCount, legalMoveCount))
+                    {
+                        orderedCount++;
+                    }
+                }
+
+                if (_killerMovesSecondary[ply] is Board.Move killer2 && IsQuietMove(killer2))
+                {
+                    if (PromoteMove(legalMoves, killer2, orderedCount, legalMoveCount))
+                    {
+                        orderedCount++;
+                    }
+                }
+            }
+
+            // Remaining quiet moves ordered by history score.
+            int quietCount = 0;
+            for (int i = orderedCount; i < legalMoveCount; i++)
+            {
+                if (IsQuietMove(legalMoves[i]))
+                {
+                    quietCount++;
+                }
+            }
+
+            if (quietCount > 0)
+            {
+                OrderQuietMovesByHistory(legalMoves, orderedCount, legalMoveCount);
+                orderedCount += quietCount;
             }
 
 
@@ -234,6 +311,11 @@ namespace Forklift.Core
                 if (alpha >= beta)
                 {
                     // Beta cutoff: no need to consider remaining moves.
+                    if (IsQuietMove(move))
+                    {
+                        StoreKillerMove(move, ply);
+                        UpdateHistory(move, depth);
+                    }
                     betaCutoff = true;
                     break;
                 }
@@ -422,6 +504,115 @@ namespace Forklift.Core
 
             // Stalemate (or other terminal draw) – 0 from side-to-move POV.
             return 0;
+        }
+
+        private static void StoreKillerMove(Board.Move move, int ply)
+        {
+            if (ply >= MaxPly)
+            {
+                return;
+            }
+
+            if (_killerMovesPrimary[ply] is Board.Move existing && existing.Equals(move))
+            {
+                return;
+            }
+
+            _killerMovesSecondary[ply] = _killerMovesPrimary[ply];
+            _killerMovesPrimary[ply] = move;
+        }
+
+        private static void UpdateHistory(Board.Move move, int depth)
+        {
+            int pieceIndex = (int)move.Mover.Type;
+            int toIndex = (int)(Square0x64)move.To88;
+            _historyScores[pieceIndex, toIndex] += depth * depth;
+        }
+
+        private static int GetHistoryScore(Board.Move move)
+        {
+            int pieceIndex = (int)move.Mover.Type;
+            int toIndex = (int)(Square0x64)move.To88;
+            return _historyScores[pieceIndex, toIndex];
+        }
+
+        private static int ScoreCapture(Board.Move move)
+        {
+            int victimValue = _pieceOrderingValues[(int)move.Captured.Type];
+            int attackerValue = _pieceOrderingValues[(int)move.Mover.Type];
+            return victimValue * 10 - attackerValue;
+        }
+
+        private static bool IsQuietMove(Board.Move move) => !move.IsCapture && !move.IsPromotion;
+
+        private static void OrderCapturesByMvvLva(Board.Move[] moves, int startIndex, int moveCount)
+        {
+            for (int current = startIndex; current < moveCount; current++)
+            {
+                int bestIndex = -1;
+                int bestScore = int.MinValue;
+
+                for (int candidate = current; candidate < moveCount; candidate++)
+                {
+                    var move = moves[candidate];
+                    if (!move.IsCapture)
+                    {
+                        continue;
+                    }
+
+                    int score = ScoreCapture(move);
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestIndex = candidate;
+                    }
+                }
+
+                if (bestIndex == -1)
+                {
+                    break;
+                }
+
+                if (bestIndex != current)
+                {
+                    (moves[current], moves[bestIndex]) = (moves[bestIndex], moves[current]);
+                }
+            }
+        }
+
+        private static void OrderQuietMovesByHistory(Board.Move[] moves, int startIndex, int moveCount)
+        {
+            for (int current = startIndex; current < moveCount; current++)
+            {
+                int bestIndex = -1;
+                int bestScore = int.MinValue;
+
+                for (int candidate = current; candidate < moveCount; candidate++)
+                {
+                    var move = moves[candidate];
+                    if (!IsQuietMove(move))
+                    {
+                        continue;
+                    }
+
+                    int score = GetHistoryScore(move);
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestIndex = candidate;
+                    }
+                }
+
+                if (bestIndex == -1)
+                {
+                    break;
+                }
+
+                if (bestIndex != current)
+                {
+                    (moves[current], moves[bestIndex]) = (moves[bestIndex], moves[current]);
+                }
+            }
         }
     }
 }
