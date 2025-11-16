@@ -13,16 +13,13 @@ param(
     [string]$CurrentOutDir = 'artifacts/current/engine',
     [string]$PreviousOutDir = 'artifacts/previous/engine',
     [int]$AnchorOld = 2500,
-    [switch]$InstallTools
+    [switch]$InstallTools,
+    [switch]$DebugCutechessOutput
 )
 
 # Must be after the param block
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-
-if ($IsWindows) {
-    throw "ELO evaluation isn't supported on Windows because I haven't made an install script for it yet"
-}
 
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
@@ -416,15 +413,17 @@ try {
         $cutechessArgs += ($Sprt -split '\s+' | Where-Object { $_ })
     }
     $cutechessArgs += @('-pgnout', $pgnPath)
+    if ($DebugCutechessOutput){
+        $cutechessArgs += @('-debug', 'all')
+    }
 
     $cutechessCommand = "$($cutechess.Source) " + ($cutechessArgs -join ' ')
     Write-Host "[elo-eval] Running cutechess-cli command: $cutechessCommand"
 
-    $cutechessOutput = & $cutechess.Source @cutechessArgs 2>&1 | Tee-Object -FilePath $logPath
+    & $cutechess.Source @cutechessArgs 2>&1 | Tee-Object -Variable cutechessOutput | Tee-Object -FilePath $logPath
     $cutechessExit = $LASTEXITCODE
     if ($cutechessExit -ne 0) {
         Write-Host "[elo-eval] cutechess-cli output:"
-        $cutechessOutput | ForEach-Object { Write-Host "  $_" }
         throw "cutechess-cli exited with code $cutechessExit"
     }
 
