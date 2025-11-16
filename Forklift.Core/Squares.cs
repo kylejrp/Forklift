@@ -53,6 +53,8 @@ public readonly struct UnsafeSquare0x64 : IEquatable<UnsafeSquare0x64>
     {
         return Value;
     }
+    public static bool operator ==(UnsafeSquare0x64 left, UnsafeSquare0x64 right) => left.Value == right.Value;
+    public static bool operator !=(UnsafeSquare0x64 left, UnsafeSquare0x64 right) => left.Value != right.Value;
 }
 
 /// <summary>
@@ -110,6 +112,8 @@ public readonly struct Square0x64 : IEquatable<Square0x64>
     {
         return Value;
     }
+    public static bool operator ==(Square0x64 left, Square0x64 right) => left.Value == right.Value;
+    public static bool operator !=(Square0x64 left, Square0x64 right) => left.Value != right.Value;
 }
 
 
@@ -165,6 +169,8 @@ public readonly struct UnsafeSquare0x88 : IEquatable<UnsafeSquare0x88>
     {
         return Value;
     }
+    public static bool operator ==(UnsafeSquare0x88 left, UnsafeSquare0x88 right) => left.Value == right.Value;
+    public static bool operator !=(UnsafeSquare0x88 left, UnsafeSquare0x88 right) => left.Value != right.Value;
 }
 
 /// <summary>
@@ -218,6 +224,8 @@ public readonly struct Square0x88 : IEquatable<Square0x88>
     {
         return Value;
     }
+    public static bool operator ==(Square0x88 left, Square0x88 right) => left.Value == right.Value;
+    public static bool operator !=(Square0x88 left, Square0x88 right) => left.Value != right.Value;
 }
 
 /// <summary>
