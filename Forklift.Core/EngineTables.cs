@@ -517,7 +517,7 @@ namespace Forklift.Core
             int[] rookOffsets, ulong[] rookTable,
             ulong[] bishopMagics, ulong[] rookMagics)
         {
-            string envPath = Environment.GetEnvironmentVariable("FKLIFT_BAKE_PATH");
+            string? envPath = Environment.GetEnvironmentVariable("FKLIFT_BAKE_PATH");
             string path;
             if (!string.IsNullOrEmpty(envPath) &&
                 !envPath.Contains("/") && !envPath.Contains("\\") && !envPath.Contains(".."))
