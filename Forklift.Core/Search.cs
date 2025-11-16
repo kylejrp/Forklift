@@ -130,6 +130,14 @@ namespace Forklift.Core
             }
 
             // --- Move ordering helpers ---------------------------------------
+            /// <summary>
+            /// Swaps the specified move to the target position in the move list for ordering purposes.
+            /// 
+            /// <param name="moves">The array of moves to reorder.</param>
+            /// <param name="move">The move to promote to the target index.</param>
+            /// <param name="targetIndex">The index in the move list to which the move should be promoted.</param>
+            /// <param name="moveCount">The number of valid moves in the move list.</param>
+            /// </summary>
             static void PromoteMove(Board.Move[] moves, Board.Move move, int targetIndex, int moveCount)
             {
                 if (targetIndex < 0 || targetIndex >= moveCount)

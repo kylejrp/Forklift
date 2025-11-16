@@ -53,6 +53,19 @@ public sealed class TranspositionTable
 
     public void Clear() => Array.Clear(_entries, 0, _entries.Length);
 
+    /// <summary>
+    /// Probes the transposition table for an entry matching the given position and search parameters.
+    /// </summary>
+    /// <param name="zobristKey">The Zobrist hash key representing the current board position.</param>
+    /// <param name="depth">The search depth (in plies) for which the entry is valid.</param>
+    /// <param name="alpha">The lower bound of the alpha-beta search window.</param>
+    /// <param name="beta">The upper bound of the alpha-beta search window.</param>
+    /// <param name="ply">The current search ply, used to adjust mate scores relative to the root.</param>
+    /// <returns>
+    /// A <see cref="ProbeResult"/> indicating whether a matching entry was found (<c>Hit</c>), 
+    /// whether the stored score is usable for the current search window (<c>HasScore</c>), 
+    /// the score (if available, adjusted for mate distance), and the best move (if available).
+    /// </returns>
     public ProbeResult Probe(ulong zobristKey, int depth, int alpha, int beta, int ply)
     {
         ref var entry = ref _entries[(int)(zobristKey & (uint)_mask)];
@@ -83,6 +96,32 @@ public sealed class TranspositionTable
         return new ProbeResult(true, false, 0, bestMove);
     }
 
+    /// <summary>
+    /// Stores a search result in the transposition table.
+    /// Call this method after searching a node to cache its evaluation and best move for future lookups.
+    /// The entry is only replaced if the slot is empty or the new entry has greater or equal search depth.
+    /// </summary>
+    /// <param name="zobristKey">The Zobrist hash of the board position.</param>
+    /// <param name="depth">The search depth (in plies) at which this node was evaluated.</param>
+    /// <param name="score">
+    /// The evaluation score for the position, from the perspective of the side to move.
+    /// Mate scores should be in the standard format (e.g., positive for mate in N, negative for being mated in N).
+    /// </param>
+    /// <param name="nodeType">
+    /// The type of node:
+    /// <list type="bullet">
+    /// <item><description><see cref="NodeType.Exact"/>: The score is exact (PV node).</description></item>
+    /// <item><description><see cref="NodeType.Alpha"/>: The score is a lower bound (fail-low).</description></item>
+    /// <item><description><see cref="NodeType.Beta"/>: The score is an upper bound (fail-high).</description></item>
+    /// </list>
+    /// </param>
+    /// <param name="bestMove">The best move found from this position, or <c>null</c> if unknown.</param>
+    /// <param name="ply">
+    /// The distance from the root node (in plies). Used to normalize mate scores for correct retrieval.
+    /// </param>
+    /// <remarks>
+    /// The replacement strategy only overwrites an existing entry if the new entry is for the same position and has greater or equal search depth.
+    /// </remarks>
     public void Store(ulong zobristKey, int depth, int score, NodeType nodeType, Board.Move? bestMove, int ply)
     {
         ref var entry = ref _entries[(int)(zobristKey & (uint)_mask)];
