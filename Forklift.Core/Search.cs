@@ -16,11 +16,18 @@ namespace Forklift.Core
         private static readonly TranspositionTable _transpositionTable = new();
 
         private const int MaxPly = 128;
-        private const int PieceTypeCount = 6;
+        private static readonly int PieceTypeCount = Enum.GetValues(typeof(Piece.PieceType)).Length;
         private static readonly Board.Move?[] _killerMovesPrimary = new Board.Move?[MaxPly];
         private static readonly Board.Move?[] _killerMovesSecondary = new Board.Move?[MaxPly];
-        private static readonly int[,] _historyScores = new int[PieceTypeCount, 64];
-        private static readonly int[] _pieceOrderingValues = { 100, 320, 330, 500, 900, 2000 };
+        private static readonly Dictionary<Piece.PieceType, Dictionary<Square0x88, int>> _historyScores = new Dictionary<Piece.PieceType, Dictionary<Square0x88, int>>();
+        private static readonly int[] _pieceOrderingValues = {
+            100, // Pawn
+            320, // Knight
+            330, // Bishop
+            500, // Rook
+            900, // Queen
+            2000 // King
+        };
 
         public static void ClearTranspositionTable() => _transpositionTable.Clear();
 
@@ -139,7 +146,7 @@ namespace Forklift.Core
             // --- Move ordering helpers ---------------------------------------
             /// <summary>
             /// Swaps the specified move to the target position in the move list for ordering purposes.
-            /// 
+            ///
             /// <param name="moves">The array of moves to reorder.</param>
             /// <param name="move">The move to promote to the target index.</param>
             /// <param name="targetIndex">The index in the move list to which the move should be promoted.</param>
@@ -524,16 +531,24 @@ namespace Forklift.Core
 
         private static void UpdateHistory(Board.Move move, int depth)
         {
-            int pieceIndex = (int)move.Mover.Type;
-            int toIndex = (int)(Square0x64)move.To88;
-            _historyScores[pieceIndex, toIndex] += depth * depth;
+            var pieceIndex = move.Mover.Type;
+
+            if (!_historyScores.TryGetValue(pieceIndex, out var table))
+            {
+                table = new Dictionary<Square0x88, int>();
+                _historyScores[pieceIndex] = table;
+            }
+
+            var to = move.To88;
+            table[to] = table.GetValueOrDefault(to, 0) + depth * depth;
         }
 
         private static int GetHistoryScore(Board.Move move)
         {
-            int pieceIndex = (int)move.Mover.Type;
-            int toIndex = (int)(Square0x64)move.To88;
-            return _historyScores[pieceIndex, toIndex];
+            var pieceIndex = move.Mover.Type;
+            return _historyScores.TryGetValue(pieceIndex, out var table)
+                ? table.GetValueOrDefault(move.To88, 0)
+                : 0;
         }
 
         private static int ScoreCapture(Board.Move move)
