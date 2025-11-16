@@ -7,22 +7,19 @@ param(
     [int]$Games = 300,
     [string]$TimeControl = '1+0.1',
     [string]$Sprt = 'elo0=0 elo1=5 alpha=0.05 beta=0.05',
-    [string]$OpeningsFile = 'matches/openings.epd',
+    [string]$OpeningsFile = 'matches/noob_3moves.epd',
     [int]$Concurrency = 0,
     [string]$MatchDir = 'matches',
     [string]$CurrentOutDir = 'artifacts/current/engine',
     [string]$PreviousOutDir = 'artifacts/previous/engine',
     [int]$AnchorOld = 2500,
-    [switch]$InstallTools
+    [switch]$InstallTools,
+    [switch]$DebugCutechessOutput
 )
 
 # Must be after the param block
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-
-if ($IsWindows) {
-    throw "ELO evaluation isn't supported on Windows because I haven't made an install script for it yet"
-}
 
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
@@ -347,26 +344,28 @@ try {
     $openingsPath = if ([System.IO.Path]::IsPathRooted($OpeningsFile)) { $OpeningsFile } else { Join-Path $repoRoot $OpeningsFile }
     Ensure-Directory -Path (Split-Path -Parent $openingsPath)
     if (-not (Test-Path $openingsPath)) {
+        # Fallback to downloading noob_3moves.epd from Stockfish repo
+        $zipUrl = "https://github.com/official-stockfish/books/raw/refs/heads/master/noob_3moves.epd.zip"
+        $zipPath = Join-Path ([System.IO.Path]::GetDirectoryName($openingsPath)) "noob_3moves.epd.zip"
 
-        $fallback = @(
-            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-            'rnbqkbnr/pppp1ppp/4p3/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq - 1 2',
-            'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
-            'rnbqkbnr/pp1ppppp/8/2p5/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2',
-            'rnbqkbnr/pppp1ppp/5n2/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 3',
-            'r1bqkbnr/pppppppp/2n5/8/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 2',
-            'rnbqkb1r/pppppppp/5n2/8/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 2',
-            'r1bqkbnr/pppp1ppp/2n5/4p3/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 2',
-            'rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1',
-            'rnbqkbnr/pp1ppppp/8/2p5/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 2',
-            'rnbqkbnr/pppppppp/8/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 1',
-            'r1bqkbnr/pppp1ppp/2n5/4p3/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq - 1 2',
-            'rnbqkbnr/pppppppp/8/8/3P4/3B4/PPP1PPPP/RNBQK1NR b KQkq - 2 2',
-            'rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2',
-            'rnbqkbnr/pppppppp/8/8/3P4/4P3/PPP2PPP/RNBQKBNR b KQkq - 0 1',
-            'r1bqkbnr/pppppppp/2n5/8/3P4/5N2/PPP1PPPP/RNBQKB1R b KQkq - 1 2'
-        )
-        $fallback | Set-Content -Path $openingsPath
+        Write-Host "Opening book not found — downloading noob_3moves.epd.zip ..."
+
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+
+        # Expand to the same directory as the target .epd file
+        Expand-Archive -Path $zipPath -DestinationPath ([System.IO.Path]::GetDirectoryName($openingsPath)) -Force
+
+        Remove-Item $zipPath -Force
+
+        # Ensure the extracted file is named correctly for your script usage
+        if (-not (Test-Path $openingsPath)) {
+            $extracted = Join-Path ([System.IO.Path]::GetDirectoryName($openingsPath)) "noob_3moves.epd"
+            if (Test-Path $extracted) {
+                Rename-Item $extracted $openingsPath -Force
+            }
+        }
+
+        Write-Host "Downloaded and extracted opening book → $openingsPath"
     }
 
     if (-not $IsWindows) {
@@ -416,15 +415,17 @@ try {
         $cutechessArgs += ($Sprt -split '\s+' | Where-Object { $_ })
     }
     $cutechessArgs += @('-pgnout', $pgnPath)
+    if ($DebugCutechessOutput){
+        $cutechessArgs += @('-debug', 'all')
+    }
 
     $cutechessCommand = "$($cutechess.Source) " + ($cutechessArgs -join ' ')
     Write-Host "[elo-eval] Running cutechess-cli command: $cutechessCommand"
 
-    $cutechessOutput = & $cutechess.Source @cutechessArgs 2>&1 | Tee-Object -FilePath $logPath
+    & $cutechess.Source @cutechessArgs 2>&1 | Tee-Object -Variable cutechessOutput | Tee-Object -FilePath $logPath
     $cutechessExit = $LASTEXITCODE
     if ($cutechessExit -ne 0) {
         Write-Host "[elo-eval] cutechess-cli output:"
-        $cutechessOutput | ForEach-Object { Write-Host "  $_" }
         throw "cutechess-cli exited with code $cutechessExit"
     }
 

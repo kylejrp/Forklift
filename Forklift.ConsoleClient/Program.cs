@@ -1,6 +1,10 @@
 ﻿using System.Diagnostics;
 using Forklift.Core;
 
+const int DefaultSearchDepth = 8;
+const int MaxSearchDepthForTimedMode = 20;
+const int SafetyMarginMs = 25;
+
 var board = new Board();
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 CancellationTokenSource? currentSearchCancellationTokenSource = null;
@@ -101,6 +105,10 @@ while (true)
 
         int? depth = null;
         int? moveTimeMs = null;
+        int? whiteTimeMs = null;
+        int? blackTimeMs = null;
+        int? whiteIncrementMs = null;
+        int? blackIncrementMs = null;
 
         for (int i = 1; i < tokens.Length; i++)
         {
@@ -115,10 +123,28 @@ while (true)
                     moveTimeMs = mt;
                     i++; // skip value
                     break;
+
+                case "wtime" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var wt):
+                    whiteTimeMs = wt;
+                    i++;
+                    break;
+
+                case "btime" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var bt):
+                    blackTimeMs = bt;
+                    i++;
+                    break;
+
+                case "winc" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var wi):
+                    whiteIncrementMs = wi;
+                    i++;
+                    break;
+
+                case "binc" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var bi):
+                    blackIncrementMs = bi;
+                    i++;
+                    break;
             }
         }
-
-        depth ??= 4; // default depth
 
         lock (searchLock)
         {
@@ -129,10 +155,27 @@ while (true)
             var boardSnapshot = board.Copy();
 
             var cancellationTokenSource = new CancellationTokenSource();
+            var sideToMove = boardSnapshot.SideToMove;
+            int? allocatedTimeMs = ComputeTimeBudget(sideToMove, moveTimeMs, whiteTimeMs, blackTimeMs, whiteIncrementMs, blackIncrementMs, debugMode);
+            bool useFailSafeDepth = allocatedTimeMs.HasValue && allocatedTimeMs.Value <= 0;
 
-            if (moveTimeMs.HasValue && moveTimeMs.Value > 0)
+            int searchDepth;
+            if (depth.HasValue)
             {
-                cancellationTokenSource.CancelAfter(moveTimeMs.Value);
+                searchDepth = depth.Value;
+            }
+            else if (allocatedTimeMs.HasValue)
+            {
+                searchDepth = MaxSearchDepthForTimedMode;
+            }
+            else
+            {
+                searchDepth = DefaultSearchDepth;
+            }
+
+            if (allocatedTimeMs.HasValue && allocatedTimeMs.Value > 0)
+            {
+                cancellationTokenSource.CancelAfter(allocatedTimeMs.Value - SafetyMarginMs);
             }
 
             currentSearchCancellationTokenSource = cancellationTokenSource;
@@ -145,8 +188,10 @@ while (true)
                 {
                     if (debugMode) Console.WriteLine("info string search started");
                     var stopwatch = Stopwatch.StartNew();
-
-                    var (bestMove, bestScore) = Search.FindBestMove(boardSnapshot, depth.Value, cancellationToken);
+                    var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken);
+                    var bestMove = summary.BestMove;
+                    var bestScore = summary.BestScore;
+                    var completedDepth = summary.CompletedDepth;
 
                     // If this search was cancelled, we can bail silently
                     if (bestMove is not Board.Move move)
@@ -155,18 +200,20 @@ while (true)
                         return;
                     }
 
-                    Console.WriteLine($"info depth {depth.Value} score cp {bestScore} pv {move.ToUCIString()}");
+                    Console.WriteLine($"info depth {completedDepth} score cp {bestScore} pv {move.ToUCIString()}");
                     var elapsedMs = stopwatch.ElapsedMilliseconds;
                     if (debugMode)
                     {
-                        Console.WriteLine($"info string search completed in {elapsedMs / 1000.0:F2}s");
+                        var budgetDisplay = allocatedTimeMs.HasValue ? $" (budget {allocatedTimeMs.Value})" : string.Empty;
+                        Console.WriteLine($"info string search completed in {elapsedMs / 1000.0:F2}s{budgetDisplay}");
                     }
                     Console.WriteLine($"bestmove {move.ToUCIString()}");
 
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"info string search error: {ex.Message}");
+                    var sanitizedMessage = ex.Message.Replace("\r", "").Replace("\n", "\\n");
+                    Console.WriteLine($"info string search error: {sanitizedMessage}");
                     Console.WriteLine("bestmove (none)");
                 }
             });
@@ -192,4 +239,67 @@ while (true)
         currentSearchTask?.Wait(100);
         break;
     }
+}
+
+static int? ComputeTimeBudget(Color sideToMove, int? moveTimeMs, int? whiteTimeMs, int? blackTimeMs, int? whiteIncrementMs, int? blackIncrementMs, bool debugMode)
+{
+    if (debugMode)
+    {
+        Console.WriteLine(
+            $"info string go inputs side={sideToMove} movetime={moveTimeMs?.ToString() ?? "-"} wtime={whiteTimeMs?.ToString() ?? "-"} " +
+            $"btime={blackTimeMs?.ToString() ?? "-"} winc={whiteIncrementMs?.ToString() ?? "-"} binc={blackIncrementMs?.ToString() ?? "-"}");
+    }
+
+    if (moveTimeMs.HasValue)
+    {
+        int clamped = Math.Max(moveTimeMs.Value, 0);
+        if (debugMode)
+        {
+            Console.WriteLine($"info string allocated via movetime: {clamped}ms");
+        }
+
+        return clamped;
+    }
+
+    int? remainingTimeMs = sideToMove == Color.White ? whiteTimeMs : blackTimeMs;
+    int? incrementMs = sideToMove == Color.White ? whiteIncrementMs : blackIncrementMs;
+
+    if (remainingTimeMs.HasValue && remainingTimeMs.Value <= 0)
+    {
+        if (debugMode)
+        {
+            Console.WriteLine("info string remaining time exhausted; allocating 0ms");
+        }
+
+        return 0;
+    }
+
+    if (!remainingTimeMs.HasValue && !incrementMs.HasValue)
+    {
+        if (debugMode)
+        {
+            Console.WriteLine("info string no time control; unlimited time");
+        }
+
+        return null;
+    }
+
+    double allocation = 0.0;
+
+    if (remainingTimeMs.HasValue)
+        allocation += remainingTimeMs!.Value / 20.0;
+
+    if (incrementMs.HasValue)
+        allocation += incrementMs!.Value / 2.0;
+
+    int allocatedMs = (int)Math.Round(allocation, MidpointRounding.AwayFromZero);
+
+    if (debugMode)
+    {
+        string remainingDisplay = remainingTimeMs?.ToString() ?? "-";
+        string incrementDisplay = incrementMs?.ToString() ?? "-";
+        Console.WriteLine($"info string allocated time: {allocatedMs}ms (remaining={remainingDisplay}, increment={incrementDisplay})");
+    }
+
+    return allocatedMs;
 }

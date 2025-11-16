@@ -12,7 +12,7 @@ namespace Forklift.Core
         private readonly record struct QuiescenceResult(int BestScore, bool IsComplete);
 
         private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
-        private const int MaximumScore = int.MaxValue; // No overflow risk when negating
+        private const int MaximumScore = int.MaxValue;     // No overflow risk when negating
 
         // Keep mate scores consistent with the TT.
         private const int MateScore = TranspositionTable.MateValue;

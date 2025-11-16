@@ -517,7 +517,17 @@ namespace Forklift.Core
             int[] rookOffsets, ulong[] rookTable,
             ulong[] bishopMagics, ulong[] rookMagics)
         {
-            string path = Environment.GetEnvironmentVariable("FKLIFT_BAKE_PATH") ?? "EngineTables.Baked.cs";
+            string? envPath = Environment.GetEnvironmentVariable("FKLIFT_BAKE_PATH");
+            string path;
+            if (!string.IsNullOrEmpty(envPath) &&
+                !envPath.Contains("/") && !envPath.Contains("\\") && !envPath.Contains(".."))
+            {
+                path = envPath;
+            }
+            else
+            {
+                path = "EngineTables.Baked.cs";
+            }
             var sb = new System.Text.StringBuilder(capacity: 1 << 22); // pre-size a bit (few MB)
 
             // Header
