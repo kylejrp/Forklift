@@ -64,7 +64,13 @@ namespace Forklift.Core
             return new SearchSummary(finalBestMove, finalBestScore, completedDepth);
         }
 
-        private static SearchNodeResult Negamax(Board board, int depth, int alpha, int beta, Board.Move? preferredMove = null, CancellationToken cancellationToken = default)
+        private static SearchNodeResult Negamax(
+            Board board,
+            int depth,
+            int alpha,
+            int beta,
+            Board.Move? preferredMove = null,
+            CancellationToken cancellationToken = default)
         {
             if (depth == 0)
             {
@@ -83,6 +89,7 @@ namespace Forklift.Core
                 return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), true);
             }
 
+            bool didPvMoveOrdering = false;
             if (preferredMove is Board.Move pm)
             {
                 int index = Array.FindIndex(legalMoves, m => m.Equals(pm));
@@ -90,30 +97,37 @@ namespace Forklift.Core
                 {
                     (legalMoves[0], legalMoves[index]) = (legalMoves[index], legalMoves[0]); // Swap to front
                 }
+                didPvMoveOrdering = true;
             }
 
             Board.Move? bestMove = null;
             int bestScore = MinimumScore;
-            bool completed = true;
 
-            foreach (var move in legalMoves)
+            bool sawCompleteChild = false;
+            bool aborted = false;
+
+            for (int i = 0; i < legalMoves.Length; i++)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    completed = false;
+                    aborted = true;
                     break;
                 }
 
+                var move = legalMoves[i];
+
                 var undo = board.MakeMove(move);
-                // Negamax recursion: score from child, then negate score
                 var childResult = Negamax(board, depth - 1, -beta, -alpha, preferredMove: null, cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
 
                 if (!childResult.IsComplete)
                 {
-                    completed = false;
+                    // Child aborted: treat this node as aborted too
+                    aborted = true;
                     break;
                 }
+
+                sawCompleteChild = true;
 
                 int score = -childResult.BestScore;
 
@@ -130,13 +144,27 @@ namespace Forklift.Core
 
                 if (alpha >= beta)
                 {
-                    // Beta cutoff: no need to consider remaining moves
+                    // Beta cutoff: this node is still "complete enough"
                     break;
                 }
             }
 
+            bool completed;
+            if (didPvMoveOrdering)
+            {
+                // Root (or PV-ordered) node: as long as we saw at least one complete child,
+                // we consider this iteration "good enough" to use at the root.
+                completed = sawCompleteChild;
+            }
+            else
+            {
+                // Internal node: must not have aborted, and must have at least one complete child.
+                completed = sawCompleteChild && !aborted;
+            }
+
             if (bestMove is null)
             {
+                // No move chosen (e.g., all children aborted) – fall back to static eval
                 return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), completed);
             }
 
