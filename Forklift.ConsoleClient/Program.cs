@@ -55,6 +55,7 @@ while (true)
     else if (line == "ucinewgame")
     {
         board.SetStartPosition();
+        Search.ClearTranspositionTable();
         if (debugMode) Console.WriteLine("info string ucinewgame called");
     }
     else if (line.StartsWith("debug"))

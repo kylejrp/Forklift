@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using Forklift.Core;
-
 namespace Forklift.Core
 {
     public static class Search
@@ -15,7 +10,12 @@ namespace Forklift.Core
 
         private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
-        private const int MateScore = 30000;
+
+        private const int MateScore = TranspositionTable.MateValue;
+
+        private static readonly TranspositionTable _transpositionTable = new();
+
+        public static void ClearTranspositionTable() => _transpositionTable.Clear();
 
         // Negamax search, returns best move and score
         public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
@@ -33,7 +33,14 @@ namespace Forklift.Core
                     break;
                 }
 
-                var result = Negamax(board, depth, MinimumScore, MaximumScore, pvMove, cancellationToken);
+                var result = Negamax(
+                    board: board,
+                    depth: depth,
+                    alpha: MinimumScore,
+                    beta: MaximumScore,
+                    ply: 0,
+                    preferredMove: pvMove,
+                    cancellationToken: cancellationToken);
 
                 if (!result.IsComplete)
                 {
@@ -72,8 +79,9 @@ namespace Forklift.Core
             int depth,
             int alpha,
             int beta,
-            Board.Move? preferredMove = null,
-            CancellationToken cancellationToken = default)
+            int ply,
+            Board.Move? preferredMove,
+            CancellationToken cancellationToken)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -86,29 +94,99 @@ namespace Forklift.Core
                 return new SearchNodeResult(null, q.BestScore, q.IsComplete);
             }
 
+            int alphaOriginal = alpha;
+
+            // --- Transposition table probe -----------------------------------
+            //
+            // We only trust stored scores when:
+            // - The stored node was searched to at least this depth, and
+            // - The node type (Exact / Alpha / Beta) is compatible with the
+            //   current alpha/beta window.
+            //
+            // Exact  : full value for this position (can be returned directly).
+            // Alpha  : upper bound  (score <= alpha when stored).
+            // Beta   : lower bound  (score >= beta  when stored).
+            //
+            // At the root (ply == 0), we *never* return the TT score directly,
+            // but we still use the stored best move for ordering – this keeps
+            // the PV stable and avoids “playing from the table” at the root.
+            var probe = _transpositionTable.Probe(board.ZKey, depth, alpha, beta, ply);
+            Board.Move? ttMove = probe.BestMove;
+
+            if (probe.HasScore && ply > 0)
+            {
+                // Trusted hit: use the stored value and best move.
+                return new SearchNodeResult(ttMove, probe.Score, true);
+            }
+
             var legalMoves = board.GenerateLegal();
+            int legalMoveCount = legalMoves.Length;
 
-            if (legalMoves.Length == 0)
+            if (legalMoveCount == 0)
             {
-                return new SearchNodeResult(null, EvaluateTerminal(board), true);
+                // Terminal node: mate or stalemate.
+                int terminalScore = EvaluateTerminal(board, ply);
+                return new SearchNodeResult(null, terminalScore, true);
             }
 
-            bool didPvMoveOrdering = false;
-            if (preferredMove is Board.Move pm)
+            // --- Move ordering helpers ---------------------------------------
+            /// <summary>
+            /// Swaps the specified move to the target position in the move list for ordering purposes.
+            /// 
+            /// <param name="moves">The array of moves to reorder.</param>
+            /// <param name="move">The move to promote to the target index.</param>
+            /// <param name="targetIndex">The index in the move list to which the move should be promoted.</param>
+            /// <param name="moveCount">The number of valid moves in the move list.</param>
+            /// </summary>
+            static void PromoteMove(Board.Move[] moves, Board.Move move, int targetIndex, int moveCount)
             {
-                int index = Array.FindIndex(legalMoves, m => m.Equals(pm));
-                if (index > 0)
+                if (targetIndex < 0 || targetIndex >= moveCount)
                 {
-                    (legalMoves[0], legalMoves[index]) = (legalMoves[index], legalMoves[0]); // Swap to front
+                    return;
                 }
-                didPvMoveOrdering = true;
+
+                int index = Array.FindIndex(moves, targetIndex, moveCount - targetIndex, m => m.Equals(move));
+                if (index > targetIndex)
+                {
+                    (moves[targetIndex], moves[index]) = (moves[index], moves[targetIndex]);
+                }
             }
+
+            // Promote PV move and TT move with clear semantics:
+            //
+            // - If we have a PV move for this node, we *always* search it first.
+            //   This preserves the invariant that "PV searched first" means we can
+            //   treat the node as "complete enough" when some children are left.
+            //
+            // - If a TT move exists and it's different from the PV move, we put it
+            //   in slot 1 so it is still searched early.
+            //
+            // - If there is no PV move at this node, we let the TT move lead.
+
+            if (preferredMove is Board.Move pv)
+            {
+                // PV is our primary candidate: it must be searched first.
+                PromoteMove(legalMoves, pv, targetIndex: 0, moveCount: legalMoveCount);
+
+                // If TT move exists and is distinct, let it be second.
+                if (ttMove is Board.Move tt && !tt.Equals(pv))
+                {
+                    PromoteMove(legalMoves, tt, targetIndex: 1, moveCount: legalMoveCount);
+                }
+            }
+            else if (ttMove is Board.Move tt)
+            {
+                // No PV for this node: TT move can take slot 0.
+                PromoteMove(legalMoves, tt, targetIndex: 0, moveCount: legalMoveCount);
+            }
+
 
             Board.Move? bestMove = null;
             int bestScore = MinimumScore;
 
             bool sawCompleteChild = false;
             bool aborted = false;
+            bool betaCutoff = false;
 
             for (int i = 0; i < legalMoves.Length; i++)
             {
@@ -121,12 +199,19 @@ namespace Forklift.Core
                 var move = legalMoves[i];
 
                 var undo = board.MakeMove(move);
-                var childResult = Negamax(board, depth - 1, -beta, -alpha, preferredMove: null, cancellationToken: cancellationToken);
+                var childResult = Negamax(
+                    board: board,
+                    depth: depth - 1,
+                    alpha: -beta,
+                    beta: -alpha,
+                    ply: ply + 1,
+                    preferredMove: null,
+                    cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
 
                 if (!childResult.IsComplete)
                 {
-                    // Child aborted: treat this node as aborted too
+                    // Child aborted: treat this node as aborted too.
                     aborted = true;
                     break;
                 }
@@ -148,28 +233,53 @@ namespace Forklift.Core
 
                 if (alpha >= beta)
                 {
-                    // Beta cutoff: this node is still "complete enough"
+                    // Beta cutoff: no need to consider remaining moves.
+                    betaCutoff = true;
                     break;
                 }
             }
 
             bool completed;
-            if (didPvMoveOrdering)
+            if (preferredMove is not null)
             {
-                // Root (or PV-ordered) node: as long as we saw at least one complete child,
-                // we consider this iteration "good enough" to use at the root.
+                // Root (or PV-ordered) node: as long as we saw at least one
+                // complete child, we consider this iteration usable at the root.
                 completed = sawCompleteChild;
             }
             else
             {
-                // Internal node: must not have aborted, and must have at least one complete child.
+                // Internal node: must not have aborted, and must have at least
+                // one complete child.
                 completed = sawCompleteChild && !aborted;
             }
 
             if (bestMove is null)
             {
-                // No move chosen (e.g., all children aborted) – fall back to static eval
+                // No move chosen (e.g., all children aborted) – fall back to static eval.
                 return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), completed);
+            }
+
+            // --- Transposition table store -----------------------------------
+            //
+            // Only store if the search for this node actually completed (no
+            // partial / cancelled results) and we weren’t cancelled here.
+            if (completed && !cancellationToken.IsCancellationRequested)
+            {
+                var nodeType = TranspositionTable.NodeType.Exact;
+
+                // If the search produced a beta cutoff, the score is a lower bound (Beta).
+                if (betaCutoff)
+                {
+                    nodeType = TranspositionTable.NodeType.Beta;
+                }
+                // If the best score never exceeded the original alpha, it’s an upper bound (Alpha).
+                else if (bestScore <= alphaOriginal)
+                {
+                    nodeType = TranspositionTable.NodeType.Alpha;
+                }
+                // Otherwise alphaOriginal < bestScore < beta: Exact value.
+
+                _transpositionTable.Store(board.ZKey, depth, bestScore, nodeType, bestMove, ply);
             }
 
             return new SearchNodeResult(bestMove, bestScore, completed);
@@ -212,7 +322,6 @@ namespace Forklift.Core
 
                     if (score >= beta)
                     {
-                        // Normal beta cutoff: "complete" unless some child was incomplete
                         return new QuiescenceResult(beta, allComplete);
                     }
 
@@ -224,8 +333,8 @@ namespace Forklift.Core
 
                 if (!exploredMove)
                 {
-                    // No legal moves in check => mate
-                    return new QuiescenceResult(EvaluateTerminal(board), true);
+                    // No legal moves in check => mate.
+                    return new QuiescenceResult(EvaluateTerminal(board, ply: 0), true);
                 }
 
                 return new QuiescenceResult(currentAlpha, allComplete);
@@ -235,7 +344,7 @@ namespace Forklift.Core
 
             if (standPat >= beta)
             {
-                // Fail-high on stand pat is a normal, complete result
+                // Fail-high on stand pat is a normal, complete result.
                 return new QuiescenceResult(beta, true);
             }
 
@@ -294,21 +403,24 @@ namespace Forklift.Core
 
             if (!exploredCapture && !board.HasAnyLegalMoves())
             {
-                // No captures searched and no legal moves at all => stalemate or mate
-                return new QuiescenceResult(EvaluateTerminal(board), true);
+                // No captures searched and no legal moves at all => stalemate or mate.
+                return new QuiescenceResult(EvaluateTerminal(board, ply: 0), true);
             }
 
             return new QuiescenceResult(alpha, allCompleteCaptures);
         }
 
-        private static int EvaluateTerminal(Board board)
+        private static int EvaluateTerminal(Board board, int ply)
         {
             bool sideToMoveInCheck = board.InCheck(board.SideToMove);
             if (sideToMoveInCheck)
             {
-                return -MateScore;
+                // Mate scores are offset by ply so they can be normalized to
+                // “mate in N” later, consistent with the TT helpers.
+                return -MateScore + ply;
             }
 
+            // Stalemate (or other terminal draw) – 0 from side-to-move POV.
             return 0;
         }
     }
