@@ -31,9 +31,18 @@ namespace Forklift.Core
 
         public static void ClearTranspositionTable() => _transpositionTable.Clear();
 
+        public static void ClearHeuristics()
+        {
+            Array.Clear(_killerMovesPrimary, 0, _killerMovesPrimary.Length);
+            Array.Clear(_killerMovesSecondary, 0, _killerMovesSecondary.Length);
+            _historyScores.Clear();
+        }
+
         // Negamax search, returns best move and score
         public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
         {
+            ClearHeuristics();
+
             Board.Move? finalBestMove = null;
             int finalBestScore = MinimumScore;
             int completedDepth = 0;
