@@ -18,7 +18,6 @@ public sealed class TranspositionTable
     // Evaluator.EvaluateForSideToMove so mate scores cannot be confused with
     // regular evaluation values.
     internal const int MateValue = Evaluator.MaxEvaluationScore * 2;
-    // TODO: Revisit MateValue if evaluation scaling in Evaluator changes.
     internal const int MateScoreThreshold = MateValue - 512;
 
     private readonly Entry[] _entries;
