@@ -1,8 +1,8 @@
 ﻿using System.Diagnostics;
 using Forklift.Core;
 
-const int DefaultSearchDepth = 4;
-const int MaxSearchDepthForTimedMode = 4;
+const int DefaultSearchDepth = 8;
+const int MaxSearchDepthForTimedMode = 8;
 const int SafetyMarginMs = 25;
 
 var board = new Board();
@@ -155,7 +155,7 @@ while (true)
 
             var cancellationTokenSource = new CancellationTokenSource();
             var sideToMove = boardSnapshot.SideToMove;
-            int? allocatedTimeMs = null; //ComputeTimeBudget(sideToMove, moveTimeMs, whiteTimeMs, blackTimeMs, whiteIncrementMs, blackIncrementMs, debugMode);
+            int? allocatedTimeMs = ComputeTimeBudget(sideToMove, moveTimeMs, whiteTimeMs, blackTimeMs, whiteIncrementMs, blackIncrementMs, debugMode);
             bool useFailSafeDepth = allocatedTimeMs.HasValue && allocatedTimeMs.Value <= 0;
 
             int searchDepth;
@@ -187,10 +187,7 @@ while (true)
                 {
                     if (debugMode) Console.WriteLine("info string search started");
                     var stopwatch = Stopwatch.StartNew();
-                    var sufficientTimeToAttemptDepth = allocatedTimeMs.HasValue
-                        ? new Func<bool>(() => stopwatch.ElapsedMilliseconds < allocatedTimeMs.Value - SafetyMarginMs) // TODO: better time management here
-                        : null;
-                    var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, sufficientTimeToAttemptDepth, cancellationToken);
+                    var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken);
                     var bestMove = summary.BestMove;
                     var bestScore = summary.BestScore;
                     var completedDepth = summary.CompletedDepth;
@@ -245,10 +242,6 @@ while (true)
 
 static int? ComputeTimeBudget(Color sideToMove, int? moveTimeMs, int? whiteTimeMs, int? blackTimeMs, int? whiteIncrementMs, int? blackIncrementMs, bool debugMode)
 {
-    const double MaxFractionOfRemaining = 0.4;
-    const int MinMoveTimeMs = 10;
-    const int DivisorForRemaining = 30;
-
     if (debugMode)
     {
         Console.WriteLine(

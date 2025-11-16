@@ -15,7 +15,7 @@ namespace Forklift.Core
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
 
         // Negamax search, returns best move and score
-        public static SearchSummary FindBestMove(Board board, int maxDepth, Func<bool>? sufficientTimeToAttemptDepth = null, CancellationToken cancellationToken = default)
+        public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
         {
             Board.Move? finalBestMove = null;
             int finalBestScore = MinimumScore;
@@ -26,10 +26,6 @@ namespace Forklift.Core
             for (int depth = 1; depth <= maxDepth; depth++)
             {
                 if (cancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                if (sufficientTimeToAttemptDepth is not null && !sufficientTimeToAttemptDepth())
                 {
                     break;
                 }
