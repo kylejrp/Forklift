@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 
 namespace Forklift.Core;
 
-public readonly struct UnsafeSquare0x64
+public readonly struct UnsafeSquare0x64 : IEquatable<UnsafeSquare0x64>
 {
     public int Value { get; }
     public UnsafeSquare0x64(int value)
@@ -48,7 +48,7 @@ public readonly struct UnsafeSquare0x64
     }
 
     public override bool Equals([NotNullWhen(true)] object? obj) => obj is UnsafeSquare0x64 square && Value == square.Value;
-
+    public bool Equals(UnsafeSquare0x64 other) => Value == other.Value;
     public override int GetHashCode()
     {
         return Value;
@@ -58,7 +58,7 @@ public readonly struct UnsafeSquare0x64
 /// <summary>
 /// Represents a square in 0x64 format.
 /// </summary>
-public readonly struct Square0x64
+public readonly struct Square0x64 : IEquatable<Square0x64>
 {
     public int Value { get; }
 
@@ -105,7 +105,7 @@ public readonly struct Square0x64
     }
 
     public override bool Equals([NotNullWhen(true)] object? obj) => obj is Square0x64 square && Value == square.Value;
-
+    public bool Equals(Square0x64 other) => Value == other.Value;
     public override int GetHashCode()
     {
         return Value;
@@ -116,7 +116,7 @@ public readonly struct Square0x64
 /// <summary>
 /// Represents a square in unsafe 0x88 format (no validation).
 /// </summary>
-public readonly struct UnsafeSquare0x88
+public readonly struct UnsafeSquare0x88 : IEquatable<UnsafeSquare0x88>
 {
     public int Value { get; }
     public UnsafeSquare0x88(int value)
@@ -160,7 +160,7 @@ public readonly struct UnsafeSquare0x88
     }
 
     public override bool Equals([NotNullWhen(true)] object? obj) => obj is UnsafeSquare0x88 square && Value == square.Value;
-
+    public bool Equals(UnsafeSquare0x88 other) => Value == other.Value;
     public override int GetHashCode()
     {
         return Value;
@@ -170,7 +170,7 @@ public readonly struct UnsafeSquare0x88
 /// <summary>
 /// Represents a square in 0x88 format.
 /// </summary>
-public readonly struct Square0x88
+public readonly struct Square0x88 : IEquatable<Square0x88>
 {
     public int Value { get; }
 
@@ -213,7 +213,7 @@ public readonly struct Square0x88
     }
 
     public override bool Equals([NotNullWhen(true)] object? obj) => obj is Square0x88 square && Value == square.Value;
-
+    public bool Equals(Square0x88 other) => Value == other.Value;
     public override int GetHashCode()
     {
         return Value;
