@@ -1,6 +1,3 @@
-using System;
-using System.Threading;
-
 namespace Forklift.Core
 {
     public static class Search
@@ -12,9 +9,8 @@ namespace Forklift.Core
         private readonly record struct QuiescenceResult(int BestScore, bool IsComplete);
 
         private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
-        private const int MaximumScore = int.MaxValue;     // No overflow risk when negating
+        private const int MaximumScore = int.MaxValue; // No overflow risk when negating
 
-        // Keep mate scores consistent with the TT.
         private const int MateScore = TranspositionTable.MateValue;
 
         private static readonly TranspositionTable _transpositionTable = new();
@@ -37,12 +33,17 @@ namespace Forklift.Core
                     break;
                 }
 
-                var result = Negamax(board, depth, MinimumScore, MaximumScore, ply: 0, preferredMove: pvMove, cancellationToken);
+                var result = Negamax(
+                    board: board,
+                    depth: depth,
+                    alpha: MinimumScore,
+                    beta: MaximumScore,
+                    ply: 0,
+                    preferredMove: pvMove,
+                    cancellationToken: cancellationToken);
 
                 if (!result.IsComplete)
                 {
-                    // Iteration was cut short (time / cancellation) – don’t
-                    // trust this or deeper iterations.
                     break;
                 }
 
@@ -89,7 +90,6 @@ namespace Forklift.Core
 
             if (depth == 0)
             {
-                // Leaf of the main search: dive into quiescence.
                 QuiescenceResult q = Quiescence(board, alpha, beta, cancellationToken);
                 return new SearchNodeResult(null, q.BestScore, q.IsComplete);
             }
@@ -132,7 +132,7 @@ namespace Forklift.Core
             // --- Move ordering helpers ---------------------------------------
             static void PromoteMove(Board.Move[] moves, Board.Move move, int targetIndex, int moveCount)
             {
-                if ((uint)targetIndex >= (uint)moveCount)
+                if (targetIndex < 0 || targetIndex >= moveCount)
                 {
                     return;
                 }
@@ -144,19 +144,34 @@ namespace Forklift.Core
                 }
             }
 
-            // 1. TT move first (if any).
-            if (ttMove is Board.Move transpositionMove)
+            // Promote PV move and TT move with clear semantics:
+            //
+            // - If we have a PV move for this node, we *always* search it first.
+            //   This preserves the invariant that "PV searched first" means we can
+            //   treat the node as "complete enough" when some children are left.
+            //
+            // - If a TT move exists and it's different from the PV move, we put it
+            //   in slot 1 so it is still searched early.
+            //
+            // - If there is no PV move at this node, we let the TT move lead.
+
+            if (preferredMove is Board.Move pv)
             {
-                PromoteMove(legalMoves, transpositionMove, targetIndex: 0, moveCount: legalMoveCount);
+                // PV is our primary candidate: it must be searched first.
+                PromoteMove(legalMoves, pv, targetIndex: 0, moveCount: legalMoveCount);
+
+                // If TT move exists and is distinct, let it be second.
+                if (ttMove is Board.Move tt && !tt.Equals(pv))
+                {
+                    PromoteMove(legalMoves, tt, targetIndex: 1, moveCount: legalMoveCount);
+                }
+            }
+            else if (ttMove is Board.Move tt)
+            {
+                // No PV for this node: TT move can take slot 0.
+                PromoteMove(legalMoves, tt, targetIndex: 0, moveCount: legalMoveCount);
             }
 
-            // 2. PV move next (if distinct from TT move).
-            if (preferredMove is Board.Move pm)
-            {
-                bool sameAsTt = ttMove is Board.Move ttm && ttm.Equals(pm);
-                int targetIndex = sameAsTt ? 0 : (ttMove is Board.Move ? 1 : 0);
-                PromoteMove(legalMoves, pm, targetIndex, legalMoveCount);
-            }
 
             Board.Move? bestMove = null;
             int bestScore = MinimumScore;
@@ -176,7 +191,14 @@ namespace Forklift.Core
                 var move = legalMoves[i];
 
                 var undo = board.MakeMove(move);
-                var childResult = Negamax(board, depth - 1, -beta, -alpha, ply + 1, preferredMove: null, cancellationToken: cancellationToken);
+                var childResult = Negamax(
+                    board: board,
+                    depth: depth - 1,
+                    alpha: -beta,
+                    beta: -alpha,
+                    ply: ply + 1,
+                    preferredMove: null,
+                    cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
 
                 if (!childResult.IsComplete)
