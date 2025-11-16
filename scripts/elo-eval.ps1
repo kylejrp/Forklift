@@ -21,10 +21,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($IsWindows) {
-    throw "ELO evaluation isn't supported on Windows because I haven't made an install script for it yet"
-}
-
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
 $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
@@ -418,7 +414,7 @@ try {
     }
     $cutechessArgs += @('-pgnout', $pgnPath)
     if ($DebugCutechessOutput){
-        $cutechessArgs += @('-debug', 'on')
+        $cutechessArgs += @('-debug', 'all')
     }
 
     $cutechessCommand = "$($cutechess.Source) " + ($cutechessArgs -join ' ')
