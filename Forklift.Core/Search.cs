@@ -73,11 +73,6 @@ namespace Forklift.Core
             Board.Move? preferredMove = null,
             CancellationToken cancellationToken = default)
         {
-            if (depth == 0)
-            {
-                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), true);
-            }
-
             if (cancellationToken.IsCancellationRequested)
             {
                 return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), false);
@@ -86,14 +81,14 @@ namespace Forklift.Core
             if (depth == 0)
             {
                 int quiescenceScore = Quiescence(board, alpha, beta, cancellationToken);
-                return (null, quiescenceScore);
+                return new SearchNodeResult(null, quiescenceScore, true);
             }
 
             var legalMoves = board.GenerateLegal();
 
             if (legalMoves.Length == 0)
             {
-                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), true);
+                return new SearchNodeResult(null, EvaluateTerminal(board), true);
             }
 
             bool didPvMoveOrdering = false;
