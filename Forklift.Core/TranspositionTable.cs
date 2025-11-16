@@ -88,7 +88,7 @@ public sealed class TranspositionTable
     {
         ref var entry = ref _entries[(int)(zobristKey & (uint)_mask)];
 
-        if (entry.IsValid && entry.ZobristKey == zobristKey && entry.Depth > depth)
+        if (entry.IsValid && entry.ZobristKey == zobristKey && entry.Depth >= depth)
         {
             return;
         }
