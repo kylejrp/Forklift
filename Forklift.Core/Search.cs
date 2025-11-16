@@ -13,6 +13,7 @@ namespace Forklift.Core
 
         private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
+        private const int MateScore = 30000;
 
         // Negamax search, returns best move and score
         public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
@@ -72,21 +73,22 @@ namespace Forklift.Core
             Board.Move? preferredMove = null,
             CancellationToken cancellationToken = default)
         {
-            if (depth == 0)
-            {
-                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), true);
-            }
-
             if (cancellationToken.IsCancellationRequested)
             {
                 return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), false);
+            }
+
+            if (depth == 0)
+            {
+                int quiescenceScore = Quiescence(board, alpha, beta, cancellationToken);
+                return new SearchNodeResult(null, quiescenceScore, true);
             }
 
             var legalMoves = board.GenerateLegal();
 
             if (legalMoves.Length == 0)
             {
-                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), true);
+                return new SearchNodeResult(null, EvaluateTerminal(board), true);
             }
 
             bool didPvMoveOrdering = false;
@@ -169,6 +171,126 @@ namespace Forklift.Core
             }
 
             return new SearchNodeResult(bestMove, bestScore, completed);
+        }
+
+        private static int Quiescence(Board board, int alpha, int beta, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return alpha;
+            }
+
+            bool inCheck = board.InCheck(board.SideToMove);
+            if (inCheck)
+            {
+                Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
+                var legalMoves = board.GenerateLegal(moveBuffer);
+
+                int currentAlpha = alpha;
+                bool exploredMove = false;
+
+                foreach (var move in legalMoves)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return exploredMove ? currentAlpha : alpha;
+                    }
+
+                    var undo = board.MakeMove(move);
+                    int score = -Quiescence(board, -beta, -currentAlpha, cancellationToken);
+                    board.UnmakeMove(move, undo);
+
+                    exploredMove = true;
+
+                    if (score >= beta)
+                    {
+                        return beta;
+                    }
+
+                    if (score > currentAlpha)
+                    {
+                        currentAlpha = score;
+                    }
+                }
+
+                if (!exploredMove)
+                {
+                    return EvaluateTerminal(board);
+                }
+
+                return currentAlpha;
+            }
+
+            int standPat = Evaluator.EvaluateForSideToMove(board);
+
+            if (standPat >= beta)
+            {
+                return beta;
+            }
+
+            if (standPat > alpha)
+            {
+                alpha = standPat;
+            }
+
+            Span<Board.Move> pseudoBuffer = stackalloc Board.Move[Board.MoveBufferMax];
+            var buffer = new MoveBuffer(pseudoBuffer);
+            var pseudoMoves = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            var sideToMove = board.SideToMove;
+            bool exploredCapture = false;
+
+            foreach (var move in pseudoMoves)
+            {
+                if (!move.IsCapture)
+                {
+                    continue;
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return alpha;
+                }
+
+                var undo = board.MakeMove(move);
+                bool leavesKingInCheck = board.InCheck(sideToMove);
+                if (leavesKingInCheck)
+                {
+                    board.UnmakeMove(move, undo);
+                    continue;
+                }
+
+                exploredCapture = true;
+                int score = -Quiescence(board, -beta, -alpha, cancellationToken);
+                board.UnmakeMove(move, undo);
+
+                if (score >= beta)
+                {
+                    return beta;
+                }
+
+                if (score > alpha)
+                {
+                    alpha = score;
+                }
+            }
+
+            if (!exploredCapture && !board.HasAnyLegalMoves())
+            {
+                return EvaluateTerminal(board);
+            }
+
+            return alpha;
+        }
+
+        private static int EvaluateTerminal(Board board)
+        {
+            bool sideToMoveInCheck = board.InCheck(board.SideToMove);
+            if (sideToMoveInCheck)
+            {
+                return -MateScore;
+            }
+
+            return 0;
         }
     }
 }
