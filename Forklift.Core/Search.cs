@@ -16,7 +16,6 @@ namespace Forklift.Core
         private static readonly TranspositionTable _transpositionTable = new();
 
         private const int MaxPly = 128;
-        private static readonly int PieceTypeCount = Enum.GetValues(typeof(Piece.PieceType)).Length;
         private static readonly Board.Move?[] _killerMovesPrimary = new Board.Move?[MaxPly];
         private static readonly Board.Move?[] _killerMovesSecondary = new Board.Move?[MaxPly];
         private static readonly Dictionary<Piece.PieceType, Dictionary<Square0x88, int>> _historyScores = new Dictionary<Piece.PieceType, Dictionary<Square0x88, int>>();
