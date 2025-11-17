@@ -12,6 +12,8 @@ namespace Forklift.Core
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
 
         private const int MateScore = TranspositionTable.MateValue;
+        private const int NullMoveReduction = 2;
+        private const int NullMoveMinDepth = 3;
 
         private static readonly TranspositionTable _transpositionTable = new();
 
@@ -117,6 +119,40 @@ namespace Forklift.Core
             }
 
             int alphaOriginal = alpha;
+
+            if (depth >= NullMoveMinDepth &&
+                ply > 0 &&
+                !board.InCheck(board.SideToMove) &&
+                HasNonPawnMaterial(board))
+            {
+                int nullDepth = depth - 1 - NullMoveReduction;
+                if (nullDepth < 0)
+                {
+                    nullDepth = 0;
+                }
+
+                var nullState = board.MakeNullMove();
+                var nullChild = Negamax(
+                    board: board,
+                    depth: nullDepth,
+                    alpha: -beta,
+                    beta: -beta + 1,
+                    ply: ply + 1,
+                    preferredMove: null,
+                    cancellationToken: cancellationToken);
+                board.UnmakeNullMove(nullState);
+
+                if (!nullChild.IsComplete)
+                {
+                    return new SearchNodeResult(null, nullChild.BestScore, false);
+                }
+
+                int nullScore = -nullChild.BestScore;
+                if (nullScore >= beta)
+                {
+                    return new SearchNodeResult(null, nullScore, true);
+                }
+            }
 
             // --- Transposition table probe -----------------------------------
             //
@@ -636,6 +672,23 @@ namespace Forklift.Core
                     (moves[current], moves[bestIndex]) = (moves[bestIndex], moves[current]);
                 }
             }
+        }
+
+        private static bool HasNonPawnMaterial(Board board)
+        {
+            ulong whiteNonPawns =
+                board.GetPieceBitboard(Piece.WhiteKnight) |
+                board.GetPieceBitboard(Piece.WhiteBishop) |
+                board.GetPieceBitboard(Piece.WhiteRook) |
+                board.GetPieceBitboard(Piece.WhiteQueen);
+
+            ulong blackNonPawns =
+                board.GetPieceBitboard(Piece.BlackKnight) |
+                board.GetPieceBitboard(Piece.BlackBishop) |
+                board.GetPieceBitboard(Piece.BlackRook) |
+                board.GetPieceBitboard(Piece.BlackQueen);
+
+            return (whiteNonPawns | blackNonPawns) != 0;
         }
     }
 }
