@@ -160,6 +160,7 @@ namespace Forklift.Core
             /// <param name="move">The move to promote to the target index.</param>
             /// <param name="targetIndex">The index in the move list to which the move should be promoted.</param>
             /// <param name="moveCount">The number of valid moves in the move list.</param>
+            /// <returns>True if the move was found and promoted; false otherwise.</returns>
             /// </summary>
             static bool PromoteMove(Board.Move[] moves, Board.Move move, int targetIndex, int moveCount)
             {
