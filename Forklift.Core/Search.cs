@@ -282,7 +282,7 @@ namespace Forklift.Core
             bool aborted = false;
             bool betaCutoff = false;
 
-            for (int i = 0; i < legalMoves.Length; i++)
+            for (int i = 0; i < legalMoveCount; i++)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
