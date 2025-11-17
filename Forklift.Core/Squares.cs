@@ -1,9 +1,10 @@
 ﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace Forklift.Core;
 
-public readonly struct UnsafeSquare0x64
+public readonly struct UnsafeSquare0x64 : IEquatable<UnsafeSquare0x64>
 {
     public int Value { get; }
     public UnsafeSquare0x64(int value)
@@ -45,12 +46,21 @@ public readonly struct UnsafeSquare0x64
         string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraicString(new Square0x64(Value)) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x64 {Value})" : $"{algebraic} (0x64 {Value})";
     }
+
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is UnsafeSquare0x64 square && Value == square.Value;
+    public bool Equals(UnsafeSquare0x64 other) => Value == other.Value;
+    public override int GetHashCode()
+    {
+        return Value;
+    }
+    public static bool operator ==(UnsafeSquare0x64 left, UnsafeSquare0x64 right) => left.Value == right.Value;
+    public static bool operator !=(UnsafeSquare0x64 left, UnsafeSquare0x64 right) => left.Value != right.Value;
 }
 
 /// <summary>
 /// Represents a square in 0x64 format.
 /// </summary>
-public readonly struct Square0x64
+public readonly struct Square0x64 : IEquatable<Square0x64>
 {
     public int Value { get; }
 
@@ -95,13 +105,22 @@ public readonly struct Square0x64
         string algebraic = (Value >= 0 && Value < 64) ? Squares.ToAlgebraicString(this) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x64 {Value})" : $"{algebraic} (0x64 {Value})";
     }
+
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is Square0x64 square && Value == square.Value;
+    public bool Equals(Square0x64 other) => Value == other.Value;
+    public override int GetHashCode()
+    {
+        return Value;
+    }
+    public static bool operator ==(Square0x64 left, Square0x64 right) => left.Value == right.Value;
+    public static bool operator !=(Square0x64 left, Square0x64 right) => left.Value != right.Value;
 }
 
 
 /// <summary>
 /// Represents a square in unsafe 0x88 format (no validation).
 /// </summary>
-public readonly struct UnsafeSquare0x88
+public readonly struct UnsafeSquare0x88 : IEquatable<UnsafeSquare0x88>
 {
     public int Value { get; }
     public UnsafeSquare0x88(int value)
@@ -143,12 +162,21 @@ public readonly struct UnsafeSquare0x88
     {
         return new UnsafeSquare0x88(square.Value - 1);
     }
+
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is UnsafeSquare0x88 square && Value == square.Value;
+    public bool Equals(UnsafeSquare0x88 other) => Value == other.Value;
+    public override int GetHashCode()
+    {
+        return Value;
+    }
+    public static bool operator ==(UnsafeSquare0x88 left, UnsafeSquare0x88 right) => left.Value == right.Value;
+    public static bool operator !=(UnsafeSquare0x88 left, UnsafeSquare0x88 right) => left.Value != right.Value;
 }
 
 /// <summary>
 /// Represents a square in 0x88 format.
 /// </summary>
-public readonly struct Square0x88
+public readonly struct Square0x88 : IEquatable<Square0x88>
 {
     public int Value { get; }
 
@@ -189,6 +217,15 @@ public readonly struct Square0x88
         string algebraic = ((Value & 0x88) == 0) ? Squares.ToAlgebraicString(this) : string.Empty;
         return string.IsNullOrEmpty(algebraic) ? $"(0x88 {Value})" : $"{algebraic} (0x88 {Value})";
     }
+
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is Square0x88 square && Value == square.Value;
+    public bool Equals(Square0x88 other) => Value == other.Value;
+    public override int GetHashCode()
+    {
+        return Value;
+    }
+    public static bool operator ==(Square0x88 left, Square0x88 right) => left.Value == right.Value;
+    public static bool operator !=(Square0x88 left, Square0x88 right) => left.Value != right.Value;
 }
 
 /// <summary>
