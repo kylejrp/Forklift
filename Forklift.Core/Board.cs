@@ -290,7 +290,7 @@ public sealed class Board
     /// <summary>
     /// Lightweight snapshot used to make/unmake null moves without affecting history tracking.
     /// </summary>
-    public readonly record struct NullMoveState(
+    internal readonly record struct NullMoveState(
         FileIndex? EnPassantFilePrev,
         int HalfmovePrev,
         Color SideToMovePrev,
@@ -592,7 +592,7 @@ public sealed class Board
     /// <summary>
     /// Performs a null move for search, flipping the side to move and clearing en passant without touching history.
     /// </summary>
-    public NullMoveState MakeNullMove()
+    internal NullMoveState MakeNullMove()
     {
         var state = new NullMoveState(
             EnPassantFilePrev: EnPassantFile,
@@ -615,7 +615,7 @@ public sealed class Board
     /// <summary>
     /// Reverses a previously made null move using the supplied snapshot.
     /// </summary>
-    public void UnmakeNullMove(in NullMoveState state)
+    internal void UnmakeNullMove(in NullMoveState state)
     {
         _sideToMove = state.SideToMovePrev;
         ZKey = state.ZKeyPrev;
