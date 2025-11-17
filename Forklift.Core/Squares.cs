@@ -7,6 +7,9 @@ namespace Forklift.Core;
 public readonly struct UnsafeSquare0x64 : IEquatable<UnsafeSquare0x64>
 {
     public int Value { get; }
+
+    public int Rank => Value >> 3;
+    public int File => Value & 7;
     public UnsafeSquare0x64(int value)
     {
         Value = value;
@@ -75,6 +78,12 @@ public readonly struct Square0x64 : IEquatable<Square0x64>
         Value = value;
     }
 
+    private Square0x64(int value, bool _)
+    {
+        // No validation, scary! For internal use only.
+        Value = value;
+    }
+
     public static explicit operator int(Square0x64 square) => square.Value;
     public static explicit operator Square0x64(int value) => new Square0x64(value);
 
@@ -123,6 +132,9 @@ public readonly struct Square0x64 : IEquatable<Square0x64>
 public readonly struct UnsafeSquare0x88 : IEquatable<UnsafeSquare0x88>
 {
     public int Value { get; }
+
+    public int Rank => Value >> 4;
+    public int File => Value & 0xF;
     public UnsafeSquare0x88(int value)
     {
         Value = value;

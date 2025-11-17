@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Numerics;
 using Forklift.Core;
 
 namespace Forklift.Core
@@ -25,37 +26,51 @@ namespace Forklift.Core
         public static int StaticEvaluate(Board board)
         {
             int score = 0;
-            for (int sq88 = 0; sq88 < 128; sq88++)
+            foreach (var piece in Piece.AllPieces)
             {
-                if (Squares.IsOffboard((UnsafeSquare0x88)sq88)) continue;
-                var piece = board.At(new Square0x88(sq88));
-                if (piece == Piece.Empty) continue;
-
-                int delta = TypeValues[piece.TypeIndex];
-
-                // simple positional term:
-                // bonus for any pawns on e4/d4/e5/d5
-                var safeSq88 = (Square0x88)sq88;
-                var file = safeSq88.File;
-                var rank = safeSq88.Rank;
-
-                if ((Piece.PieceType)piece.TypeIndex == Piece.PieceType.Pawn)
-                {
-                    // White center pawns
-                    if (piece.IsWhite && (file == 3 || file == 4) && (rank == 3 || rank == 4))
-                        delta += 10;
-
-                    // Black center pawns
-                    if (!piece.IsWhite && (file == 3 || file == 4) && (rank == 3 || rank == 4))
-                        delta += 10; // still positive; sign comes from IsWhite below
-                }
-
-                score += (piece.IsWhite ? +1 : -1) * delta;
+                var pieceBitboard = board.GetPieceBitboard(piece);
+                score += BitOperations.PopCount(pieceBitboard) * TypeValues[piece.TypeIndex] * (piece.IsWhite ? 1 : -1);
+                score += EvaluatePieceTypePositional(piece, pieceBitboard);
             }
 
             Debug.Assert(score >= -MaxEvaluationScore && score <= MaxEvaluationScore, $"Evaluation score of {score} out of bounds of ±{MaxEvaluationScore} for position {board.GetFEN()}.");
 
             return score;
+        }
+
+        private static int EvaluatePieceTypePositional(Piece piece, ulong pieceBitboard)
+        {
+            return piece.Type switch
+            {
+                Piece.PieceType.Pawn => EvaluatePawnPositions(pieceBitboard, piece.Color),
+                _ => 0
+            };
+        }
+
+        private static int EvaluatePawnPositions(ulong pawnBitboard, Color color)
+        {
+            const int bonus = 10;
+            int score = 0;
+
+            while (pawnBitboard != 0)
+            {
+                UnsafeSquare0x64 sq64 = (UnsafeSquare0x64)BitOperations.TrailingZeroCount(pawnBitboard);
+                pawnBitboard &= pawnBitboard - 1; // Remove the least significant bit
+
+                int file = sq64.File;
+                int rank = sq64.Rank;
+
+                if (color == Color.Black)
+                {
+                    rank = 7 - rank; // Mirror rank for black pawns
+                }
+
+                if ((file == 3 || file == 4) && (rank == 3 || rank == 4))
+                {
+                    score += bonus;
+                }
+            }
+            return score * (color == Color.White ? 1 : -1);
         }
 
         /// <summary>

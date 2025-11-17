@@ -40,6 +40,22 @@ namespace Forklift.Core
         public static readonly Piece BlackQueen = new(13);
         public static readonly Piece BlackKing = new(14);
 
+        public static readonly Piece[] AllPieces = new Piece[]
+        {
+            WhitePawn,
+            WhiteKnight,
+            WhiteBishop,
+            WhiteRook,
+            WhiteQueen,
+            WhiteKing,
+            BlackPawn,
+            BlackKnight,
+            BlackBishop,
+            BlackRook,
+            BlackQueen,
+            BlackKing
+        };
+
         public enum PieceType : sbyte
         {
             Pawn = 0,
