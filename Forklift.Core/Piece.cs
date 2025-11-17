@@ -40,6 +40,25 @@ namespace Forklift.Core
         public static readonly Piece BlackQueen = new(13);
         public static readonly Piece BlackKing = new(14);
 
+        public static IEnumerable<Piece> AllPieces
+        {
+            get
+            {
+                yield return WhitePawn;
+                yield return WhiteKnight;
+                yield return WhiteBishop;
+                yield return WhiteRook;
+                yield return WhiteQueen;
+                yield return WhiteKing;
+                yield return BlackPawn;
+                yield return BlackKnight;
+                yield return BlackBishop;
+                yield return BlackRook;
+                yield return BlackQueen;
+                yield return BlackKing;
+            }
+        }
+
         public enum PieceType : sbyte
         {
             Pawn = 0,
