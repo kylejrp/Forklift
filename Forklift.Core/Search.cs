@@ -64,6 +64,7 @@ namespace Forklift.Core
                     beta: MaximumScore,
                     ply: 0,
                     preferredMove: pvMove,
+                    parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
 
                 if (!result.IsComplete)
@@ -105,6 +106,7 @@ namespace Forklift.Core
             int beta,
             int ply,
             Board.Move? preferredMove,
+            bool parentMoveWasNullMove,
             CancellationToken cancellationToken)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -120,7 +122,8 @@ namespace Forklift.Core
 
             int alphaOriginal = alpha;
 
-            if (depth >= NullMoveMinDepth &&
+            if (!parentMoveWasNullMove &&
+                depth >= NullMoveMinDepth &&
                 ply > 0 &&
                 !board.InCheck(board.SideToMove) &&
                 HasNonPawnMaterial(board))
@@ -139,6 +142,7 @@ namespace Forklift.Core
                     beta: -beta + 1,
                     ply: ply + 1,
                     preferredMove: null,
+                    parentMoveWasNullMove: true,
                     cancellationToken: cancellationToken);
                 board.UnmakeNullMove(nullState);
 
@@ -335,6 +339,7 @@ namespace Forklift.Core
                     beta: -alpha,
                     ply: ply + 1,
                     preferredMove: null,
+                    parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
 
