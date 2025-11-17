@@ -150,6 +150,7 @@ namespace Forklift.Core
                 int nullScore = -nullChild.BestScore;
                 if (nullScore >= beta)
                 {
+                    _transpositionTable.Store(board.ZKey, depth, nullScore, TranspositionTable.NodeType.Beta, bestMove: null, ply);
                     return new SearchNodeResult(null, nullScore, true);
                 }
             }
