@@ -287,6 +287,15 @@ public sealed class Board
         Square0x88? CastleRookFrom88,
         Square0x88? CastleRookTo88);
 
+    /// <summary>
+    /// Lightweight snapshot used to make/unmake null moves without affecting history tracking.
+    /// </summary>
+    internal readonly record struct NullMoveState(
+        FileIndex? EnPassantFilePrev,
+        int HalfmovePrev,
+        Color SideToMovePrev,
+        ulong ZKeyPrev);
+
 
     // Hoisted castling squares for performance (span-based, no AlgebraicNotation)
     private static readonly Square0x88 E1 = Squares.ParseAlgebraicTo0x88("e1".AsSpan());
@@ -578,6 +587,40 @@ public sealed class Board
         CastlingRights = u.CastlingPrev;
         HalfmoveClock = u.HalfmovePrev;
         FullmoveNumber = u.FullmovePrev;
+    }
+
+    /// <summary>
+    /// Performs a null move for search, flipping the side to move and clearing en passant without touching history.
+    /// </summary>
+    internal NullMoveState MakeNullMove()
+    {
+        var state = new NullMoveState(
+            EnPassantFilePrev: EnPassantFile,
+            HalfmovePrev: HalfmoveClock,
+            SideToMovePrev: SideToMove,
+            ZKeyPrev: ZKey);
+
+        if (EnPassantFile is FileIndex oldEp)
+        {
+            ZKey ^= Tables.Zobrist.EnPassant[oldEp.Value];
+        }
+
+        EnPassantFile = null;
+        HalfmoveClock++;
+        SideToMove = SideToMove.Flip();
+
+        return state;
+    }
+
+    /// <summary>
+    /// Reverses a previously made null move using the supplied snapshot.
+    /// </summary>
+    internal void UnmakeNullMove(in NullMoveState state)
+    {
+        _sideToMove = state.SideToMovePrev;
+        ZKey = state.ZKeyPrev;
+        EnPassantFile = state.EnPassantFilePrev;
+        HalfmoveClock = state.HalfmovePrev;
     }
 
     /// <summary>

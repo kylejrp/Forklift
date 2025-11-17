@@ -59,41 +59,37 @@ namespace Forklift.Testing
             0,1,2,3,4,5,6,7
         };
 
-        public static IEnumerable<object[]> KnownGoodSquare0x88WithRankFile
+        public static IEnumerable<object[]> SquareIndices
         {
             get
             {
-                for (int i = 0; i < KnownGoodSquare0x88.Length; i++)
+                for (int i = 0; i < 64; i++)
                 {
-                    yield return new object[] { KnownGoodSquare0x88[i], KnownGoodRanks[i], KnownGoodFiles[i] };
-                }
-            }
-        }
-
-        public static IEnumerable<object[]> KnownGoodSquare0x64WithRankFile
-        {
-            get
-            {
-                for (int i = 0; i < KnownGoodSquare0x64.Length; i++)
-                {
-                    yield return new object[] { KnownGoodSquare0x64[i], KnownGoodRanks[i], KnownGoodFiles[i] };
+                    yield return new object[] { i };
                 }
             }
         }
 
         [Theory]
-        [MemberData(nameof(KnownGoodSquare0x88WithRankFile))]
-        public void Square0x88_RankAndFileAreCorrect(Square0x88 sq88, int expectedRank, int expectedFile)
+        [MemberData(nameof(SquareIndices))]
+        public void Square0x88_RankAndFileAreCorrect(int index)
         {
+            var sq88 = KnownGoodSquare0x88[index];
+            var expectedRank = KnownGoodRanks[index];
+            var expectedFile = KnownGoodFiles[index];
+
             Assert.Equal(expectedRank, sq88.Rank);
             Assert.Equal(expectedFile, sq88.File);
         }
 
-
         [Theory]
-        [MemberData(nameof(KnownGoodSquare0x64WithRankFile))]
-        public void Square0x64_RankAndFileAreCorrect(Square0x64 sq64, int expectedRank, int expectedFile)
+        [MemberData(nameof(SquareIndices))]
+        public void Square0x64_RankAndFileAreCorrect(int index)
         {
+            var sq64 = KnownGoodSquare0x64[index];
+            var expectedRank = KnownGoodRanks[index];
+            var expectedFile = KnownGoodFiles[index];
+
             Assert.Equal(expectedRank, sq64.Rank);
             Assert.Equal(expectedFile, sq64.File);
         }
