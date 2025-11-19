@@ -16,7 +16,6 @@ var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
     { "Hash", "16" },
     { "Threads", "1" },
-    { "OwnBook", "false" }
 };
 bool debugMode = false;
 
@@ -91,7 +90,7 @@ while (true)
                 int? whiteIncrementMs = null;
                 int? blackIncrementMs = null;
 
-                for (int i = 1; i < arguments.Length; i++)
+                for (int i = 0; i < arguments.Length; i++)
                 {
                     switch (arguments[i])
                     {
@@ -140,7 +139,7 @@ while (true)
             break;
 
         case "quit":
-            HandleQuit();
+            await HandleQuit();
             break;
 
         default:
@@ -158,35 +157,35 @@ while (true)
 
 void HandleUci()
 {
-    Console.WriteLine("id name Forklift");
-    Console.WriteLine("id author kylejrp");
-    Console.WriteLine("option name Hash type spin default 1 min 1 max 1");
-    Console.WriteLine("option name Threads type spin default 1 min 1 max 1");
-    Console.WriteLine("uciok");
+    UciLogger.TryLog("id name Forklift");
+    UciLogger.TryLog("id author kylejrp");
+    UciLogger.TryLog("option name Hash type spin default 1 min 1 max 1");
+    UciLogger.TryLog("option name Threads type spin default 1 min 1 max 1");
+    UciLogger.TryLog("uciok");
 }
 
 void HandleIsReady()
 {
-    Console.WriteLine("readyok");
+    UciLogger.TryLog("readyok");
 }
 
 void HandleSetOption(string name, string value)
 {
     options[name] = value;
-    if (debugMode) Console.WriteLine($"info string setoption {name} = {value}");
+    if (debugMode) UciLogger.TryLog($"info string setoption {name} = {value}");
 }
 
 void HandleUciNewGame()
 {
     board.SetStartPosition();
     Search.ClearTranspositionTable();
-    if (debugMode) Console.WriteLine("info string ucinewgame called");
+    if (debugMode) UciLogger.TryLog("info string ucinewgame called");
 }
 
 void HandleDebug(bool enable)
 {
     debugMode = enable;
-    Console.WriteLine($"info string debug {(debugMode ? "on" : "off")}");
+    UciLogger.TryLog($"info string debug {(debugMode ? "on" : "off")}");
 }
 
 void HandlePosition(string[] tokens)
@@ -277,9 +276,9 @@ void HandleGo(
         {
             try
             {
-                if (debugMode) Console.WriteLine("info string search started");
+                if (debugMode) UciLogger.TryLog("info string search started");
                 var stopwatch = Stopwatch.StartNew();
-                var summaryCallback = (Search.SearchSummary s) => Console.WriteLine($"info depth {s.CompletedDepth} score cp {s.BestScore} nodes {s.NodesSearched} nps {s.NodesSearched / Math.Max(stopwatch.ElapsedMilliseconds / 1000.0, 1):F0} time {stopwatch.ElapsedMilliseconds} pv {s.BestMove?.ToUCIString() ?? "(none)"}");
+                var summaryCallback = (Search.SearchSummary s) => { UciLogger.TryLog($"info depth {s.CompletedDepth} score cp {s.BestScore} nodes {s.NodesSearched} nps {s.NodesSearched / Math.Max(stopwatch.ElapsedMilliseconds / 1000.0, 1):F0} time {stopwatch.ElapsedMilliseconds} pv {s.BestMove?.ToUCIString() ?? "(none)"}"); };
                 var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken, summaryCallback);
                 var bestMove = summary.BestMove;
                 var bestScore = summary.BestScore;
@@ -287,7 +286,7 @@ void HandleGo(
 
                 if (bestMove is not Board.Move move)
                 {
-                    Console.WriteLine("bestmove (none)");
+                    UciLogger.TryLog("bestmove (none)");
                     return;
                 }
 
@@ -295,15 +294,15 @@ void HandleGo(
                 if (debugMode)
                 {
                     var budgetDisplay = allocatedTimeMs.HasValue ? $" (budget {allocatedTimeMs.Value})" : string.Empty;
-                    Console.WriteLine($"info string search completed in {elapsedMs / 1000.0:F2}s{budgetDisplay}");
+                    UciLogger.TryLog($"info string search completed in {elapsedMs / 1000.0:F2}s{budgetDisplay}");
                 }
-                Console.WriteLine($"bestmove {move.ToUCIString()}");
+                UciLogger.TryLog($"bestmove {move.ToUCIString()}");
             }
             catch (Exception ex)
             {
                 var sanitizedMessage = ex.Message.Replace("\r", "").Replace("\n", "\\n");
                 Console.Error.WriteLine($"info string search error: {sanitizedMessage}");
-                Console.WriteLine("bestmove (none)");
+                UciLogger.TryLog("bestmove (none)");
             }
         });
     }
@@ -311,7 +310,7 @@ void HandleGo(
 
 void HandleStop()
 {
-    if (debugMode) Console.WriteLine("info string stop called");
+    if (debugMode) UciLogger.TryLog("info string stop called");
     lock (searchLock)
     {
         currentSearchCancellationTokenSource?.Cancel();
@@ -321,13 +320,15 @@ void HandleStop()
     currentSearchTask = null;
 }
 
-void HandleQuit()
+async Task HandleQuit()
 {
     lock (searchLock)
     {
         currentSearchCancellationTokenSource?.Cancel();
     }
     currentSearchTask?.Wait(100);
+
+    try { await UciLogger.FlushAndCompleteAsync(); } catch { }
 }
 
 void RunBenchmark()
@@ -344,7 +345,7 @@ void RunBenchmark()
     currentSearchTask?.Wait();
 
     var elapsedMs = sw.ElapsedMilliseconds;
-    Console.WriteLine($"info string benchmark completed in {elapsedMs / 1000.0:F2}s");
+    UciLogger.TryLog($"info string benchmark completed in {elapsedMs / 1000.0:F2}s");
 
     // TODO: do a comprehensive benchmark with deep positions
 }
@@ -362,7 +363,7 @@ static int? ComputeTimeBudget(
 {
     if (debugMode)
     {
-        Console.WriteLine(
+        UciLogger.TryLog(
             $"info string go inputs side={sideToMove} movetime={moveTimeMs?.ToString() ?? "-"} wtime={whiteTimeMs?.ToString() ?? "-"} " +
             $"btime={blackTimeMs?.ToString() ?? "-"} winc={whiteIncrementMs?.ToString() ?? "-"} binc={blackIncrementMs?.ToString() ?? "-"}");
     }
@@ -372,7 +373,7 @@ static int? ComputeTimeBudget(
         int clamped = Math.Max(moveTimeMs.Value, 0);
         if (debugMode)
         {
-            Console.WriteLine($"info string allocated via movetime: {clamped}ms");
+            UciLogger.TryLog($"info string allocated via movetime: {clamped}ms");
         }
 
         return clamped;
@@ -385,7 +386,7 @@ static int? ComputeTimeBudget(
     {
         if (debugMode)
         {
-            Console.WriteLine("info string remaining time exhausted; allocating 0ms");
+            UciLogger.TryLog("info string remaining time exhausted; allocating 0ms");
         }
 
         return 0;
@@ -395,7 +396,7 @@ static int? ComputeTimeBudget(
     {
         if (debugMode)
         {
-            Console.WriteLine("info string no time control; unlimited time");
+            UciLogger.TryLog("info string no time control; unlimited time");
         }
 
         return null;
@@ -415,7 +416,7 @@ static int? ComputeTimeBudget(
     {
         string remainingDisplay = remainingTimeMs?.ToString() ?? "-";
         string incrementDisplay = incrementMs?.ToString() ?? "-";
-        Console.WriteLine($"info string allocated time: {allocatedMs}ms (remaining={remainingDisplay}, increment={incrementDisplay})");
+        UciLogger.TryLog($"info string allocated time: {allocatedMs}ms (remaining={remainingDisplay}, increment={incrementDisplay})");
     }
 
     return allocatedMs;
