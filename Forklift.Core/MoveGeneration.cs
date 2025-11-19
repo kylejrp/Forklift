@@ -23,6 +23,7 @@ namespace Forklift.Core
             new Piece[] { Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight }
         };
 
+        [SkipLocalsInit]
         public static Move[] GeneratePseudoLegal(Board board, Color sideToMove)
         {
             Span<Move> moves = stackalloc Move[MoveBufferMax];

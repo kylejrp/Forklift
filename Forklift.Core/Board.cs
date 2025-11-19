@@ -627,6 +627,7 @@ public sealed class Board
     /// Generates all legal moves for the side to move.
     /// </summary>
     /// <returns>An array of legal moves</returns>
+    [SkipLocalsInit]
     public Move[] GenerateLegal()
     {
         Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
@@ -651,6 +652,7 @@ public sealed class Board
         return moveBuffer[..i];
     }
 
+    [SkipLocalsInit]
     public bool HasAnyLegalMoves()
     {
         Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
