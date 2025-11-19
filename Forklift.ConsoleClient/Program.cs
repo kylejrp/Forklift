@@ -334,6 +334,7 @@ async Task HandleQuit()
 void RunBenchmark()
 {
     Stopwatch sw = new();
+    sw.Start();
     HandleUci();
     HandlePosition(new[] { "startpos" });
     HandleGo(depth: 8, moveTimeMs: null, whiteTimeMs: null, blackTimeMs: null, whiteIncrementMs: null, blackIncrementMs: null);
