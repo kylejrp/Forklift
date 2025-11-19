@@ -2,11 +2,11 @@ namespace Forklift.Core
 {
     public static class Search
     {
-        public readonly record struct SearchSummary(Board.Move? BestMove, int BestScore, int CompletedDepth);
+        public readonly record struct SearchSummary(Board.Move? BestMove, int BestScore, int CompletedDepth, int NodesSearched);
 
-        private readonly record struct SearchNodeResult(Board.Move? BestMove, int BestScore, bool IsComplete);
+        private readonly record struct SearchNodeResult(Board.Move? BestMove, int BestScore, bool IsComplete, int NodesSearched);
 
-        private readonly record struct QuiescenceResult(int BestScore, bool IsComplete);
+        private readonly record struct QuiescenceResult(int BestScore, bool IsComplete, int NodesSearched);
 
         private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
@@ -40,13 +40,14 @@ namespace Forklift.Core
         }
 
         // Negamax search, returns best move and score
-        public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
+        public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default, Action<SearchSummary>? summaryCallback = null)
         {
             ClearHeuristics();
 
             Board.Move? finalBestMove = null;
             int finalBestScore = MinimumScore;
             int completedDepth = 0;
+            int totalNodesSearched = 0;
 
             Board.Move? pvMove = null;
 
@@ -67,6 +68,8 @@ namespace Forklift.Core
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
 
+                totalNodesSearched += result.NodesSearched;
+
                 if (!result.IsComplete)
                 {
                     break;
@@ -84,6 +87,8 @@ namespace Forklift.Core
                 {
                     finalBestScore = result.BestScore;
                 }
+
+                summaryCallback?.Invoke(new SearchSummary(finalBestMove, finalBestScore, completedDepth, totalNodesSearched));
             }
 
             if (finalBestMove is null)
@@ -93,10 +98,11 @@ namespace Forklift.Core
                 {
                     finalBestMove = panicMoves[0];
                     finalBestScore = Evaluator.EvaluateForSideToMove(board);
+                    totalNodesSearched++;
                 }
             }
 
-            return new SearchSummary(finalBestMove, finalBestScore, completedDepth);
+            return new SearchSummary(finalBestMove, finalBestScore, completedDepth, totalNodesSearched);
         }
 
         private static SearchNodeResult Negamax(
@@ -111,16 +117,17 @@ namespace Forklift.Core
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), false);
+                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), false, 0);
             }
 
             if (depth == 0)
             {
                 QuiescenceResult q = Quiescence(board, alpha, beta, cancellationToken);
-                return new SearchNodeResult(null, q.BestScore, q.IsComplete);
+                return new SearchNodeResult(null, q.BestScore, q.IsComplete, q.NodesSearched);
             }
 
             int alphaOriginal = alpha;
+            int nodesSearched = 0;
 
             if (!parentMoveWasNullMove &&
                 depth >= NullMoveMinDepth &&
@@ -145,17 +152,19 @@ namespace Forklift.Core
                     parentMoveWasNullMove: true,
                     cancellationToken: cancellationToken);
                 board.UnmakeNullMove(nullState);
+                nodesSearched += nullChild.NodesSearched;
+
 
                 if (!nullChild.IsComplete)
                 {
-                    return new SearchNodeResult(null, nullChild.BestScore, false);
+                    return new SearchNodeResult(null, nullChild.BestScore, false, nodesSearched);
                 }
 
                 int nullScore = -nullChild.BestScore;
                 if (nullScore >= beta)
                 {
                     _transpositionTable.Store(board.ZKey, depth, nullScore, TranspositionTable.NodeType.Beta, bestMove: null, ply);
-                    return new SearchNodeResult(null, nullScore, true);
+                    return new SearchNodeResult(null, nullScore, true, nodesSearched);
                 }
             }
 
@@ -179,7 +188,7 @@ namespace Forklift.Core
             if (probe.HasScore && ply > 0)
             {
                 // Trusted hit: use the stored value and best move.
-                return new SearchNodeResult(ttMove, probe.Score, true);
+                return new SearchNodeResult(ttMove, probe.Score, true, nodesSearched);
             }
 
             var legalMoves = board.GenerateLegal();
@@ -189,7 +198,7 @@ namespace Forklift.Core
             {
                 // Terminal node: mate or stalemate.
                 int terminalScore = EvaluateTerminal(board, ply);
-                return new SearchNodeResult(null, terminalScore, true);
+                return new SearchNodeResult(null, terminalScore, true, nodesSearched);
             }
 
             // --- Move ordering helpers ---------------------------------------
@@ -331,6 +340,7 @@ namespace Forklift.Core
 
                 var move = legalMoves[i];
 
+                nodesSearched++;
                 var undo = board.MakeMove(move);
                 var childResult = Negamax(
                     board: board,
@@ -342,6 +352,8 @@ namespace Forklift.Core
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
+
+                nodesSearched += childResult.NodesSearched;
 
                 if (!childResult.IsComplete)
                 {
@@ -395,7 +407,7 @@ namespace Forklift.Core
             if (bestMove is null)
             {
                 // No move chosen (e.g., all children aborted) – fall back to static eval.
-                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), completed);
+                return new SearchNodeResult(null, Evaluator.EvaluateForSideToMove(board), completed, nodesSearched);
             }
 
             // --- Transposition table store -----------------------------------
@@ -421,17 +433,18 @@ namespace Forklift.Core
                 _transpositionTable.Store(board.ZKey, depth, bestScore, nodeType, bestMove, ply);
             }
 
-            return new SearchNodeResult(bestMove, bestScore, completed);
+            return new SearchNodeResult(bestMove, bestScore, completed, nodesSearched);
         }
 
         private static QuiescenceResult Quiescence(Board board, int alpha, int beta, CancellationToken cancellationToken)
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return new QuiescenceResult(alpha, false);
+                return new QuiescenceResult(alpha, false, 0);
             }
 
             bool inCheck = board.InCheck(board.SideToMove);
+            int nodesSearched = 0;
             if (inCheck)
             {
                 Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
@@ -445,13 +458,15 @@ namespace Forklift.Core
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        return new QuiescenceResult(exploredMove ? currentAlpha : alpha, false);
+                        return new QuiescenceResult(exploredMove ? currentAlpha : alpha, false, nodesSearched);
                     }
 
+                    nodesSearched++;
                     var undo = board.MakeMove(move);
                     QuiescenceResult child = Quiescence(board, -beta, -currentAlpha, cancellationToken);
                     int score = -child.BestScore;
                     board.UnmakeMove(move, undo);
+                    nodesSearched += child.NodesSearched;
 
                     exploredMove = true;
                     if (!child.IsComplete)
@@ -461,7 +476,7 @@ namespace Forklift.Core
 
                     if (score >= beta)
                     {
-                        return new QuiescenceResult(beta, allComplete);
+                        return new QuiescenceResult(beta, allComplete, nodesSearched);
                     }
 
                     if (score > currentAlpha)
@@ -473,10 +488,10 @@ namespace Forklift.Core
                 if (!exploredMove)
                 {
                     // No legal moves in check => mate.
-                    return new QuiescenceResult(EvaluateTerminal(board, ply: 0), true);
+                    return new QuiescenceResult(EvaluateTerminal(board, ply: 0), true, nodesSearched);
                 }
 
-                return new QuiescenceResult(currentAlpha, allComplete);
+                return new QuiescenceResult(currentAlpha, allComplete, nodesSearched);
             }
 
             int standPat = Evaluator.EvaluateForSideToMove(board);
@@ -484,7 +499,7 @@ namespace Forklift.Core
             if (standPat >= beta)
             {
                 // Fail-high on stand pat is a normal, complete result.
-                return new QuiescenceResult(beta, true);
+                return new QuiescenceResult(beta, true, nodesSearched);
             }
 
             if (standPat > alpha)
@@ -508,9 +523,10 @@ namespace Forklift.Core
 
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return new QuiescenceResult(alpha, false);
+                    return new QuiescenceResult(alpha, false, nodesSearched);
                 }
 
+                nodesSearched++;
                 var undo = board.MakeMove(move);
                 bool leavesKingInCheck = board.InCheck(sideToMove);
                 if (leavesKingInCheck)
@@ -523,6 +539,7 @@ namespace Forklift.Core
                 QuiescenceResult child = Quiescence(board, -beta, -alpha, cancellationToken);
                 int score = -child.BestScore;
                 board.UnmakeMove(move, undo);
+                nodesSearched += child.NodesSearched;
 
                 if (!child.IsComplete)
                 {
@@ -531,7 +548,7 @@ namespace Forklift.Core
 
                 if (score >= beta)
                 {
-                    return new QuiescenceResult(beta, allCompleteCaptures);
+                    return new QuiescenceResult(beta, allCompleteCaptures, nodesSearched);
                 }
 
                 if (score > alpha)
@@ -543,10 +560,10 @@ namespace Forklift.Core
             if (!exploredCapture && !board.HasAnyLegalMoves())
             {
                 // No captures searched and no legal moves at all => stalemate or mate.
-                return new QuiescenceResult(EvaluateTerminal(board, ply: 0), true);
+                return new QuiescenceResult(EvaluateTerminal(board, ply: 0), true, nodesSearched);
             }
 
-            return new QuiescenceResult(alpha, allCompleteCaptures);
+            return new QuiescenceResult(alpha, allCompleteCaptures, nodesSearched);
         }
 
         private static int EvaluateTerminal(Board board, int ply)
