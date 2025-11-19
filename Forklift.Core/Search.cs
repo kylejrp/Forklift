@@ -40,7 +40,7 @@ namespace Forklift.Core
         }
 
         // Negamax search, returns best move and score
-        public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default)
+        public static SearchSummary FindBestMove(Board board, int maxDepth, CancellationToken cancellationToken = default, Action<SearchSummary>? summaryCallback = null)
         {
             ClearHeuristics();
 
@@ -87,6 +87,8 @@ namespace Forklift.Core
                 {
                     finalBestScore = result.BestScore;
                 }
+
+                summaryCallback?.Invoke(new SearchSummary(finalBestMove, finalBestScore, completedDepth, totalNodesSearched));
             }
 
             if (finalBestMove is null)
@@ -125,7 +127,7 @@ namespace Forklift.Core
             }
 
             int alphaOriginal = alpha;
-            int nodesSearched = 1;
+            int nodesSearched = 0;
 
             if (!parentMoveWasNullMove &&
                 depth >= NullMoveMinDepth &&
@@ -338,6 +340,7 @@ namespace Forklift.Core
 
                 var move = legalMoves[i];
 
+                nodesSearched++;
                 var undo = board.MakeMove(move);
                 var childResult = Negamax(
                     board: board,
@@ -441,7 +444,7 @@ namespace Forklift.Core
             }
 
             bool inCheck = board.InCheck(board.SideToMove);
-            int nodesSearched = 1;
+            int nodesSearched = 0;
             if (inCheck)
             {
                 Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
@@ -458,6 +461,7 @@ namespace Forklift.Core
                         return new QuiescenceResult(exploredMove ? currentAlpha : alpha, false, nodesSearched);
                     }
 
+                    nodesSearched++;
                     var undo = board.MakeMove(move);
                     QuiescenceResult child = Quiescence(board, -beta, -currentAlpha, cancellationToken);
                     int score = -child.BestScore;
@@ -522,6 +526,7 @@ namespace Forklift.Core
                     return new QuiescenceResult(alpha, false, nodesSearched);
                 }
 
+                nodesSearched++;
                 var undo = board.MakeMove(move);
                 bool leavesKingInCheck = board.InCheck(sideToMove);
                 if (leavesKingInCheck)

@@ -23,7 +23,6 @@ bool debugMode = false;
 if (args.Length > 0 && args[0] == "bench")
 {
     RunBenchmark();
-    currentSearchTask?.Wait();
     Environment.Exit(0);
 }
 
@@ -36,6 +35,7 @@ while (true)
 
     var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
     var command = tokens[0];
+    var arguments = tokens.Length > 1 ? tokens[1..] : [];
 
     switch (command)
     {
@@ -50,14 +50,14 @@ while (true)
         case "setoption":
             // setoption name <name> [value <value>]
             {
-                int nameIdx = Array.IndexOf(tokens, "name");
-                int valueIdx = Array.IndexOf(tokens, "value");
+                int nameIdx = Array.IndexOf(arguments, "name");
+                int valueIdx = Array.IndexOf(arguments, "value");
 
-                if (nameIdx > 0 && nameIdx + 1 < tokens.Length)
+                if (nameIdx > 0 && nameIdx + 1 < arguments.Length)
                 {
-                    var name = tokens[nameIdx + 1];
-                    var value = (valueIdx > 0 && valueIdx + 1 < tokens.Length)
-                        ? tokens[valueIdx + 1]
+                    var name = arguments[nameIdx + 1];
+                    var value = (valueIdx > 0 && valueIdx + 1 < arguments.Length)
+                        ? arguments[valueIdx + 1]
                         : "true";
 
                     HandleSetOption(name, value);
@@ -72,14 +72,14 @@ while (true)
         case "debug":
             {
                 // "debug on" / "debug off"
-                bool enable = tokens.Length > 1 && tokens[^1].Equals("on", StringComparison.OrdinalIgnoreCase);
+                bool enable = arguments.Length > 0 && arguments[^1].Equals("on", StringComparison.OrdinalIgnoreCase);
                 HandleDebug(enable);
             }
             break;
 
         case "position":
             // position [fen <fenstring>] | startpos [moves ...]
-            HandlePosition(tokens);
+            HandlePosition(arguments);
             break;
 
         case "go":
@@ -91,36 +91,36 @@ while (true)
                 int? whiteIncrementMs = null;
                 int? blackIncrementMs = null;
 
-                for (int i = 1; i < tokens.Length; i++)
+                for (int i = 1; i < arguments.Length; i++)
                 {
-                    switch (tokens[i])
+                    switch (arguments[i])
                     {
-                        case "depth" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var d):
+                        case "depth" when i + 1 < arguments.Length && int.TryParse(arguments[i + 1], out var d):
                             depth = d;
                             i++;
                             break;
 
-                        case "movetime" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var mt):
+                        case "movetime" when i + 1 < arguments.Length && int.TryParse(arguments[i + 1], out var mt):
                             moveTimeMs = mt;
                             i++;
                             break;
 
-                        case "wtime" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var wt):
+                        case "wtime" when i + 1 < arguments.Length && int.TryParse(arguments[i + 1], out var wt):
                             whiteTimeMs = wt;
                             i++;
                             break;
 
-                        case "btime" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var bt):
+                        case "btime" when i + 1 < arguments.Length && int.TryParse(arguments[i + 1], out var bt):
                             blackTimeMs = bt;
                             i++;
                             break;
 
-                        case "winc" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var wi):
+                        case "winc" when i + 1 < arguments.Length && int.TryParse(arguments[i + 1], out var wi):
                             whiteIncrementMs = wi;
                             i++;
                             break;
 
-                        case "binc" when i + 1 < tokens.Length && int.TryParse(tokens[i + 1], out var bi):
+                        case "binc" when i + 1 < arguments.Length && int.TryParse(arguments[i + 1], out var bi):
                             blackIncrementMs = bi;
                             i++;
                             break;
@@ -193,7 +193,7 @@ void HandlePosition(string[] tokens)
 {
     int movesIdx = Array.IndexOf(tokens, "moves");
 
-    if (tokens.Length >= 2 && tokens[1] == "startpos")
+    if (tokens.Length >= 1 && tokens[0] == "startpos")
     {
         board.SetStartPosition();
         if (movesIdx > 0)
@@ -204,10 +204,10 @@ void HandlePosition(string[] tokens)
             }
         }
     }
-    else if (tokens.Length >= 3 && tokens[1] == "fen")
+    else if (tokens.Length >= 2 && tokens[0] == "fen")
     {
         var fenParts = new List<string>();
-        int idx = 2;
+        int idx = 1;
         while (idx < tokens.Length && tokens[idx] != "moves")
         {
             fenParts.Add(tokens[idx]);
@@ -279,7 +279,8 @@ void HandleGo(
             {
                 if (debugMode) Console.WriteLine("info string search started");
                 var stopwatch = Stopwatch.StartNew();
-                var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken);
+                var summaryCallback = (Search.SearchSummary s) => Console.WriteLine($"info depth {s.CompletedDepth} score cp {s.BestScore} nodes {s.NodesSearched} nps {s.NodesSearched / Math.Max(stopwatch.ElapsedMilliseconds / 1000.0, 1):F0} time {stopwatch.ElapsedMilliseconds} pv {s.BestMove?.ToUCIString() ?? "(none)"}");
+                var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken, summaryCallback);
                 var bestMove = summary.BestMove;
                 var bestScore = summary.BestScore;
                 var completedDepth = summary.CompletedDepth;
@@ -290,7 +291,6 @@ void HandleGo(
                     return;
                 }
 
-                Console.WriteLine($"info depth {completedDepth} score cp {bestScore} pv {move.ToUCIString()}");
                 var elapsedMs = stopwatch.ElapsedMilliseconds;
                 if (debugMode)
                 {
@@ -302,7 +302,7 @@ void HandleGo(
             catch (Exception ex)
             {
                 var sanitizedMessage = ex.Message.Replace("\r", "").Replace("\n", "\\n");
-                Console.WriteLine($"info string search error: {sanitizedMessage}");
+                Console.Error.WriteLine($"info string search error: {sanitizedMessage}");
                 Console.WriteLine("bestmove (none)");
             }
         });
@@ -332,9 +332,20 @@ void HandleQuit()
 
 void RunBenchmark()
 {
+    Stopwatch sw = new();
     HandleUci();
-    HandlePosition(new[] { "position", "startpos" });
-    HandleGo(depth: 10, moveTimeMs: null, whiteTimeMs: null, blackTimeMs: null, whiteIncrementMs: null, blackIncrementMs: null);
+    HandlePosition(new[] { "startpos" });
+    HandleGo(depth: 8, moveTimeMs: null, whiteTimeMs: null, blackTimeMs: null, whiteIncrementMs: null, blackIncrementMs: null);
+    currentSearchTask?.Wait();
+
+    HandleUciNewGame();
+    HandlePosition(new[] { "fen", "1r3rk1/5npp/p6q/3p1b2/5N2/2P3P1/PP1NQP1b/2KR3R w - - 2 21" });
+    HandleGo(depth: 8, moveTimeMs: null, whiteTimeMs: null, blackTimeMs: null, whiteIncrementMs: null, blackIncrementMs: null);
+    currentSearchTask?.Wait();
+
+    var elapsedMs = sw.ElapsedMilliseconds;
+    Console.WriteLine($"info string benchmark completed in {elapsedMs / 1000.0:F2}s");
+
     // TODO: do a comprehensive benchmark with deep positions
 }
 
