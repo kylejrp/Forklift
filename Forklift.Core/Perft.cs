@@ -37,7 +37,7 @@ namespace Forklift.Core
                 body: (i, _state, local) =>
                 {
                     var mv = moves[i];
-                    var bc = board.Copy();
+                    var bc = board.Copy(keepTrackOfHistory: false);
                     var u = bc.MakeMove(mv);
 
                     // Filter illegals cheaply after making the move
@@ -117,7 +117,7 @@ namespace Forklift.Core
                 Parallel.For(0, Math.Max(moves.Length, maxThreads ?? 1), options, i =>
                 {
                     var mv = moves[i];
-                    var bc = b.Copy();
+                    var bc = b.Copy(keepTrackOfHistory: false);
                     var u = bc.MakeMove(mv);
                     long n = PerftSerial(bc, depth - 1);
                     bc.UnmakeMove(mv, u);
@@ -184,7 +184,7 @@ namespace Forklift.Core
                 body: (i, _state, local) =>
                 {
                     var mv = moves[i];
-                    var bc = board.Copy();
+                    var bc = board.Copy(keepTrackOfHistory: false);
                     var u = bc.MakeMove(mv);
 
                     // legality filter on the child

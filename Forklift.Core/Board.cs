@@ -16,7 +16,7 @@ public sealed class Board
     /// Creates a deep copy of the board suitable for parallel search threads.
     /// Shared tables are reused, all mutable state is copied.
     /// </summary>
-    public Board Copy()
+    public Board Copy(bool? keepTrackOfHistory = null)
     {
         var copy = new Board(this.Tables);
         Array.Copy(this.mailbox, copy.mailbox, this.mailbox.Length);
@@ -30,7 +30,7 @@ public sealed class Board
         copy.HalfmoveClock = this.HalfmoveClock;
         copy.FullmoveNumber = this.FullmoveNumber;
         copy.ZKey = this.ZKey;
-        copy.KeepTrackOfHistory = this.KeepTrackOfHistory;
+        copy.KeepTrackOfHistory = keepTrackOfHistory ?? this.KeepTrackOfHistory;
         foreach (var kvp in this._repCounts)
             copy._repCounts[kvp.Key] = kvp.Value;
         foreach (var hash in this._hashStack)
