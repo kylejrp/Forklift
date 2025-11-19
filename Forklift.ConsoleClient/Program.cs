@@ -14,7 +14,7 @@ object searchLock = new();
 // UCI engine options
 var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
-    { "Hash", "16" },
+    { "Hash", "1" },
     { "Threads", "1" },
 };
 bool debugMode = false;
@@ -328,7 +328,14 @@ async Task HandleQuit()
     }
     currentSearchTask?.Wait(100);
 
-    try { await UciLogger.FlushAndCompleteAsync(); } catch { }
+    try
+    {
+        await UciLogger.FlushAndCompleteAsync();
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"info string error flushing UCI logger: {ex.Message.Replace("\r", "").Replace("\n", "\\n")}");
+    }
 }
 
 void RunBenchmark()

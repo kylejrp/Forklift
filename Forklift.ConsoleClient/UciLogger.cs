@@ -17,6 +17,17 @@ static class UciLogger
         }
     });
 
+    static UciLogger()
+    {
+        _writerTask.ContinueWith(t =>
+        {
+            if (t.Exception != null)
+            {
+                Console.Error.WriteLine($"info string exception in UciLogger writer task: {t.Exception.Message.Replace("\r", "").Replace("\n", "\\n")}");
+            }
+        }, TaskContinuationOptions.OnlyOnFaulted);
+    }
+
     public static bool TryLog(string line)
     {
         // Non-blocking enqueue
