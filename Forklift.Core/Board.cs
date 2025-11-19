@@ -627,6 +627,9 @@ public sealed class Board
     /// Generates all legal moves for the side to move.
     /// </summary>
     /// <returns>An array of legal moves</returns>
+    // It is safe to use [SkipLocalsInit] here because the stackalloc'd Move buffer is fully written to
+    // before any reads occur; no uninitialized memory is ever accessed. This is a performance optimization.
+    [SkipLocalsInit]
     public Move[] GenerateLegal()
     {
         Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
@@ -651,6 +654,9 @@ public sealed class Board
         return moveBuffer[..i];
     }
 
+    // It is safe to use [SkipLocalsInit] here because the stackalloc'd Move buffer is fully written to
+    // before any reads occur; no uninitialized memory is ever accessed. This is a performance optimization.
+    [SkipLocalsInit]
     public bool HasAnyLegalMoves()
     {
         Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];

@@ -23,6 +23,9 @@ namespace Forklift.Core
             new Piece[] { Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight }
         };
 
+        // It is safe to use [SkipLocalsInit] here because the stackalloc'd Move buffer is fully written to
+        // before any reads occur; no uninitialized memory is ever accessed. This is a performance optimization.
+        [SkipLocalsInit]
         public static Move[] GeneratePseudoLegal(Board board, Color sideToMove)
         {
             Span<Move> moves = stackalloc Move[MoveBufferMax];
