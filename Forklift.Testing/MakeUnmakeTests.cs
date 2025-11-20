@@ -12,7 +12,7 @@ namespace Forklift.Testing
             var b = BoardFactory.FromFenOrStart("startpos");
             var key0 = b.ZKey; var occ0 = b.OccAll;
 
-            var m = MovePicker.FirstLegal(b); // simple helper in Core
+            var m = b.GenerateLegal().First();
             var undo = b.MakeMove(m);
             b.UnmakeMove(m, undo);
 

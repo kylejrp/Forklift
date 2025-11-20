@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace Forklift.Core
 {
     public static class Search
@@ -93,10 +95,11 @@ namespace Forklift.Core
 
             if (finalBestMove is null)
             {
-                var panicMoves = board.GenerateLegal();
-                if (panicMoves.Length > 0)
+                Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
+                board.GenerateLegal(ref moves);
+                if (moves.Length > 0)
                 {
-                    finalBestMove = panicMoves[0];
+                    finalBestMove = moves[0];
                     finalBestScore = Evaluator.EvaluateForSideToMove(board);
                     totalNodesSearched++;
                 }
@@ -191,8 +194,9 @@ namespace Forklift.Core
                 return new SearchNodeResult(ttMove, probe.Score, true, nodesSearched);
             }
 
-            var legalMoves = board.GenerateLegal();
-            int legalMoveCount = legalMoves.Length;
+            Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
+            board.GenerateLegal(ref moves);
+            int legalMoveCount = moves.Length;
 
             if (legalMoveCount == 0)
             {
@@ -210,14 +214,14 @@ namespace Forklift.Core
             /// <param name="targetIndex">The index in the move list to which the move should be promoted.</param>
             /// <param name="moveCount">The number of valid moves in the move list.</param>
             /// <returns>True if the move was found and promoted; false otherwise.</returns>
-            static bool PromoteMove(Board.Move[] moves, Board.Move move, int targetIndex, int moveCount)
+            static bool PromoteMove(Span<Board.Move> moves, Board.Move move, int targetIndex, int moveCount)
             {
                 if (targetIndex < 0 || targetIndex >= moveCount)
                 {
                     return false;
                 }
 
-                int index = Array.FindIndex(moves, targetIndex, moveCount - targetIndex, m => m.Equals(move));
+                int index = moves.Slice(targetIndex, moveCount - targetIndex).IndexOf(move) + targetIndex;
                 if (index < 0)
                 {
                     return false;
@@ -247,7 +251,7 @@ namespace Forklift.Core
             if (preferredMove is Board.Move pv)
             {
                 // PV is our primary candidate: it must be searched first.
-                if (PromoteMove(legalMoves, pv, targetIndex: orderedCount, moveCount: legalMoveCount))
+                if (PromoteMove(moves, pv, targetIndex: orderedCount, moveCount: legalMoveCount))
                 {
                     orderedCount++;
                 }
@@ -255,7 +259,7 @@ namespace Forklift.Core
                 // If TT move exists and is distinct, let it be second.
                 if (ttMove is Board.Move tt && !tt.Equals(pv))
                 {
-                    if (PromoteMove(legalMoves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
+                    if (PromoteMove(moves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
                     {
                         orderedCount++;
                     }
@@ -264,7 +268,7 @@ namespace Forklift.Core
             else if (ttMove is Board.Move tt)
             {
                 // No PV for this node: TT move can take slot 0.
-                if (PromoteMove(legalMoves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
+                if (PromoteMove(moves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
                 {
                     orderedCount++;
                 }
@@ -274,7 +278,7 @@ namespace Forklift.Core
             int captureCount = 0;
             for (int i = orderedCount; i < legalMoveCount; i++)
             {
-                if (legalMoves[i].IsCapture)
+                if (moves[i].IsCapture)
                 {
                     captureCount++;
                 }
@@ -282,7 +286,7 @@ namespace Forklift.Core
 
             if (captureCount > 0)
             {
-                OrderCapturesByMvvLva(legalMoves, orderedCount, legalMoveCount);
+                OrderCapturesByMvvLva(moves, orderedCount, legalMoveCount);
                 orderedCount += captureCount;
             }
 
@@ -291,7 +295,7 @@ namespace Forklift.Core
             {
                 if (_killerMovesPrimary[ply] is Board.Move killer1 && IsQuietMove(killer1))
                 {
-                    if (PromoteMove(legalMoves, killer1, orderedCount, legalMoveCount))
+                    if (PromoteMove(moves, killer1, orderedCount, legalMoveCount))
                     {
                         orderedCount++;
                     }
@@ -299,7 +303,7 @@ namespace Forklift.Core
 
                 if (_killerMovesSecondary[ply] is Board.Move killer2 && IsQuietMove(killer2))
                 {
-                    if (PromoteMove(legalMoves, killer2, orderedCount, legalMoveCount))
+                    if (PromoteMove(moves, killer2, orderedCount, legalMoveCount))
                     {
                         orderedCount++;
                     }
@@ -310,7 +314,7 @@ namespace Forklift.Core
             int quietCount = 0;
             for (int i = orderedCount; i < legalMoveCount; i++)
             {
-                if (IsQuietMove(legalMoves[i]))
+                if (IsQuietMove(moves[i]))
                 {
                     quietCount++;
                 }
@@ -318,7 +322,7 @@ namespace Forklift.Core
 
             if (quietCount > 0)
             {
-                OrderQuietMovesByHistory(legalMoves, orderedCount, legalMoveCount);
+                OrderQuietMovesByHistory(moves, orderedCount, legalMoveCount);
                 orderedCount += quietCount;
             }
 
@@ -338,7 +342,7 @@ namespace Forklift.Core
                     break;
                 }
 
-                var move = legalMoves[i];
+                var move = moves[i];
 
                 nodesSearched++;
                 var undo = board.MakeMove(move);
@@ -626,7 +630,7 @@ namespace Forklift.Core
 
         private static bool IsQuietMove(Board.Move move) => !move.IsCapture && !move.IsPromotion;
 
-        private static void OrderCapturesByMvvLva(Board.Move[] moves, int startIndex, int moveCount)
+        private static void OrderCapturesByMvvLva(Span<Board.Move> moves, int startIndex, int moveCount)
         {
             for (int current = startIndex; current < moveCount; current++)
             {
@@ -661,7 +665,7 @@ namespace Forklift.Core
             }
         }
 
-        private static void OrderQuietMovesByHistory(Board.Move[] moves, int startIndex, int moveCount)
+        private static void OrderQuietMovesByHistory(Span<Board.Move> moves, int startIndex, int moveCount)
         {
             for (int current = startIndex; current < moveCount; current++)
             {
