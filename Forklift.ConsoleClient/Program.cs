@@ -243,7 +243,7 @@ void HandleGo(
         currentSearchCancellationTokenSource?.Cancel();
 
         // Snapshot the position for this search so later 'position' commands don't interfere
-        var boardSnapshot = board.Copy();
+        var boardSnapshot = board.Copy(keepTrackOfHistory: false);
 
         var cancellationTokenSource = new CancellationTokenSource();
         var sideToMove = boardSnapshot.SideToMove;
