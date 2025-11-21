@@ -55,7 +55,7 @@ jobs:
           echo "runner.arch=${{ runner.arch }}"
 
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
