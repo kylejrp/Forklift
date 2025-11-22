@@ -125,6 +125,13 @@ public sealed class Board
     /// </summary>
     /// <param name="sq88">The square in 0x88 format.</param>
     /// <returns>The piece at the square.</returns>
+    public Piece? At(UnsafeSquare0x88 sq88) => Squares.IsOffboard(sq88) ? null : At((Square0x88)sq88);
+
+    /// <summary>
+    /// Gets the piece at the specified square.
+    /// </summary>
+    /// <param name="sq88">The square in 0x88 format.</param>
+    /// <returns>The piece at the square.</returns>
     public Piece At(Square0x88 sq88) => (Piece)mailbox[sq88];
 
     /// <summary>

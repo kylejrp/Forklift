@@ -45,7 +45,7 @@ namespace Forklift.Testing
             nodes.Should().Be(expectedNodes);
         }
 
-        [Theory(Skip = "Long running tests")]
+        [Theory]
         [InlineData("startpos", 0, 1L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L)]
         [InlineData("startpos", 1, 20L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L)]
         [InlineData("startpos", 2, 400L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L)]
@@ -56,22 +56,20 @@ namespace Forklift.Testing
         //[InlineData("startpos", 7, 3195901860L, 108329926L, 319617L, 883453L, 0L, 33103848L, 18026L, 1628L, 435767L)]
         //[InlineData("startpos", 8, 84998978956L, 3523740106L, 7187977L, 23605205L, 0L, 968981593L, 847039L, 147215L, 9852036L)]
         //[InlineData("startpos", 9, 2439530234167L, 125208536153L, 319496827L, 1784356000L, 17334376L, 36095901903L, 37101713L, 5547231L, 400191963L)]
-        /*
+
         [InlineData("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 1, 48L, 8L, 0L, 2L, 0L, 0L, 0L, 0L, 0L)]
         [InlineData("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 2, 2039L, 351L, 1L, 91L, 0L, 3L, 0L, 0L, 0L)]
         [InlineData("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 3, 97862L, 17102L, 45L, 3162L, 0L, 993L, 0L, 0L, 1L)]
         [InlineData("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 4, 4085603L, 757163L, 1929L, 128013L, 15172L, 25523L, 42L, 6L, 43L)]
-        */
         //[InlineData("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 5, 193690690L, 35043416L, 73365L, 4993637L, 8392L, 3309887L, 19883L, 2637L, 30171L)]
         //[InlineData("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", 6, 8031647685L, 1558445089L, 3577504L, 184513607L, 56627920L, 92238050L, 568417L, 54948L, 360003L)]
-        /*
+
         [InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 1, 14L, 1L, 0L, 0L, 0L, 2L, 0L, 0L, 0L)]
         [InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 2, 191L, 14L, 0L, 0L, 0L, 10L, 0L, 0L, 0L)]
         [InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 3, 2812L, 209L, 2L, 0L, 0L, 267L, 3L, 0L, 0L)]
         [InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 4, 43238L, 3348L, 123L, 0L, 0L, 1680L, 106L, 0L, 17L)]
         [InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 5, 674624L, 52051L, 1165L, 0L, 0L, 52950L, 1292L, 3L, 0L)]
-        */
-        //[InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 6, 11030083L, 940350L, 33325L, 0L, 7552L, 452473L, 26067L, 0L, 2733L)]
+        [InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 6, 11030083L, 940350L, 33325L, 0L, 7552L, 452473L, 26067L, 0L, 2733L)]
         //[InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 7, 178633661L, 14519036L, 294874L, 0L, 140024L, 12797406L, 370630L, 3612L, 87L)]
         //[InlineData("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 8, 3009794393L, 267586558L, 8009239L, 0L, 6578076L, 135626805L, 7181487L, 1630L, 450410L)]
         public void Perft_Statistics_Should_Match_Expected_Values(
@@ -102,11 +100,11 @@ namespace Forklift.Testing
             stats.Checkmates.Should().Be(expectedCheckmates, $"Checkmates at depth {depth}");
         }
 
-        [Theory(Skip = "Long running tests")]
-        //[InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 1, 6L, 0L, 0L, 0L, 0L, 0L, 0L)]
-        //[InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 2, 264L, 87L, 0L, 6L, 48L, 10L, 0L)]
-        //[InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 3, 9467L, 1021L, 4L, 0L, 120L, 38L, 22L)]
-        //[InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 4, 422333L, 131393L, 0L, 7795L, 60032L, 15492L, 5L)]
+        [Theory]
+        [InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 1, 6L, 0L, 0L, 0L, 0L, 0L, 0L)]
+        [InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 2, 264L, 87L, 0L, 6L, 48L, 10L, 0L)]
+        [InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 3, 9467L, 1021L, 4L, 0L, 120L, 38L, 22L)]
+        [InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 4, 422333L, 131393L, 0L, 7795L, 60032L, 15492L, 5L)]
         [InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 5, 15833292L, 2046173L, 6512L, 0L, 329464L, 200568L, 50562L)]
         //[InlineData("r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1", 6, 706045033L, 210369132L, 212L, 10882006L, 81102984L, 26973664L, 81076L)]
         public void Perft_Statistics_Should_Match_Expected_Values2(
