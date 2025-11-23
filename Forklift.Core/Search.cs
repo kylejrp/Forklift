@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace Forklift.Core
 {
@@ -22,7 +23,8 @@ namespace Forklift.Core
         private const int MaxPly = 128;
         private static readonly Board.Move?[] _killerMovesPrimary = new Board.Move?[MaxPly];
         private static readonly Board.Move?[] _killerMovesSecondary = new Board.Move?[MaxPly];
-        private static readonly Dictionary<Piece.PieceType, Dictionary<Square0x88, int>> _historyScores = new Dictionary<Piece.PieceType, Dictionary<Square0x88, int>>();
+        private static readonly HistoryTable _historyScores = new HistoryTable();
+
         private static readonly int[] _pieceOrderingValues = {
             100, // Pawn
             320, // Knight
@@ -335,6 +337,8 @@ namespace Forklift.Core
             bool sawCompleteChild = false;
             bool aborted = false;
             bool betaCutoff = false;
+            Span<Board.Move> quietMovesSearched = stackalloc Board.Move[legalMoveCount];
+            int quietMovesSearchedCount = 0;
 
             for (int i = 0; i < legalMoveCount; i++)
             {
@@ -389,10 +393,22 @@ namespace Forklift.Core
                     if (move.IsQuiet)
                     {
                         StoreKillerMove(move, ply);
-                        UpdateHistory(move, depth);
+                        var bonus = 300 * depth - 250;
+                        UpdateHistory(move, bonus);
+                        foreach (var quietMove in quietMovesSearched.Slice(0, quietMovesSearchedCount))
+                        {
+                            UpdateHistory(quietMove, -bonus);
+                        }
                     }
                     betaCutoff = true;
                     break;
+                }
+
+                // do this quiet check after beta cutoff so we don't have to account for it there
+                // when updating history with a negative bonus
+                if (move.IsQuiet)
+                {
+                    quietMovesSearched[quietMovesSearchedCount++] = move;
                 }
             }
 
@@ -601,26 +617,16 @@ namespace Forklift.Core
             _killerMovesPrimary[ply] = move;
         }
 
-        private static void UpdateHistory(Board.Move move, int depth)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void UpdateHistory(Board.Move move, int bonus)
         {
-            var pieceIndex = move.Mover.Type;
-
-            if (!_historyScores.TryGetValue(pieceIndex, out var table))
-            {
-                table = new Dictionary<Square0x88, int>();
-                _historyScores[pieceIndex] = table;
-            }
-
-            var to = move.To88;
-            table[to] = table.GetValueOrDefault(to, 0) + depth * depth;
+            _historyScores.Update(move, bonus);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int GetHistoryScore(Board.Move move)
         {
-            var pieceIndex = move.Mover.Type;
-            return _historyScores.TryGetValue(pieceIndex, out var table)
-                ? table.GetValueOrDefault(move.To88, 0)
-                : 0;
+            return _historyScores.Get(move);
         }
 
         private static int ScoreCapture(Board.Move move)
