@@ -486,5 +486,6 @@ $RECYCLE.BIN/
 
 ###### Forklift specific ignores
 *.speedscope.json
+*.nettrace
 .eval/
 matches/

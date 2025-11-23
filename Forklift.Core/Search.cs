@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+
 namespace Forklift.Core
 {
     public static class Search
@@ -20,7 +23,8 @@ namespace Forklift.Core
         private const int MaxPly = 128;
         private static readonly Board.Move?[] _killerMovesPrimary = new Board.Move?[MaxPly];
         private static readonly Board.Move?[] _killerMovesSecondary = new Board.Move?[MaxPly];
-        private static readonly Dictionary<Piece.PieceType, Dictionary<Square0x88, int>> _historyScores = new Dictionary<Piece.PieceType, Dictionary<Square0x88, int>>();
+        private static readonly HistoryTable _historyScores = new HistoryTable();
+
         private static readonly int[] _pieceOrderingValues = {
             100, // Pawn
             320, // Knight
@@ -93,10 +97,11 @@ namespace Forklift.Core
 
             if (finalBestMove is null)
             {
-                var panicMoves = board.GenerateLegal();
-                if (panicMoves.Length > 0)
+                Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
+                board.GenerateLegal(ref moves);
+                if (moves.Length > 0)
                 {
-                    finalBestMove = panicMoves[0];
+                    finalBestMove = moves[0];
                     finalBestScore = Evaluator.EvaluateForSideToMove(board);
                     totalNodesSearched++;
                 }
@@ -122,7 +127,7 @@ namespace Forklift.Core
 
             if (depth == 0)
             {
-                QuiescenceResult q = Quiescence(board, alpha, beta, cancellationToken);
+                QuiescenceResult q = Quiescence(board, alpha, beta, ply + 1, cancellationToken);
                 return new SearchNodeResult(null, q.BestScore, q.IsComplete, q.NodesSearched);
             }
 
@@ -191,154 +196,37 @@ namespace Forklift.Core
                 return new SearchNodeResult(ttMove, probe.Score, true, nodesSearched);
             }
 
-            var legalMoves = board.GenerateLegal();
-            int legalMoveCount = legalMoves.Length;
+            Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
+            var picker = new MovePicker(
+                board: board,
+                moveBuffer: moves,
+                history: _historyScores,
+                pvMove: preferredMove,
+                ttMove: ttMove,
+                killer1: ply < MaxPly && _killerMovesPrimary[ply] is Board.Move killer1 && killer1.IsQuiet ? killer1 : null,
+                killer2: ply < MaxPly && _killerMovesSecondary[ply] is Board.Move killer2 && killer2.IsQuiet ? killer2 : null
+            );
 
-            if (legalMoveCount == 0)
-            {
-                // Terminal node: mate or stalemate.
-                int terminalScore = EvaluateTerminal(board, ply);
-                return new SearchNodeResult(null, terminalScore, true, nodesSearched);
-            }
-
-            // --- Move ordering helpers ---------------------------------------
-            /// <summary>
-            /// Swaps the specified move to the target position in the move list for ordering purposes.
-            /// </summary>
-            /// <param name="moves">The array of moves to reorder.</param>
-            /// <param name="move">The move to promote to the target index.</param>
-            /// <param name="targetIndex">The index in the move list to which the move should be promoted.</param>
-            /// <param name="moveCount">The number of valid moves in the move list.</param>
-            /// <returns>True if the move was found and promoted; false otherwise.</returns>
-            static bool PromoteMove(Board.Move[] moves, Board.Move move, int targetIndex, int moveCount)
-            {
-                if (targetIndex < 0 || targetIndex >= moveCount)
-                {
-                    return false;
-                }
-
-                int index = Array.FindIndex(moves, targetIndex, moveCount - targetIndex, m => m.Equals(move));
-                if (index < 0)
-                {
-                    return false;
-                }
-
-                if (index > targetIndex)
-                {
-                    (moves[targetIndex], moves[index]) = (moves[index], moves[targetIndex]);
-                }
-
-                return true;
-            }
-
-            // Promote PV move and TT move with clear semantics:
-            //
-            // - If we have a PV move for this node, we *always* search it first.
-            //   This preserves the invariant that "PV searched first" means we can
-            //   treat the node as "complete enough" when some children are left.
-            //
-            // - If a TT move exists and it's different from the PV move, we put it
-            //   in slot 1 so it is still searched early.
-            //
-            // - If there is no PV move at this node, we let the TT move lead.
-
-            int orderedCount = 0;
-
-            if (preferredMove is Board.Move pv)
-            {
-                // PV is our primary candidate: it must be searched first.
-                if (PromoteMove(legalMoves, pv, targetIndex: orderedCount, moveCount: legalMoveCount))
-                {
-                    orderedCount++;
-                }
-
-                // If TT move exists and is distinct, let it be second.
-                if (ttMove is Board.Move tt && !tt.Equals(pv))
-                {
-                    if (PromoteMove(legalMoves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
-                    {
-                        orderedCount++;
-                    }
-                }
-            }
-            else if (ttMove is Board.Move tt)
-            {
-                // No PV for this node: TT move can take slot 0.
-                if (PromoteMove(legalMoves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
-                {
-                    orderedCount++;
-                }
-            }
-
-            // Captures ordered by MVV-LVA.
-            int captureCount = 0;
-            for (int i = orderedCount; i < legalMoveCount; i++)
-            {
-                if (legalMoves[i].IsCapture)
-                {
-                    captureCount++;
-                }
-            }
-
-            if (captureCount > 0)
-            {
-                OrderCapturesByMvvLva(legalMoves, orderedCount, legalMoveCount);
-                orderedCount += captureCount;
-            }
-
-            // Killer moves.
-            if (ply < MaxPly)
-            {
-                if (_killerMovesPrimary[ply] is Board.Move killer1 && IsQuietMove(killer1))
-                {
-                    if (PromoteMove(legalMoves, killer1, orderedCount, legalMoveCount))
-                    {
-                        orderedCount++;
-                    }
-                }
-
-                if (_killerMovesSecondary[ply] is Board.Move killer2 && IsQuietMove(killer2))
-                {
-                    if (PromoteMove(legalMoves, killer2, orderedCount, legalMoveCount))
-                    {
-                        orderedCount++;
-                    }
-                }
-            }
-
-            // Remaining quiet moves ordered by history score.
-            int quietCount = 0;
-            for (int i = orderedCount; i < legalMoveCount; i++)
-            {
-                if (IsQuietMove(legalMoves[i]))
-                {
-                    quietCount++;
-                }
-            }
-
-            if (quietCount > 0)
-            {
-                OrderQuietMovesByHistory(legalMoves, orderedCount, legalMoveCount);
-                orderedCount += quietCount;
-            }
-
-
+            int legalMoveCount = 0;
             Board.Move? bestMove = null;
             int bestScore = MinimumScore;
 
             bool sawCompleteChild = false;
             bool aborted = false;
             bool betaCutoff = false;
+            List<Board.Move> quietMovesSearched = new List<Board.Move>();
 
-            for (int i = 0; i < legalMoveCount; i++)
+            while (picker.Next() is Board.Move move)
             {
+                legalMoveCount++;
+
+                // Check for cancellation at the top of the loop to ensure we
+                // respond promptly even if the move generation is fast.
                 if (cancellationToken.IsCancellationRequested)
                 {
                     aborted = true;
                     break;
                 }
-
-                var move = legalMoves[i];
 
                 nodesSearched++;
                 var undo = board.MakeMove(move);
@@ -366,28 +254,47 @@ namespace Forklift.Core
 
                 int score = -childResult.BestScore;
 
-                if (score > bestScore || bestMove is null)
+                if (score > bestScore)
                 {
                     bestScore = score;
                     bestMove = move;
+
+                    if (score > alpha)
+                    {
+                        alpha = score;
+                    }
                 }
 
-                if (score > alpha)
-                {
-                    alpha = score;
-                }
-
-                if (alpha >= beta)
+                if (score >= beta)
                 {
                     // Beta cutoff: no need to consider remaining moves.
-                    if (IsQuietMove(move))
+                    if (move.IsQuiet)
                     {
                         StoreKillerMove(move, ply);
-                        UpdateHistory(move, depth);
+                        var bonus = 300 * depth - 250;
+                        UpdateHistory(move, bonus);
+                        foreach (var quietMove in quietMovesSearched)
+                        {
+                            UpdateHistory(quietMove, -bonus);
+                        }
                     }
                     betaCutoff = true;
                     break;
                 }
+
+                // do this quiet check after beta cutoff so we don't have to account for it there
+                // when updating history with a negative bonus
+                if (move.IsQuiet)
+                {
+                    quietMovesSearched.Add(move);
+                }
+            }
+
+            if (legalMoveCount == 0)
+            {
+                // Terminal node: mate or stalemate.
+                int terminalScore = EvaluateTerminal(board, ply);
+                return new SearchNodeResult(null, terminalScore, true, nodesSearched);
             }
 
             bool completed;
@@ -436,7 +343,7 @@ namespace Forklift.Core
             return new SearchNodeResult(bestMove, bestScore, completed, nodesSearched);
         }
 
-        private static QuiescenceResult Quiescence(Board board, int alpha, int beta, CancellationToken cancellationToken)
+        private static QuiescenceResult Quiescence(Board board, int alpha, int beta, int ply, CancellationToken cancellationToken)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -445,25 +352,30 @@ namespace Forklift.Core
 
             bool inCheck = board.InCheck(board.SideToMove);
             int nodesSearched = 0;
+            int bestScore = MinimumScore;
             if (inCheck)
             {
-                Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-                var legalMoves = board.GenerateLegal(moveBuffer);
+                Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
+                var picker = new MovePicker(
+                    board: board,
+                    moveBuffer: moves,
+                    history: _historyScores
 
-                int currentAlpha = alpha;
+                );
+
                 bool exploredMove = false;
                 bool allComplete = true;
 
-                foreach (var move in legalMoves)
+                while (picker.Next() is Board.Move move)
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        return new QuiescenceResult(exploredMove ? currentAlpha : alpha, false, nodesSearched);
+                        return new QuiescenceResult(alpha, false, nodesSearched);
                     }
 
                     nodesSearched++;
                     var undo = board.MakeMove(move);
-                    QuiescenceResult child = Quiescence(board, -beta, -currentAlpha, cancellationToken);
+                    QuiescenceResult child = Quiescence(board, -beta, -alpha, ply + 1, cancellationToken);
                     int score = -child.BestScore;
                     board.UnmakeMove(move, undo);
                     nodesSearched += child.NodesSearched;
@@ -476,47 +388,55 @@ namespace Forklift.Core
 
                     if (score >= beta)
                     {
-                        return new QuiescenceResult(beta, allComplete, nodesSearched);
+                        return new QuiescenceResult(score, allComplete, nodesSearched);
                     }
 
-                    if (score > currentAlpha)
+                    if (score > bestScore)
                     {
-                        currentAlpha = score;
+                        bestScore = score;
+                    }
+
+                    if (score > alpha)
+                    {
+                        alpha = score;
                     }
                 }
 
                 if (!exploredMove)
                 {
                     // No legal moves in check => mate.
-                    return new QuiescenceResult(EvaluateTerminal(board, ply: 0), true, nodesSearched);
+                    return new QuiescenceResult(EvaluateTerminal(board, ply), true, nodesSearched);
                 }
 
-                return new QuiescenceResult(currentAlpha, allComplete, nodesSearched);
+                return new QuiescenceResult(bestScore, allComplete, nodesSearched);
             }
 
-            int standPat = Evaluator.EvaluateForSideToMove(board);
-
-            if (standPat >= beta)
+            // Stand pat
+            bestScore = Evaluator.EvaluateForSideToMove(board);
+            if (bestScore >= beta)
             {
-                // Fail-high on stand pat is a normal, complete result.
-                return new QuiescenceResult(beta, true, nodesSearched);
+                return new QuiescenceResult(bestScore, true, nodesSearched);
             }
 
-            if (standPat > alpha)
+            if (bestScore > alpha)
             {
-                alpha = standPat;
+                alpha = bestScore;
             }
 
-            Span<Board.Move> pseudoBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(pseudoBuffer);
-            var pseudoMoves = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            Span<Board.Move> pseudoMoves = stackalloc Board.Move[Board.MoveBufferMax];
+            var pseudoPicker = new MovePicker(
+                board: board,
+                moveBuffer: pseudoMoves,
+                history: _historyScores,
+                moveGenerationStrategy: MovePicker.MoveGenerationStrategy.PseudoLegal
+            );
             var sideToMove = board.SideToMove;
             bool exploredCapture = false;
             bool allCompleteCaptures = true;
 
-            foreach (var move in pseudoMoves)
+            while (pseudoPicker.Next() is Board.Move move)
             {
-                if (!move.IsCapture)
+                if (move.IsQuiet)
                 {
                     continue;
                 }
@@ -536,7 +456,7 @@ namespace Forklift.Core
                 }
 
                 exploredCapture = true;
-                QuiescenceResult child = Quiescence(board, -beta, -alpha, cancellationToken);
+                QuiescenceResult child = Quiescence(board, -beta, -alpha, ply + 1, cancellationToken);
                 int score = -child.BestScore;
                 board.UnmakeMove(move, undo);
                 nodesSearched += child.NodesSearched;
@@ -548,7 +468,12 @@ namespace Forklift.Core
 
                 if (score >= beta)
                 {
-                    return new QuiescenceResult(beta, allCompleteCaptures, nodesSearched);
+                    return new QuiescenceResult(score, allCompleteCaptures, nodesSearched);
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
                 }
 
                 if (score > alpha)
@@ -560,10 +485,10 @@ namespace Forklift.Core
             if (!exploredCapture && !board.HasAnyLegalMoves())
             {
                 // No captures searched and no legal moves at all => stalemate or mate.
-                return new QuiescenceResult(EvaluateTerminal(board, ply: 0), true, nodesSearched);
+                return new QuiescenceResult(EvaluateTerminal(board, ply), true, nodesSearched);
             }
 
-            return new QuiescenceResult(alpha, allCompleteCaptures, nodesSearched);
+            return new QuiescenceResult(bestScore, allCompleteCaptures, nodesSearched);
         }
 
         private static int EvaluateTerminal(Board board, int ply)
@@ -596,26 +521,16 @@ namespace Forklift.Core
             _killerMovesPrimary[ply] = move;
         }
 
-        private static void UpdateHistory(Board.Move move, int depth)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void UpdateHistory(Board.Move move, int bonus)
         {
-            var pieceIndex = move.Mover.Type;
-
-            if (!_historyScores.TryGetValue(pieceIndex, out var table))
-            {
-                table = new Dictionary<Square0x88, int>();
-                _historyScores[pieceIndex] = table;
-            }
-
-            var to = move.To88;
-            table[to] = table.GetValueOrDefault(to, 0) + depth * depth;
+            _historyScores.Update(move, bonus);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int GetHistoryScore(Board.Move move)
         {
-            var pieceIndex = move.Mover.Type;
-            return _historyScores.TryGetValue(pieceIndex, out var table)
-                ? table.GetValueOrDefault(move.To88, 0)
-                : 0;
+            return _historyScores.Get(move);
         }
 
         private static int ScoreCapture(Board.Move move)
@@ -624,10 +539,7 @@ namespace Forklift.Core
             int attackerValue = _pieceOrderingValues[(int)move.Mover.Type];
             return victimValue * 10 - attackerValue;
         }
-
-        private static bool IsQuietMove(Board.Move move) => !move.IsCapture && !move.IsPromotion;
-
-        private static void OrderCapturesByMvvLva(Board.Move[] moves, int startIndex, int moveCount)
+        private static void OrderCapturesByMvvLva(Span<Board.Move> moves, int startIndex, int moveCount)
         {
             for (int current = startIndex; current < moveCount; current++)
             {
@@ -662,7 +574,7 @@ namespace Forklift.Core
             }
         }
 
-        private static void OrderQuietMovesByHistory(Board.Move[] moves, int startIndex, int moveCount)
+        private static void OrderQuietMovesByHistory(Span<Board.Move> moves, int startIndex, int moveCount)
         {
             for (int current = startIndex; current < moveCount; current++)
             {
@@ -672,7 +584,7 @@ namespace Forklift.Core
                 for (int candidate = current; candidate < moveCount; candidate++)
                 {
                     var move = moves[candidate];
-                    if (!IsQuietMove(move))
+                    if (!move.IsQuiet)
                     {
                         continue;
                     }

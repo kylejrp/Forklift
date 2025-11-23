@@ -66,21 +66,15 @@ public readonly struct UnsafeSquare0x64 : IEquatable<UnsafeSquare0x64>
 public readonly struct Square0x64 : IEquatable<Square0x64>
 {
     public int Value { get; }
+    public const int MIN_VALUE = 0;
+    public const int MAX_VALUE = 63;
 
     public int Rank => Value >> 3;
     public int File => Value & 7;
 
     public Square0x64(int value)
     {
-        if (value < 0 || value >= 64)
-            throw new ArgumentOutOfRangeException(nameof(value), "0x64 square must be in the range [0, 63].");
-
-        Value = value;
-    }
-
-    private Square0x64(int value, bool _)
-    {
-        // No validation, scary! For internal use only.
+        Debug.Assert(value >= MIN_VALUE && value <= MAX_VALUE, "Square0x64 value out of range");
         Value = value;
     }
 
@@ -191,14 +185,12 @@ public readonly struct UnsafeSquare0x88 : IEquatable<UnsafeSquare0x88>
 public readonly struct Square0x88 : IEquatable<Square0x88>
 {
     public int Value { get; }
+    public const int MIN_VALUE = 0;
+    public const int MAX_VALUE = 0x77;
 
     public Square0x88(int value)
     {
-        if ((value & 0x88) != 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(value), "0x88 square must not have the high nibble set.");
-        }
-
+        Debug.Assert((value & 0x88) == 0, "Square0x88 value out of range");
         Value = value;
     }
 
@@ -265,7 +257,7 @@ public readonly struct AlgebraicNotation
         return arr;
     }
 
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int Index(char f, char r) => (r - '1') * 8 + (f - 'a');
 
     public static AlgebraicNotation From(ReadOnlySpan<char> alg)
