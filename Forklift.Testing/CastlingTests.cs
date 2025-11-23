@@ -19,8 +19,7 @@ namespace Forklift.Testing
         public void CannotCastleThroughCheck_Or_WhileInCheck(string fen, bool canCastleQueenSide, bool canCastleKingSide)
         {
             var b = BoardFactory.FromFenOrStart(fen);
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var moves = b.GenerateLegal(buf);
+            var moves = b.GenerateLegal();
 
             bool foundKingSide = false, foundQueenSide = false;
             for (int i = 0; i < moves.Length; i++)

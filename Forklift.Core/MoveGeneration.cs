@@ -28,50 +28,43 @@ namespace Forklift.Core
         [SkipLocalsInit]
         public static Move[] GeneratePseudoLegal(Board board, Color sideToMove)
         {
-            Span<Move> moves = stackalloc Move[MoveBufferMax];
-            var buffer = new MoveBuffer(moves);
-            var span = GeneratePseudoLegal(board, ref buffer, sideToMove);
-            return span.ToArray();
+            Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
+            GeneratePseudoLegal(board, ref moveBuffer, sideToMove);
+            return moveBuffer.ToArray();
         }
 
         /// <summary>
         /// Generates all pseudo-legal moves for the current board state.
         /// </summary>
-        public static MoveSpan GeneratePseudoLegal(Board board, ref MoveBuffer buffer, Color sideToMove)
+        public static void GeneratePseudoLegal(Board board, ref Span<Move> buffer, Color sideToMove)
         {
-            GeneratePawnMoves(board, ref buffer, sideToMove);
-            buffer.AssertNoOverflow(nameof(GeneratePawnMoves));
+            int index = 0;
 
-            GenerateKnightMoves(board, ref buffer, sideToMove);
-            buffer.AssertNoOverflow(nameof(GenerateKnightMoves));
+            GeneratePawnMoves(board, ref buffer, sideToMove, ref index);
+
+            GenerateKnightMoves(board, ref buffer, sideToMove, ref index);
 
             // Sliders
-            GenerateSliderMoves(board, ref buffer, sideToMove,
+            GenerateSliderMoves(board, ref buffer, sideToMove, ref index,
                 sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop);
-            buffer.AssertNoOverflow(nameof(GenerateSliderMoves) + " (Bishop)");
 
-            GenerateSliderMoves(board, ref buffer, sideToMove,
+            GenerateSliderMoves(board, ref buffer, sideToMove, ref index,
                 sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook);
-            buffer.AssertNoOverflow(nameof(GenerateSliderMoves) + " (Rook)");
 
-            GenerateSliderMoves(board, ref buffer, sideToMove,
+            GenerateSliderMoves(board, ref buffer, sideToMove, ref index,
                 sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen);
-            buffer.AssertNoOverflow(nameof(GenerateSliderMoves) + " (Queen)");
 
-            GenerateKingMoves(board, ref buffer, sideToMove);
-            buffer.AssertNoOverflow(nameof(GenerateKingMoves));
+            GenerateKingMoves(board, ref buffer, sideToMove, ref index);
 
-            GenerateCastling(board, ref buffer, sideToMove);
-            buffer.AssertNoOverflow(nameof(GenerateCastling));
+            GenerateCastling(board, ref buffer, sideToMove, ref index);
 
-            GenerateEnPassant(board, ref buffer, sideToMove);
-            buffer.AssertNoOverflow(nameof(GenerateEnPassant));
+            GenerateEnPassant(board, ref buffer, sideToMove, ref index);
 
-            return buffer.ToMoveSpan();
+            buffer = buffer[..index];
         }
 
         // --- Pawns (pushes, captures, promotions; EP is generated separately) -------------
-        private static void GeneratePawnMoves(Board board, ref MoveBuffer buffer, Color sideToMove)
+        private static void GeneratePawnMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index)
         {
             int colorIdx = sideToMove.IsWhite() ? 0 : 1;
             Piece pawn = colorIdx == 0 ? Piece.WhitePawn : Piece.BlackPawn;
@@ -96,17 +89,17 @@ namespace Forklift.Core
                         if (rank == PromotionRank[colorIdx])
                         {
                             foreach (var promo in PromotionPieces[colorIdx])
-                                buffer.Add(Move.PromotionPush(from88, one88, pawn, promo));
+                                buffer[index++] = Move.PromotionPush(from88, one88, pawn, promo);
                         }
                         else
                         {
-                            buffer.Add(Move.Normal(from88, one88, pawn));
+                            buffer[index++] = Move.Normal(from88, one88, pawn);
                             // Double push from start rank (lookup table)
                             if (rank == DoublePushStartRank[colorIdx])
                             {
                                 UnsafeSquare0x88 two = one + PawnPushDelta[colorIdx];
                                 if (!Squares.IsOffboard(two) && board.At((Square0x88)two) == Piece.Empty)
-                                    buffer.Add(Move.Normal(from88, (Square0x88)two, pawn));
+                                    buffer[index++] = Move.Normal(from88, (Square0x88)two, pawn);
                             }
                         }
                     }
@@ -124,18 +117,18 @@ namespace Forklift.Core
                     if (rank == PromotionRank[colorIdx])
                     {
                         foreach (var promo in PromotionPieces[colorIdx])
-                            buffer.Add(Move.PromotionCapture(from88, to88, pawn, target, promo));
+                            buffer[index++] = Move.PromotionCapture(from88, to88, pawn, target, promo);
                     }
                     else
                     {
-                        buffer.Add(Move.Capture(from88, to88, pawn, target));
+                        buffer[index++] = Move.Capture(from88, to88, pawn, target);
                     }
                 }
             }
         }
 
         // --- Knights ----------------------------------------------------------------------
-        private static void GenerateKnightMoves(Board board, ref MoveBuffer buffer, Color sideToMove)
+        private static void GenerateKnightMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index)
         {
             bool white = sideToMove.IsWhite();
             Piece mover = white ? Piece.WhiteKnight : Piece.BlackKnight;
@@ -158,7 +151,7 @@ namespace Forklift.Core
                 {
                     int toS64 = BitOperations.TrailingZeroCount(quiets);
                     quiets &= quiets - 1;
-                    buffer.Add(Move.Normal(from88, Squares.ConvertTo0x88Index(new Square0x64(toS64)), mover));
+                    buffer[index++] = Move.Normal(from88, Squares.ConvertTo0x88Index(new Square0x64(toS64)), mover);
                 }
 
                 // Captures
@@ -168,13 +161,13 @@ namespace Forklift.Core
                     int toS64 = BitOperations.TrailingZeroCount(captures);
                     captures &= captures - 1;
                     var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
-                    buffer.Add(Move.Capture(from88, to88, mover, board.At(to88)));
+                    buffer[index++] = Move.Capture(from88, to88, mover, board.At(to88));
                 }
             }
         }
 
         // --- Sliders (bishops/rooks/queens) ----------------------------------------------
-        private static void GenerateSliderMoves(Board board, ref MoveBuffer buffer, Color sideToMove, Piece piece)
+        private static void GenerateSliderMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, Piece piece)
         {
             bool white = sideToMove.IsWhite();
             ulong sliders = board.GetPieceBitboard(piece);
@@ -214,7 +207,7 @@ namespace Forklift.Core
                 {
                     int toS64 = BitOperations.TrailingZeroCount(quiets);
                     quiets &= quiets - 1;
-                    buffer.Add(Move.Normal(from88, Squares.ConvertTo0x88Index(new Square0x64(toS64)), piece));
+                    buffer[index++] = Move.Normal(from88, Squares.ConvertTo0x88Index(new Square0x64(toS64)), piece);
                 }
 
                 // Captures
@@ -224,13 +217,13 @@ namespace Forklift.Core
                     int toS64 = BitOperations.TrailingZeroCount(captures);
                     captures &= captures - 1;
                     var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
-                    buffer.Add(Move.Capture(from88, to88, piece, board.At(to88)));
+                    buffer[index++] = Move.Capture(from88, to88, piece, board.At(to88));
                 }
             }
         }
 
         // --- King (no castling here; see GenerateCastling) --------------------------------
-        private static void GenerateKingMoves(Board board, ref MoveBuffer buffer, Color sideToMove)
+        private static void GenerateKingMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index)
         {
             bool white = sideToMove.IsWhite();
             ReadOnlySpan<int> deltas = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
@@ -252,11 +245,11 @@ namespace Forklift.Core
 
                 if (target == Piece.Empty)
                 {
-                    buffer.Add(Move.Normal(from88, to88, king));
+                    buffer[index++] = Move.Normal(from88, to88, king);
                 }
                 else if (target.IsWhite != white)
                 {
-                    buffer.Add(Move.Capture(from88, to88, king, target));
+                    buffer[index++] = Move.Capture(from88, to88, king, target);
                 }
             }
         }
@@ -281,7 +274,7 @@ namespace Forklift.Core
         private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88("h8");
         private static readonly Square0x88 A8_88 = Squares.ParseAlgebraicTo0x88("a8");
 
-        private static void GenerateCastling(Board board, ref MoveBuffer buffer, Color sideToMove)
+        private static void GenerateCastling(Board board, ref Span<Move> buffer, Color sideToMove, ref int index)
         {
             bool white = sideToMove.IsWhite();
 
@@ -307,7 +300,7 @@ namespace Forklift.Core
                             !board.IsSquareAttacked(F1_64, enemy) &&
                             !board.IsSquareAttacked(G1_64, enemy))
                         {
-                            buffer.Add(Board.Move.CastleKingSide(Color.White));
+                            buffer[index++] = Board.Move.CastleKingSide(Color.White);
                         }
                     }
                 }
@@ -324,7 +317,7 @@ namespace Forklift.Core
                             !board.IsSquareAttacked(D1_64, enemy) &&
                             !board.IsSquareAttacked(C1_64, enemy))
                         {
-                            buffer.Add(Board.Move.CastleQueenSide(Color.White));
+                            buffer[index++] = Board.Move.CastleQueenSide(Color.White);
                         }
                     }
                 }
@@ -342,7 +335,7 @@ namespace Forklift.Core
                             !board.IsSquareAttacked(F8_64, enemy) &&
                             !board.IsSquareAttacked(G8_64, enemy))
                         {
-                            buffer.Add(Board.Move.CastleKingSide(Color.Black));
+                            buffer[index++] = Board.Move.CastleKingSide(Color.Black);
                         }
                     }
                 }
@@ -359,7 +352,7 @@ namespace Forklift.Core
                             !board.IsSquareAttacked(D8_64, enemy) &&
                             !board.IsSquareAttacked(C8_64, enemy))
                         {
-                            buffer.Add(Board.Move.CastleQueenSide(Color.Black));
+                            buffer[index++] = Board.Move.CastleQueenSide(Color.Black);
                         }
                     }
                 }
@@ -367,7 +360,7 @@ namespace Forklift.Core
         }
 
         // --- En Passant -------------------------------------------------------------------
-        private static void GenerateEnPassant(Board board, ref MoveBuffer buffer, Color sideToMove)
+        private static void GenerateEnPassant(Board board, ref Span<Move> buffer, Color sideToMove, ref int index)
         {
             bool white = sideToMove.IsWhite();
             if (board.EnPassantFile is not FileIndex file) return;
@@ -387,10 +380,10 @@ namespace Forklift.Core
             var mover = white ? Piece.WhitePawn : Piece.BlackPawn;
 
             if (!Squares.IsOffboard(leftFrom) && board.At((Square0x88)leftFrom) == mover)
-                buffer.Add(Move.EnPassant((Square0x88)leftFrom, ep88, mover, captured));
+                buffer[index++] = Move.EnPassant((Square0x88)leftFrom, ep88, mover, captured);
 
             if (!Squares.IsOffboard(rightFrom) && board.At((Square0x88)rightFrom) == mover)
-                buffer.Add(Move.EnPassant((Square0x88)rightFrom, ep88, mover, captured));
+                buffer[index++] = Move.EnPassant((Square0x88)rightFrom, ep88, mover, captured);
         }
 
     }

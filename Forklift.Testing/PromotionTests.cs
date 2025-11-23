@@ -9,8 +9,7 @@ namespace Forklift.Testing
         public void Promotion_Generates_AllFour_Pieces()
         {
             var b = BoardFactory.FromFenOrStart("8/P7/8/8/8/8/8/7k w - - 0 1");
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var moves = b.GenerateLegal(buf);
+            var moves = b.GenerateLegal();
 
             Span<Piece> found = stackalloc Piece[4];
             int n = 0;

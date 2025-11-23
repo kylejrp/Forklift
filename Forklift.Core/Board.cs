@@ -125,6 +125,13 @@ public sealed class Board
     /// </summary>
     /// <param name="sq88">The square in 0x88 format.</param>
     /// <returns>The piece at the square.</returns>
+    public Piece? At(UnsafeSquare0x88 sq88) => Squares.IsOffboard(sq88) ? null : At((Square0x88)sq88);
+
+    /// <summary>
+    /// Gets the piece at the specified square.
+    /// </summary>
+    /// <param name="sq88">The square in 0x88 format.</param>
+    /// <returns>The piece at the square.</returns>
     public Piece At(Square0x88 sq88) => (Piece)mailbox[sq88];
 
     /// <summary>
@@ -240,7 +247,7 @@ public sealed class Board
                 throw new ArgumentException("Promotion capture must specify captured piece.", nameof(captured));
             return new(from, to, mover, captured, promotion, MoveKind.PromotionCapture);
         }
-
+        public bool IsQuiet => !IsCapture && !IsPromotion;
         public bool IsCapture => Kind == MoveKind.Normal && Captured != Piece.Empty
                      || Kind == MoveKind.EnPassant
                      || Kind == MoveKind.PromotionCapture;
@@ -633,25 +640,25 @@ public sealed class Board
     public Move[] GenerateLegal()
     {
         Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
-        var legalSpan = GenerateLegal(moveBuffer);
-        Move[] result = legalSpan.ToArray();
+        GenerateLegal(ref moveBuffer);
+        Move[] result = moveBuffer.ToArray();
         return result;
     }
 
-    public Span<Move> GenerateLegal(Span<Move> moveBuffer)
+    public void GenerateLegal(ref Span<Move> moveBuffer)
     {
-        var pseudoBuffer = new MoveBuffer(moveBuffer);
-        var pseudo = MoveGeneration.GeneratePseudoLegal(this, ref pseudoBuffer, SideToMove); // <- slice of candidates
+        MoveGeneration.GeneratePseudoLegal(this, ref moveBuffer, SideToMove); // <- slice of candidates
 
         int i = 0;
-        foreach (var mv in pseudo)   // iterate only pseudo-candidates, not full buffer
+        for (int j = 0; j < moveBuffer.Length; j++)   // iterate only pseudo-candidates, not full buffer
         {
+            var mv = moveBuffer[j];
             var u = MakeMove(mv);
             bool inCheck = InCheck(SideToMove.Flip());
             UnmakeMove(mv, u);
             if (!inCheck) moveBuffer[i++] = mv;
         }
-        return moveBuffer[..i];
+        moveBuffer = moveBuffer[..i];
     }
 
     // It is safe to use [SkipLocalsInit] here because the stackalloc'd Move buffer is fully written to
@@ -660,10 +667,9 @@ public sealed class Board
     public bool HasAnyLegalMoves()
     {
         Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
-        var pseudoBuffer = new MoveBuffer(moveBuffer);
-        var pseudo = MoveGeneration.GeneratePseudoLegal(this, ref pseudoBuffer, SideToMove);
+        MoveGeneration.GeneratePseudoLegal(this, ref moveBuffer, SideToMove);
 
-        foreach (var mv in pseudo)
+        foreach (var mv in moveBuffer)
         {
             var u = MakeMove(mv);
             bool inCheck = InCheck(SideToMove.Flip());
@@ -1305,11 +1311,11 @@ public sealed class Board
 
         // Scan legal moves without allocating
         Span<Move> buffer = stackalloc Move[MoveBufferMax];
-        var legalSpan = GenerateLegal(buffer);
+        GenerateLegal(ref buffer);
 
-        for (int i = 0; i < legalSpan.Length; i++)
+        for (int i = 0; i < buffer.Length; i++)
         {
-            ref readonly var m = ref legalSpan[i];
+            ref readonly var m = ref buffer[i];
             if (m.From88 == fromSq && m.To88 == toSq)
             {
                 // If UCI included a promo, it must match; otherwise require no-promo move

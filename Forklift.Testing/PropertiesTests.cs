@@ -18,8 +18,7 @@ namespace Forklift.Testing
         {
             var b = pos.Value;
 
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var moves = b.GenerateLegal(buf);
+            var moves = b.GenerateLegal();
 
             // Optional micro-guard for pathological positions:
             // if (moves.Length > 64) return true;

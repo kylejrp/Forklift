@@ -16,12 +16,11 @@ namespace Forklift.Core
                 return PerftSerial(board, depth);
 
             // Root-split: generate once, then parallelize per root move
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(buf);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
+            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
             // MATERIALIZE to avoid capturing a Span<T> in the lambda
-            var moves = span.ToArray();
+            var moves = buffer.ToArray();
 
             long total = 0;
 
@@ -82,10 +81,10 @@ namespace Forklift.Core
         /// </summary>
         public static IReadOnlyList<DivideMove> Divide(Board b, int depth, bool parallelRoot = false, bool sort = false, int? maxThreads = null)
         {
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
             // For divide, use legal move list at the root for clean output
-            var span = b.GenerateLegal(buf);
-            var moves = span.ToArray(); // <-- materialize; avoid capturing Span<T> in lambda
+            b.GenerateLegal(ref buffer);
+            var moves = buffer.ToArray(); // <-- materialize; avoid capturing Span<T> in lambda
 
             var results = new DivideMove[moves.Length];
 
@@ -166,10 +165,9 @@ namespace Forklift.Core
             }
 
             // Root-split stats: generate once; combine per-branch using thread-local accumulation
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(buf);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
-            var moves = span.ToArray(); // <-- materialize
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
+            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            var moves = buffer.ToArray(); // <-- materialize
 
             var total = new PerftStatistics();
             var options = new ParallelOptions
@@ -235,12 +233,11 @@ namespace Forklift.Core
         {
             if (depth == 0) return 1;
 
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(buf);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
+            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
             long nodes = 0;
-            foreach (var mv in span)
+            foreach (var mv in buffer)
             {
                 var u = board.MakeMove(mv);
                 bool legal = !board.InCheck(board.SideToMove.Flip());
@@ -262,11 +259,10 @@ namespace Forklift.Core
                 return;
             }
 
-            Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(moveBuffer);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
+            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
-            foreach (var mv in span)
+            foreach (var mv in buffer)
             {
                 var u = board.MakeMove(mv);
                 bool legal = !board.InCheck(board.SideToMove.Flip());
@@ -298,10 +294,6 @@ namespace Forklift.Core
             }
         }
 
-        // ---------------------------
-        // Existing helpers (kept as-is)
-        // ---------------------------
-
         internal static bool IsDoubleCheck(Board board)
         {
             var checkedSide = board.SideToMove;
@@ -310,17 +302,8 @@ namespace Forklift.Core
             var kingSq64 = board.FindKingSq64(checkedSide);
             var attackerSide = checkedSide.Flip();
 
-            ulong knightAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Knight);
-            if (knightAttackers != 0) return true;
-
-            ulong pawnAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Pawn);
-            if (pawnAttackers != 0) return true;
-
-            ulong kingAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.King);
-            if (kingAttackers != 0) return true;
-
-            ulong slidingAttackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Bishop | Piece.PieceType.Rook | Piece.PieceType.Queen);
-            return BitOperations.PopCount(slidingAttackers) >= 2;
+            ulong attackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Knight | Piece.PieceType.Pawn | Piece.PieceType.King | Piece.PieceType.Bishop | Piece.PieceType.Rook | Piece.PieceType.Queen);
+            return BitOperations.PopCount(attackers) >= 2;
         }
 
         private static readonly int[] DIRS_ALL = { +1, -1, +16, -16, +15, +17, -15, -17 };
@@ -336,29 +319,42 @@ namespace Forklift.Core
             var us = mv.Mover.IsWhite ? Color.White : Color.Black;
             var them = us.Flip();
 
-            Square0x64 k64 = board.FindKingSq64(them);
-            Square0x88 k88 = Squares.ConvertTo0x88Index(k64);
+            // board is POST-move: king square is the opponent's king in the position after mv.
+            Square0x64 king64 = board.FindKingSq64(them);
+            Square0x88 king = (Square0x88)king64;
 
-            Square0x88 from88 = mv.From88;
-            Square0x88 to88 = mv.To88;
+            Square0x88 from = mv.From88;
+            Square0x88 to = mv.To88;
 
+            // EP-captured pawn square in 0x88, if any (PRE-move square)
             Square0x88? epRemoved = null;
             if (mv.IsEnPassant)
-                epRemoved = mv.Mover.IsWhite ? (Square0x88)(to88 - 16) : (Square0x88)(to88 + 16);
+                epRemoved = mv.Mover.IsWhite ? (Square0x88)(to - 16) : (Square0x88)(to + 16);
 
-            Span<bool> preOcc = stackalloc bool[128];
-            for (int i = 0; i < 128; i++)
-                preOcc[i] = board.At((Square0x88)i) != Piece.Empty;
+            bool OccupiedAfter(Square0x88 sq) => board.At(sq) != Piece.Empty;
 
-            ulong occAfter = board.GetAllOccupancy();
-            int from64 = (int)(Square0x64)Squares.ConvertTo0x64Index(from88);
-            int to64 = (int)(Square0x64)Squares.ConvertTo0x64Index(to88);
-            occAfter &= ~(1UL << from64);
-            occAfter |= (1UL << to64);
-            if (epRemoved.HasValue)
+            // Reconstruct "was this square occupied BEFORE mv?" from the post-move board + mv.
+            bool OccupiedBefore(Square0x88 sq, Board.Move mv)
             {
-                int ep64 = (int)(Square0x64)Squares.ConvertTo0x64Index(epRemoved.Value);
-                occAfter &= ~(1UL << ep64);
+                // The moving piece started on 'from'
+                if (sq == from)
+                    return true;
+
+                // EP-captured pawn existed on its square before the move
+                if (epRemoved.HasValue && sq == epRemoved.Value)
+                    return true;
+
+                if (sq == to)
+                {
+                    // Before the move:
+                    //  - Normal capture: enemy piece on 'to'  -> occupied
+                    //  - En passant:  'to' was empty        -> not occupied
+                    //  - Quiet move:  'to' was empty        -> not occupied
+                    return mv.IsCapture && !mv.IsEnPassant;
+                }
+
+                // All other squares keep their occupancy
+                return OccupiedAfter(sq);
             }
 
             bool PieceMatchesDir(Piece p, int dir)
@@ -367,76 +363,86 @@ namespace Forklift.Core
                 bool pWhite = p.IsWhite;
                 if (pWhite != us.IsWhite()) return false;
 
-                if (IsRookDir(dir)) return p == Piece.WhiteRook || p == Piece.BlackRook || p == Piece.WhiteQueen || p == Piece.BlackQueen;
-                if (IsBishopDir(dir)) return p == Piece.WhiteBishop || p == Piece.BlackBishop || p == Piece.WhiteQueen || p == Piece.BlackQueen;
-                return false;
-            }
+                if (IsRookDir(dir))
+                    return p == Piece.WhiteRook || p == Piece.BlackRook ||
+                           p == Piece.WhiteQueen || p == Piece.BlackQueen;
 
-            static bool OnOpenSegment(Square0x88 k, Square0x88 s, int dir, Square0x88 q)
-            {
-                var cur = (UnsafeSquare0x88)k;
-                while (true)
-                {
-                    cur += dir;
-                    if (Squares.IsOffboard(cur)) return false;
-                    var c = (Square0x88)cur;
-                    if (c == q) return true;
-                    if (c == s) return false;
-                }
+                if (IsBishopDir(dir))
+                    return p == Piece.WhiteBishop || p == Piece.BlackBishop ||
+                           p == Piece.WhiteQueen || p == Piece.BlackQueen;
+
+                return false;
             }
 
             foreach (int dir in DIRS_ALL)
             {
-                var cur = (UnsafeSquare0x88)k88;
-                Square0x88? firstOcc = null;
+                // 1. After-move: find first piece along this direction from the king.
+                var cur = (UnsafeSquare0x88)king;
+                Square0x88? sliderSq = null;
+
                 while (true)
                 {
                     cur += dir;
-                    if (Squares.IsOffboard(cur)) break;
-                    var s = (Square0x88)cur;
-                    int s64 = (int)(Square0x64)Squares.ConvertTo0x64Index(s);
-                    if ((occAfter & (1UL << s64)) != 0)
-                    {
-                        firstOcc = s;
+                    if (Squares.IsOffboard(cur))
                         break;
-                    }
-                }
-                if (firstOcc is null) continue;
 
-                cur = (UnsafeSquare0x88)k88;
-                Square0x88? firstOccBefore = null;
+                    var sq = (Square0x88)cur;
+                    if (!OccupiedAfter(sq))
+                        continue;
+
+                    sliderSq = sq;
+                    break;
+                }
+
+                if (sliderSq is null)
+                    continue;
+
+                var sliderPc = board.At(sliderSq.Value);
+                if (!PieceMatchesDir(sliderPc, dir))
+                    continue;
+
+                // If the moved piece itself is the slider, that's a direct check, not a discovered one.
+                if (sliderSq.Value == to)
+                    continue;
+
+                // 2. Before-move: what was the first occupied square on this ray?
+                cur = (UnsafeSquare0x88)king;
+                Square0x88? firstBefore = null;
+
                 while (true)
                 {
                     cur += dir;
-                    if (Squares.IsOffboard(cur)) break;
-                    var s = (Square0x88)cur;
-
-                    if (preOcc[(int)s])
-                    {
-                        firstOccBefore = s;
+                    if (Squares.IsOffboard(cur))
                         break;
-                    }
+
+                    var sq = (Square0x88)cur;
+                    if (!OccupiedBefore(sq, mv))
+                        continue;
+
+                    firstBefore = sq;
+                    break;
                 }
-                if (firstOccBefore is null) continue;
 
-                bool wasBlockedByMoverOrEP =
-                    firstOccBefore.Value == from88 ||
-                    (epRemoved.HasValue && firstOccBefore.Value == epRemoved.Value);
+                if (firstBefore is null)
+                    continue;
 
-                if (!wasBlockedByMoverOrEP) continue;
+                bool wasBlockedByMoverOrEp =
+                    firstBefore.Value == from ||
+                    (epRemoved.HasValue && firstBefore.Value == epRemoved.Value);
 
-                var sliderSq = firstOcc.Value;
-                var sliderPc = board.At(sliderSq);
-                if (!PieceMatchesDir(sliderPc, dir)) continue;
+                if (!wasBlockedByMoverOrEp)
+                    continue;
 
-                if (OnOpenSegment(k88, sliderSq, dir, to88)) continue;
-                if (mv.IsCapture && sliderSq == mv.To88) continue;
-
+                // We have:
+                //  - After the move: first piece along ray is our slider (giving check),
+                //  - Before the move: first piece along ray was the mover or EP pawn.
+                // => Discovered check.
                 return true;
             }
 
             return false;
         }
+
 
         // Returns true and the 0x88 step (+/-1, +/-16, +/-15, +/-17) if squares are aligned; false otherwise.
         private static bool TryStepBetween(int from88, int to88, out int step)

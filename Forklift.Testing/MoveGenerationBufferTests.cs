@@ -26,15 +26,12 @@ public class MoveGenerationBufferTests
 
         Action pseudoLegal = () =>
         {
-            Span<Board.Move> pseudoBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(pseudoBuffer);
-            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            MoveGeneration.GeneratePseudoLegal(board, board.SideToMove);
         };
 
         Action legal = () =>
         {
-            Span<Board.Move> legalBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-            board.GenerateLegal(legalBuffer);
+            board.GenerateLegal();
         };
 
         pseudoLegal.Should().NotThrow();
