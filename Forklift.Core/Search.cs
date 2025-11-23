@@ -221,15 +221,17 @@ namespace Forklift.Core
                     return false;
                 }
 
-                int index = moves.Slice(targetIndex, moveCount - targetIndex).IndexOf(move) + targetIndex;
-                if (index < 0)
+                var relativeIndex = moves.Slice(targetIndex, moveCount - targetIndex).IndexOf(move);
+                if (relativeIndex < 0)
                 {
                     return false;
                 }
 
-                if (index > targetIndex)
+                var absoluteIndex = relativeIndex + targetIndex;
+
+                if (absoluteIndex > targetIndex)
                 {
-                    (moves[targetIndex], moves[index]) = (moves[index], moves[targetIndex]);
+                    (moves[targetIndex], moves[absoluteIndex]) = (moves[absoluteIndex], moves[targetIndex]);
                 }
 
                 return true;
