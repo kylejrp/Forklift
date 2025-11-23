@@ -295,7 +295,7 @@ namespace Forklift.Core
             // Killer moves.
             if (ply < MaxPly)
             {
-                if (_killerMovesPrimary[ply] is Board.Move killer1 && IsQuietMove(killer1))
+                if (_killerMovesPrimary[ply] is Board.Move killer1 && killer1.IsQuiet)
                 {
                     if (PromoteMove(moves, killer1, orderedCount, legalMoveCount))
                     {
@@ -303,7 +303,7 @@ namespace Forklift.Core
                     }
                 }
 
-                if (_killerMovesSecondary[ply] is Board.Move killer2 && IsQuietMove(killer2))
+                if (_killerMovesSecondary[ply] is Board.Move killer2 && killer2.IsQuiet)
                 {
                     if (PromoteMove(moves, killer2, orderedCount, legalMoveCount))
                     {
@@ -316,7 +316,7 @@ namespace Forklift.Core
             int quietCount = 0;
             for (int i = orderedCount; i < legalMoveCount; i++)
             {
-                if (IsQuietMove(moves[i]))
+                if (moves[i].IsQuiet)
                 {
                     quietCount++;
                 }
@@ -677,7 +677,7 @@ namespace Forklift.Core
                 for (int candidate = current; candidate < moveCount; candidate++)
                 {
                     var move = moves[candidate];
-                    if (!IsQuietMove(move))
+                    if (!move.IsQuiet)
                     {
                         continue;
                     }

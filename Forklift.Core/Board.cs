@@ -240,7 +240,7 @@ public sealed class Board
                 throw new ArgumentException("Promotion capture must specify captured piece.", nameof(captured));
             return new(from, to, mover, captured, promotion, MoveKind.PromotionCapture);
         }
-
+        public bool IsQuiet => !IsCapture && !IsPromotion;
         public bool IsCapture => Kind == MoveKind.Normal && Captured != Piece.Empty
                      || Kind == MoveKind.EnPassant
                      || Kind == MoveKind.PromotionCapture;
