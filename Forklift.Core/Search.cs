@@ -197,158 +197,36 @@ namespace Forklift.Core
             }
 
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
-            board.GenerateLegal(ref moves);
-            int legalMoveCount = moves.Length;
+            var picker = new MovePicker(
+                board: board,
+                moveBuffer: moves,
+                history: _historyScores,
+                pvMove: preferredMove,
+                ttMove: ttMove,
+                killer1: ply < MaxPly && _killerMovesPrimary[ply] is Board.Move killer1 && killer1.IsQuiet ? killer1 : null,
+                killer2: ply < MaxPly && _killerMovesSecondary[ply] is Board.Move killer2 && killer2.IsQuiet ? killer2 : null
+            );
 
-            if (legalMoveCount == 0)
-            {
-                // Terminal node: mate or stalemate.
-                int terminalScore = EvaluateTerminal(board, ply);
-                return new SearchNodeResult(null, terminalScore, true, nodesSearched);
-            }
-
-            // --- Move ordering helpers ---------------------------------------
-            /// <summary>
-            /// Swaps the specified move to the target position in the move list for ordering purposes.
-            /// </summary>
-            /// <param name="moves">The array of moves to reorder.</param>
-            /// <param name="move">The move to promote to the target index.</param>
-            /// <param name="targetIndex">The index in the move list to which the move should be promoted.</param>
-            /// <param name="moveCount">The number of valid moves in the move list.</param>
-            /// <returns>True if the move was found and promoted; false otherwise.</returns>
-            static bool PromoteMove(Span<Board.Move> moves, Board.Move move, int targetIndex, int moveCount)
-            {
-                if (targetIndex < 0 || targetIndex >= moveCount)
-                {
-                    return false;
-                }
-
-                var relativeIndex = moves.Slice(targetIndex, moveCount - targetIndex).IndexOf(move);
-                if (relativeIndex < 0)
-                {
-                    return false;
-                }
-
-                var absoluteIndex = relativeIndex + targetIndex;
-
-                if (absoluteIndex > targetIndex)
-                {
-                    (moves[targetIndex], moves[absoluteIndex]) = (moves[absoluteIndex], moves[targetIndex]);
-                }
-
-                return true;
-            }
-
-            // Promote PV move and TT move with clear semantics:
-            //
-            // - If we have a PV move for this node, we *always* search it first.
-            //   This preserves the invariant that "PV searched first" means we can
-            //   treat the node as "complete enough" when some children are left.
-            //
-            // - If a TT move exists and it's different from the PV move, we put it
-            //   in slot 1 so it is still searched early.
-            //
-            // - If there is no PV move at this node, we let the TT move lead.
-
-            int orderedCount = 0;
-
-            if (preferredMove is Board.Move pv)
-            {
-                // PV is our primary candidate: it must be searched first.
-                if (PromoteMove(moves, pv, targetIndex: orderedCount, moveCount: legalMoveCount))
-                {
-                    orderedCount++;
-                }
-
-                // If TT move exists and is distinct, let it be second.
-                if (ttMove is Board.Move tt && !tt.Equals(pv))
-                {
-                    if (PromoteMove(moves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
-                    {
-                        orderedCount++;
-                    }
-                }
-            }
-            else if (ttMove is Board.Move tt)
-            {
-                // No PV for this node: TT move can take slot 0.
-                if (PromoteMove(moves, tt, targetIndex: orderedCount, moveCount: legalMoveCount))
-                {
-                    orderedCount++;
-                }
-            }
-
-            // Captures ordered by MVV-LVA.
-            int captureCount = 0;
-            for (int i = orderedCount; i < legalMoveCount; i++)
-            {
-                if (moves[i].IsCapture)
-                {
-                    captureCount++;
-                }
-            }
-
-            if (captureCount > 0)
-            {
-                OrderCapturesByMvvLva(moves, orderedCount, legalMoveCount);
-                orderedCount += captureCount;
-            }
-
-            // Killer moves.
-            if (ply < MaxPly)
-            {
-                if (_killerMovesPrimary[ply] is Board.Move killer1 && killer1.IsQuiet)
-                {
-                    if (PromoteMove(moves, killer1, orderedCount, legalMoveCount))
-                    {
-                        orderedCount++;
-                    }
-                }
-
-                if (_killerMovesSecondary[ply] is Board.Move killer2 && killer2.IsQuiet)
-                {
-                    if (PromoteMove(moves, killer2, orderedCount, legalMoveCount))
-                    {
-                        orderedCount++;
-                    }
-                }
-            }
-
-            // Remaining quiet moves ordered by history score.
-            int quietCount = 0;
-            for (int i = orderedCount; i < legalMoveCount; i++)
-            {
-                if (moves[i].IsQuiet)
-                {
-                    quietCount++;
-                }
-            }
-
-            if (quietCount > 0)
-            {
-                OrderQuietMovesByHistory(moves, orderedCount, legalMoveCount);
-                orderedCount += quietCount;
-            }
-
-
+            int legalMoveCount = 0;
             Board.Move? bestMove = null;
             int bestScore = MinimumScore;
 
             bool sawCompleteChild = false;
             bool aborted = false;
             bool betaCutoff = false;
-            Span<Board.Move> quietMovesSearched = stackalloc Board.Move[legalMoveCount];
-            int quietMovesSearchedCount = 0;
+            List<Board.Move> quietMovesSearched = new List<Board.Move>();
 
-            for (int i = 0; i < legalMoveCount; i++)
+            while (picker.Next() is Board.Move move)
             {
+                legalMoveCount++;
+
+                // Check for cancellation at the top of the loop to ensure we
+                // respond promptly even if the move generation is fast.
                 if (cancellationToken.IsCancellationRequested)
                 {
                     aborted = true;
                     break;
                 }
-
-                var move = moves[i];
 
                 nodesSearched++;
                 var undo = board.MakeMove(move);
@@ -395,7 +273,7 @@ namespace Forklift.Core
                         StoreKillerMove(move, ply);
                         var bonus = 300 * depth - 250;
                         UpdateHistory(move, bonus);
-                        foreach (var quietMove in quietMovesSearched.Slice(0, quietMovesSearchedCount))
+                        foreach (var quietMove in quietMovesSearched)
                         {
                             UpdateHistory(quietMove, -bonus);
                         }
@@ -408,8 +286,15 @@ namespace Forklift.Core
                 // when updating history with a negative bonus
                 if (move.IsQuiet)
                 {
-                    quietMovesSearched[quietMovesSearchedCount++] = move;
+                    quietMovesSearched.Add(move);
                 }
+            }
+
+            if (legalMoveCount == 0)
+            {
+                // Terminal node: mate or stalemate.
+                int terminalScore = EvaluateTerminal(board, ply);
+                return new SearchNodeResult(null, terminalScore, true, nodesSearched);
             }
 
             bool completed;
