@@ -15,12 +15,10 @@ namespace Forklift.Core
         /// </summary>
         public static Board.Move FirstPseudoLegal(Board board)
         {
-            Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(moves);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
-            if (span.Length == 0)
+            var moves = MoveGeneration.GeneratePseudoLegal(board, board.SideToMove);
+            if (moves.Length == 0)
                 throw new InvalidOperationException("No pseudo-legal moves available.");
-            return span[0];
+            return moves[0];
         }
 
         /// <summary>
@@ -28,10 +26,8 @@ namespace Forklift.Core
         /// </summary>
         public static Board.Move FirstLegal(Board board)
         {
-            Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(moves);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
-            foreach (var mv in span)
+            var moves = MoveGeneration.GeneratePseudoLegal(board, board.SideToMove);
+            foreach (var mv in moves)
             {
                 var undo = board.MakeMove(mv);
                 bool ourKingInCheck = board.IsSquareAttacked(

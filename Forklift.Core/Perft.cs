@@ -16,12 +16,11 @@ namespace Forklift.Core
                 return PerftSerial(board, depth);
 
             // Root-split: generate once, then parallelize per root move
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(buf);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
+            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
             // MATERIALIZE to avoid capturing a Span<T> in the lambda
-            var moves = span.ToArray();
+            var moves = buffer.ToArray();
 
             long total = 0;
 
@@ -82,10 +81,10 @@ namespace Forklift.Core
         /// </summary>
         public static IReadOnlyList<DivideMove> Divide(Board b, int depth, bool parallelRoot = false, bool sort = false, int? maxThreads = null)
         {
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
             // For divide, use legal move list at the root for clean output
-            var span = b.GenerateLegal(buf);
-            var moves = span.ToArray(); // <-- materialize; avoid capturing Span<T> in lambda
+            b.GenerateLegal(ref buffer);
+            var moves = buffer.ToArray(); // <-- materialize; avoid capturing Span<T> in lambda
 
             var results = new DivideMove[moves.Length];
 
@@ -166,10 +165,9 @@ namespace Forklift.Core
             }
 
             // Root-split stats: generate once; combine per-branch using thread-local accumulation
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(buf);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
-            var moves = span.ToArray(); // <-- materialize
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
+            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            var moves = buffer.ToArray(); // <-- materialize
 
             var total = new PerftStatistics();
             var options = new ParallelOptions
@@ -235,12 +233,11 @@ namespace Forklift.Core
         {
             if (depth == 0) return 1;
 
-            Span<Board.Move> buf = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(buf);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
+            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
             long nodes = 0;
-            foreach (var mv in span)
+            foreach (var mv in buffer)
             {
                 var u = board.MakeMove(mv);
                 bool legal = !board.InCheck(board.SideToMove.Flip());
@@ -262,11 +259,10 @@ namespace Forklift.Core
                 return;
             }
 
-            Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(moveBuffer);
-            var span = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            Span<Board.Move> buffer = stackalloc Board.Move[Board.MoveBufferMax];
+            MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
 
-            foreach (var mv in span)
+            foreach (var mv in buffer)
             {
                 var u = board.MakeMove(mv);
                 bool legal = !board.InCheck(board.SideToMove.Flip());

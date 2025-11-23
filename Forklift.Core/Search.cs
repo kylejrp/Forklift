@@ -448,13 +448,13 @@ namespace Forklift.Core
             if (inCheck)
             {
                 Span<Board.Move> moveBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-                var legalMoves = board.GenerateLegal(moveBuffer);
+                board.GenerateLegal(ref moveBuffer);
 
                 int currentAlpha = alpha;
                 bool exploredMove = false;
                 bool allComplete = true;
 
-                foreach (var move in legalMoves)
+                foreach (var move in moveBuffer)
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
@@ -508,13 +508,12 @@ namespace Forklift.Core
             }
 
             Span<Board.Move> pseudoBuffer = stackalloc Board.Move[Board.MoveBufferMax];
-            var buffer = new MoveBuffer(pseudoBuffer);
-            var pseudoMoves = MoveGeneration.GeneratePseudoLegal(board, ref buffer, board.SideToMove);
+            MoveGeneration.GeneratePseudoLegal(board, ref pseudoBuffer, board.SideToMove);
             var sideToMove = board.SideToMove;
             bool exploredCapture = false;
             bool allCompleteCaptures = true;
 
-            foreach (var move in pseudoMoves)
+            foreach (var move in pseudoBuffer)
             {
                 if (!move.IsCapture)
                 {
