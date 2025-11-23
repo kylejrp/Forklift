@@ -386,7 +386,7 @@ namespace Forklift.Core
                 if (alpha >= beta)
                 {
                     // Beta cutoff: no need to consider remaining moves.
-                    if (IsQuietMove(move))
+                    if (move.IsQuiet)
                     {
                         StoreKillerMove(move, ply);
                         UpdateHistory(move, depth);
@@ -629,9 +629,6 @@ namespace Forklift.Core
             int attackerValue = _pieceOrderingValues[(int)move.Mover.Type];
             return victimValue * 10 - attackerValue;
         }
-
-        private static bool IsQuietMove(Board.Move move) => !move.IsCapture && !move.IsPromotion;
-
         private static void OrderCapturesByMvvLva(Span<Board.Move> moves, int startIndex, int moveCount)
         {
             for (int current = startIndex; current < moveCount; current++)
