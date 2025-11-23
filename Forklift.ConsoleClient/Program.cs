@@ -304,6 +304,9 @@ void HandleGo(
                 var sanitizedMessage = ex.Message.Replace("\r", "").Replace("\n", "\\n");
                 Console.Error.WriteLine($"info string search error: {sanitizedMessage}");
                 UciLogger.TryLog("bestmove (none)");
+#if DEBUG
+                throw;
+#endif
             }
         });
     }
