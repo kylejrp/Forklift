@@ -352,6 +352,7 @@ namespace Forklift.Core
 
             bool inCheck = board.InCheck(board.SideToMove);
             int nodesSearched = 0;
+            int bestScore = MinimumScore;
             if (inCheck)
             {
                 Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
@@ -359,9 +360,9 @@ namespace Forklift.Core
                     board: board,
                     moveBuffer: moves,
                     history: _historyScores
+
                 );
 
-                int currentAlpha = alpha;
                 bool exploredMove = false;
                 bool allComplete = true;
 
@@ -369,12 +370,12 @@ namespace Forklift.Core
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        return new QuiescenceResult(exploredMove ? currentAlpha : alpha, false, nodesSearched);
+                        return new QuiescenceResult(alpha, false, nodesSearched);
                     }
 
                     nodesSearched++;
                     var undo = board.MakeMove(move);
-                    QuiescenceResult child = Quiescence(board, -beta, -currentAlpha, ply + 1, cancellationToken);
+                    QuiescenceResult child = Quiescence(board, -beta, -alpha, ply + 1, cancellationToken);
                     int score = -child.BestScore;
                     board.UnmakeMove(move, undo);
                     nodesSearched += child.NodesSearched;
@@ -387,12 +388,17 @@ namespace Forklift.Core
 
                     if (score >= beta)
                     {
-                        return new QuiescenceResult(beta, allComplete, nodesSearched);
+                        return new QuiescenceResult(score, allComplete, nodesSearched);
                     }
 
-                    if (score > currentAlpha)
+                    if (score > bestScore)
                     {
-                        currentAlpha = score;
+                        bestScore = score;
+                    }
+
+                    if (score > alpha)
+                    {
+                        alpha = score;
                     }
                 }
 
@@ -402,20 +408,19 @@ namespace Forklift.Core
                     return new QuiescenceResult(EvaluateTerminal(board, ply), true, nodesSearched);
                 }
 
-                return new QuiescenceResult(currentAlpha, allComplete, nodesSearched);
+                return new QuiescenceResult(bestScore, allComplete, nodesSearched);
             }
 
-            int standPat = Evaluator.EvaluateForSideToMove(board);
-
-            if (standPat >= beta)
+            // Stand pat
+            bestScore = Evaluator.EvaluateForSideToMove(board);
+            if (bestScore >= beta)
             {
-                // Fail-high on stand pat is a normal, complete result.
-                return new QuiescenceResult(beta, true, nodesSearched);
+                return new QuiescenceResult(bestScore, true, nodesSearched);
             }
 
-            if (standPat > alpha)
+            if (bestScore > alpha)
             {
-                alpha = standPat;
+                alpha = bestScore;
             }
 
             Span<Board.Move> pseudoMoves = stackalloc Board.Move[Board.MoveBufferMax];
@@ -463,7 +468,12 @@ namespace Forklift.Core
 
                 if (score >= beta)
                 {
-                    return new QuiescenceResult(beta, allCompleteCaptures, nodesSearched);
+                    return new QuiescenceResult(score, allCompleteCaptures, nodesSearched);
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
                 }
 
                 if (score > alpha)
@@ -478,7 +488,7 @@ namespace Forklift.Core
                 return new QuiescenceResult(EvaluateTerminal(board, ply), true, nodesSearched);
             }
 
-            return new QuiescenceResult(alpha, allCompleteCaptures, nodesSearched);
+            return new QuiescenceResult(bestScore, allCompleteCaptures, nodesSearched);
         }
 
         private static int EvaluateTerminal(Board board, int ply)
