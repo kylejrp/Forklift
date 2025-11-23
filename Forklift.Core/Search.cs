@@ -372,18 +372,18 @@ namespace Forklift.Core
 
                 int score = -childResult.BestScore;
 
-                if (score > bestScore || bestMove is null)
+                if (score > bestScore)
                 {
                     bestScore = score;
                     bestMove = move;
+
+                    if (score > alpha)
+                    {
+                        alpha = score;
+                    }
                 }
 
-                if (score > alpha)
-                {
-                    alpha = score;
-                }
-
-                if (alpha >= beta)
+                if (score >= beta)
                 {
                     // Beta cutoff: no need to consider remaining moves.
                     if (move.IsQuiet)
