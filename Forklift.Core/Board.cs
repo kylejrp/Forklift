@@ -146,20 +146,22 @@ public sealed class Board
     /// <param name="pc">The piece to place.</param>
     public void Place(Square0x88 sq88, Piece pc)
     {
-        RemoveIfAny(sq88);
+        var existing = RemoveIfAny(sq88);
+        if (existing == Piece.WhiteKing) _whiteKingSquare88 = null;
+        else if (existing == Piece.BlackKing) _blackKingSquare88 = null;
         mailbox[sq88.Value] = (sbyte)pc;
         if (pc != Piece.Empty) AddToBitboards((Square0x64)sq88, pc);
-
         if (pc == Piece.WhiteKing) _whiteKingSquare88 = sq88;
         else if (pc == Piece.BlackKing) _blackKingSquare88 = sq88;
     }
 
-    private void RemoveIfAny(Square0x88 sq88)
+    private Piece RemoveIfAny(Square0x88 sq88)
     {
         var existing = (Piece)mailbox[sq88.Value];
-        if (existing == Piece.Empty) return;
+        if (existing == Piece.Empty) return Piece.Empty;
         RemoveFromBitboards((Square0x64)sq88, existing);
         mailbox[sq88.Value] = (sbyte)Piece.Empty;
+        return existing;
     }
 
     private void AddToBitboards(Square0x64 sq64, Piece pc)
