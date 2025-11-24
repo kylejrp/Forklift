@@ -279,7 +279,7 @@ namespace Forklift.Core
             ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
 
             // Quiet moves
-            if (onlyKinds.Value.HasFlag(MoveKind.Normal))
+            if (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Normal))
             {
                 ulong quiets = attacks & ~occAll;
                 while (quiets != 0)
@@ -291,7 +291,7 @@ namespace Forklift.Core
             }
 
             // Captures
-            if (onlyKinds.Value.HasFlag(MoveKind.Capture)) 
+            if (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Capture))
             {
                 ulong captures = attacks & occOpp;
                 while (captures != 0)
