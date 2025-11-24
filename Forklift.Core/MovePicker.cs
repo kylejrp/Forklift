@@ -92,17 +92,7 @@
                 }
                 else if (_moveGenerationStrategy == MoveGenerationStrategy.PseudoLegal)
                 {
-                    try
-                    {
-                        MoveGeneration.GeneratePseudoLegal(_board, ref _moveBuffer, _board.SideToMove);
-                    }
-                    catch
-                    {
-                        Console.WriteLine("HELP AM I GOING CRAZY");
-                        Console.WriteLine($"WhiteKing: {_board.WhiteKing}");
-                        Console.WriteLine($"BlackKing: {_board.BlackKing}");
-                        throw;
-                    }
+                    MoveGeneration.GeneratePseudoLegal(_board, ref _moveBuffer, _board.SideToMove);
                 }
                 else
                 {
