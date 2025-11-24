@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -21,6 +22,8 @@ public sealed class Board
         var copy = new Board(this.Tables);
         Array.Copy(this.mailbox, copy.mailbox, this.mailbox.Length);
         Array.Copy(this.pieceBB, copy.pieceBB, this.pieceBB.Length);
+        copy._whiteKingSquare88 = this._whiteKingSquare88;
+        copy._blackKingSquare88 = this._blackKingSquare88;
         copy.OccWhite = this.OccWhite;
         copy.OccBlack = this.OccBlack;
         copy.OccAll = this.OccAll;
@@ -93,10 +96,6 @@ public sealed class Board
 
     public ulong ZKey { get; private set; } // zobrist
 
-    // Slider directions in 0x88 space (pure consts)
-    private static readonly int[] RookDirections = { +1, -1, +16, -16 };
-    private static readonly int[] BishopDirections = { +15, +17, -15, -17 };
-
     private readonly Dictionary<ulong, int> _repCounts = new();
     private readonly Stack<ulong> _hashStack = new();
 
@@ -107,7 +106,7 @@ public sealed class Board
 
     public bool KeepTrackOfHistory { get; set; } = true;
 
-    public const int MoveBufferMax = 256;
+    public const int MoveBufferMax = 265;
 
 
     /// <summary>
@@ -134,12 +133,11 @@ public sealed class Board
     /// <returns>The piece at the square.</returns>
     public Piece At(Square0x88 sq88) => (Piece)mailbox[sq88];
 
-    /// <summary>
-    /// Places a piece on the board at the specified square.
-    /// </summary>
-    /// <param name="algebraic">The square in algebraic notation (e.g., "e4").</param>
-    /// <param name="pc">The piece to place.</param>
-    public void Place(string algebraic, Piece pc) => Place(Squares.ParseAlgebraicTo0x88(algebraic), pc);
+    private Square0x88? _whiteKingSquare88 = null;
+    private Square0x88? _blackKingSquare88 = null;
+
+    public Square0x88? WhiteKing => _whiteKingSquare88;
+    public Square0x88? BlackKing => _blackKingSquare88;
 
     /// <summary>
     /// Places a piece on the board at the specified square.
@@ -151,6 +149,9 @@ public sealed class Board
         RemoveIfAny(sq88);
         mailbox[sq88.Value] = (sbyte)pc;
         if (pc != Piece.Empty) AddToBitboards((Square0x64)sq88, pc);
+
+        if (pc == Piece.WhiteKing) _whiteKingSquare88 = sq88;
+        else if (pc == Piece.BlackKing) _blackKingSquare88 = sq88;
     }
 
     private void RemoveIfAny(Square0x88 sq88)
@@ -377,8 +378,16 @@ public sealed class Board
         // --- Update castling rights if king/rook move or rook captured on home square
         var newCR = CastlingRights;
         // own king moved -> clear both sides
-        if (m.Mover == Piece.WhiteKing) newCR &= ~(CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen);
-        if (m.Mover == Piece.BlackKing) newCR &= ~(CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen);
+        if (m.Mover == Piece.WhiteKing)
+        {
+            newCR &= ~(CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen);
+            _whiteKingSquare88 = m.To88;
+        }
+        if (m.Mover == Piece.BlackKing)
+        {
+            newCR &= ~(CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen);
+            _blackKingSquare88 = m.To88;
+        }
         // own rook moved from corner
         if (m.Mover == Piece.WhiteRook)
         {
@@ -589,6 +598,9 @@ public sealed class Board
                 AddToBitboards((Square0x64)m.To88, u.Captured);
             }
         }
+
+        if (m.Mover == Piece.WhiteKing) _whiteKingSquare88 = m.From88;
+        else if (m.Mover == Piece.BlackKing) _blackKingSquare88 = m.From88;
 
         EnPassantFile = u.EnPassantFilePrev;
         CastlingRights = u.CastlingPrev;
@@ -1156,31 +1168,6 @@ public sealed class Board
         var attacker = side.IsWhite() ? Color.Black : Color.White;
         return IsSquareAttacked(kingSq64, attacker);
     }
-
-
-
-    /// <summary>
-    /// Finds the king square (0x64) for the specified color using the board's bitboards.
-    /// </summary>
-    public Square0x64 FindKingSq64(Color color)
-    {
-        ulong bb = GetPieceBitboard(color == Color.White ? Piece.WhiteKing : Piece.BlackKing);
-        if (bb == 0)
-            throw new InvalidOperationException("King bitboard is empty.");
-
-        return (Square0x64)BitOperations.TrailingZeroCount(bb);
-    }
-
-    public Square0x88 FindKingSq88(bool white)
-    {
-        ulong bb = GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
-        if (bb == 0)
-            throw new InvalidOperationException("King bitboard is empty.");
-
-        var s64 = (Square0x64)BitOperations.TrailingZeroCount(bb);
-        return (Square0x88)s64;
-    }
-
 
     public bool EnPassantAvailableFor(Color sideToMove)
     {

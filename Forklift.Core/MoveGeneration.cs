@@ -221,20 +221,18 @@ namespace Forklift.Core
                 }
             }
         }
-        private static readonly int[] kingDeltas = [+1, -1, +16, -16, +15, +17, -15, -17];
+
         // --- King (no castling here; see GenerateCastling) --------------------------------
         private static void GenerateKingMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index)
         {
             bool white = sideToMove.IsWhite();
 
             Piece king = white ? Piece.WhiteKing : Piece.BlackKing;
-            ulong bb = board.GetPieceBitboard(king);
-            if (bb == 0) return;
+            var from88 = white ? board.WhiteKing!.Value : board.BlackKing!.Value;
 
-            int s64 = BitOperations.TrailingZeroCount(bb);
-            var from88 = (Square0x88)new Square0x64(s64);
+            var s64 = (Square0x64)from88;
 
-            ulong attacks = board.Tables.KingAttackTable[s64];
+            ulong attacks = board.Tables.KingAttackTable[s64.Value];
             ulong occAll = board.GetAllOccupancy();
             ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
 
