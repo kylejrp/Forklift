@@ -301,8 +301,8 @@ public static class Squares
     public static Square0x88 ParseAlgebraicTo0x88(string alg) => ParseAlgebraicTo0x88(alg.AsSpan());
 
     // Reverse mapping
-    public static string ToAlgebraicString(Square0x64 s64) => new string([(char)('a' + (s64.Value % 8)), (char)('1' + (s64.Value / 8))]);
-    public static string ToAlgebraicString(Square0x88 s88) => new string([(char)('a' + (s88.Value & 0xF)), (char)('1' + (s88.Value >> 4))]);
+    public static string ToAlgebraicString(Square0x64 s64) => AlgebraicNotation.From(s64).Value;
+    public static string ToAlgebraicString(Square0x88 s88) => AlgebraicNotation.From(s88).Value;
 
     public static AlgebraicNotation ToAlgebraic(Square0x88 s) => AlgebraicNotation.From(ToAlgebraicString(s));
     public static AlgebraicNotation ToAlgebraic(Square0x64 s) => AlgebraicNotation.From(ToAlgebraicString(s));
