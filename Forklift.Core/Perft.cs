@@ -299,7 +299,7 @@ namespace Forklift.Core
             var checkedSide = board.SideToMove;
             if (!board.InCheck(checkedSide)) return false;
 
-            var kingSq64 = board.FindKingSq64(checkedSide);
+            var kingSq64 = (Square0x64)(checkedSide.IsWhite() ? board.WhiteKing!.Value : board.BlackKing!.Value);
             var attackerSide = checkedSide.Flip();
 
             ulong attackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Knight | Piece.PieceType.Pawn | Piece.PieceType.King | Piece.PieceType.Bishop | Piece.PieceType.Rook | Piece.PieceType.Queen);
@@ -320,8 +320,7 @@ namespace Forklift.Core
             var them = us.Flip();
 
             // board is POST-move: king square is the opponent's king in the position after mv.
-            Square0x64 king64 = board.FindKingSq64(them);
-            Square0x88 king = (Square0x88)king64;
+            Square0x88 king = them.IsWhite() ? board.WhiteKing!.Value : board.BlackKing!.Value;
 
             Square0x88 from = mv.From88;
             Square0x88 to = mv.To88;

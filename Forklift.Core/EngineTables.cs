@@ -419,7 +419,7 @@ namespace Forklift.Core
 
             for (int t = 0; t < 64; t++)
             {
-                var t88 = Squares.ConvertTo0x88Index(new Square0x64(t));
+                var t88 = (Square0x88)new Square0x64(t);
                 ulong mask = 0UL;
 
                 for (int i = 0; i < DELTAS.Length; i++)
@@ -445,7 +445,7 @@ namespace Forklift.Core
 
             for (int t = 0; t < 64; t++)
             {
-                var t88 = Squares.ConvertTo0x88Index(new Square0x64(t));
+                var t88 = (Square0x88)new Square0x64(t);
                 ulong mask = 0UL;
 
                 for (int i = 0; i < DELTAS.Length; i++)
@@ -470,7 +470,7 @@ namespace Forklift.Core
 
             for (int t = 0; t < 64; t++)
             {
-                var t88 = Squares.ConvertTo0x88Index(new Square0x64(t));
+                var t88 = (Square0x88)new Square0x64(t);
                 ulong mask = 0UL;
 
                 var fromL = new UnsafeSquare0x88(t88.Value - 15);
@@ -494,7 +494,7 @@ namespace Forklift.Core
 
             for (int t = 0; t < 64; t++)
             {
-                var t88 = Squares.ConvertTo0x88Index(new Square0x64(t));
+                var t88 = (Square0x88)new Square0x64(t);
                 ulong mask = 0UL;
 
                 var fromL = new UnsafeSquare0x88(t88.Value + 15);

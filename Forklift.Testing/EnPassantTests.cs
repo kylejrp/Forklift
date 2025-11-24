@@ -10,17 +10,17 @@ namespace Forklift.Testing
             // Minimal legal shell: kings + pawns
             var b = BoardFactory.FromFenOrStart("startpos");
             b.Clear();
-            b.Place(Sq88("h1"), Piece.WhiteKing);
-            b.Place(Sq88("h8"), Piece.BlackKing);
+            b.Place(S88("h1"), Piece.WhiteKing);
+            b.Place(S88("h8"), Piece.BlackKing);
 
-            b.Place(Sq88("e5"), Piece.WhitePawn); // white pawn ready to capture d6
-            b.Place(Sq88("d7"), Piece.BlackPawn);
+            b.Place(S88("e5"), Piece.WhitePawn); // white pawn ready to capture d6
+            b.Place(S88("d7"), Piece.BlackPawn);
 
             // Black to move: play d7-d5 (double push) -> this sets EnPassantFile automatically
             b.SetSideToMove(Color.Black);
             var mv = Board.Move.Normal(
-                Sq88("d7"),
-                Sq88("d5"),
+                S88("d7"),
+                S88("d5"),
                 Piece.BlackPawn
             );
             var u = b.MakeMove(mv);
@@ -34,16 +34,16 @@ namespace Forklift.Testing
             // Setup: white king on e1, black king on h8, white pawn e5, black pawn d7, black rook e8 (for pin)
             var b = BoardFactory.FromFenOrStart("startpos");
             b.Clear();
-            b.Place(Sq88("e1"), Piece.WhiteKing);
-            b.Place(Sq88("h8"), Piece.BlackKing);
-            b.Place(Sq88("e5"), Piece.WhitePawn);
-            b.Place(Sq88("d7"), Piece.BlackPawn);
+            b.Place(S88("e1"), Piece.WhiteKing);
+            b.Place(S88("h8"), Piece.BlackKing);
+            b.Place(S88("e5"), Piece.WhitePawn);
+            b.Place(S88("d7"), Piece.BlackPawn);
             if (pin)
-                b.Place(Sq88("e8"), Piece.BlackRook);
+                b.Place(S88("e8"), Piece.BlackRook);
             b.SetSideToMove(Color.Black);
             var mv = Board.Move.Normal(
-                Sq88("d7"),
-                Sq88("d5"),
+                S88("d7"),
+                S88("d5"),
                 Piece.BlackPawn
             );
             b.MakeMove(mv);
@@ -57,16 +57,16 @@ namespace Forklift.Testing
         {
             var b = BoardFactory.FromFenOrStart("startpos");
             b.Clear();
-            b.Place(Sq88("h1"), Piece.WhiteKing);
-            b.Place(Sq88("h8"), Piece.BlackKing);
-            b.Place(Sq88("e2"), Piece.WhitePawn);
-            b.Place(Sq88("d7"), Piece.BlackPawn);
+            b.Place(S88("h1"), Piece.WhiteKing);
+            b.Place(S88("h8"), Piece.BlackKing);
+            b.Place(S88("e2"), Piece.WhitePawn);
+            b.Place(S88("d7"), Piece.BlackPawn);
             b.SetSideToMove(Color.White);
 
             // White plays e2-e3 (single push): no EP
             var mv1 = Board.Move.Normal(
-                Sq88("e2"),
-                Sq88("e3"),
+                S88("e2"),
+                S88("e3"),
                 Piece.WhitePawn
             );
             b.MakeMove(mv1);
@@ -74,8 +74,8 @@ namespace Forklift.Testing
 
             // Black plays d7-d5 (double push): EP set
             var mv2 = Board.Move.Normal(
-                Sq88("d7"),
-                Sq88("d5"),
+                S88("d7"),
+                S88("d5"),
                 Piece.BlackPawn
             );
             b.MakeMove(mv2);
@@ -83,8 +83,8 @@ namespace Forklift.Testing
 
             // White plays a non-EP move: king h1-g1
             var mv3 = Board.Move.Normal(
-                Sq88("h1"),
-                Sq88("g1"),
+                S88("h1"),
+                S88("g1"),
                 Piece.WhiteKing
             );
             b.MakeMove(mv3);
