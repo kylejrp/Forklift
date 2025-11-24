@@ -95,7 +95,7 @@ namespace Forklift.Testing
         public void EpAvailable_Only_Immediately_After_DoublePush()
         {
             var b = BuildEpPosition_WhiteToCapture();
-            var epMoves = b.GenerateLegal().Where(m => m.Kind == Board.MoveKind.EnPassant).ToList();
+            var epMoves = b.GenerateLegal().Where(m => m.IsEnPassant).ToList();
             epMoves.Should().ContainSingle();
             // Make/unmake EP move to check it exists
             var u = b.MakeMove(epMoves[0]);
@@ -107,7 +107,7 @@ namespace Forklift.Testing
         public void EpCapture_RemovesBehindPawn_And_RestoresOnUnmake()
         {
             var b = BuildEpPosition_WhiteToCapture();
-            var ep = b.GenerateLegal().First(m => m.Kind == Board.MoveKind.EnPassant);
+            var ep = b.GenerateLegal().First(m => m.IsEnPassant);
             var occ0 = b.OccAll;
             var u = b.MakeMove(ep);
             b.OccAll.Should().NotBe(occ0); // captured pawn removed
@@ -120,12 +120,12 @@ namespace Forklift.Testing
         {
             // Not pinned: EP move should be legal
             var b1 = BuildEpPosition_PinnedPawn(false);
-            var epMoves1 = b1.GenerateLegal().Where(m => m.Kind == Board.MoveKind.EnPassant).ToList();
+            var epMoves1 = b1.GenerateLegal().Where(m => m.IsEnPassant).ToList();
             epMoves1.Should().ContainSingle();
 
             // Pinned: EP move should be illegal
             var b2 = BuildEpPosition_PinnedPawn(true);
-            var epMoves2 = b2.GenerateLegal().Where(m => m.Kind == Board.MoveKind.EnPassant).ToList();
+            var epMoves2 = b2.GenerateLegal().Where(m => m.IsEnPassant).ToList();
             epMoves2.Should().BeEmpty();
         }
 
@@ -138,7 +138,7 @@ namespace Forklift.Testing
             epFile.Should().NotBeNull();
 
             // Make EP move: EP file should be cleared, key updated
-            var epMove = b.GenerateLegal().First(m => m.Kind == Board.MoveKind.EnPassant);
+            var epMove = b.GenerateLegal().First(m => m.IsEnPassant);
             var u = b.MakeMove(epMove);
             b.EnPassantFile.Should().BeNull();
             var key1 = b.ZKey;

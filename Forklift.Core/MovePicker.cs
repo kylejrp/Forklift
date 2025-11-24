@@ -41,7 +41,8 @@
         public enum MoveGenerationStrategy
         {
             Legal,
-            PseudoLegal
+            PseudoLegal,
+            PseudoLegalNonQuietOnly,
         }
 
         public enum MoveScoringStrategy
@@ -93,6 +94,10 @@
                 else if (_moveGenerationStrategy == MoveGenerationStrategy.PseudoLegal)
                 {
                     MoveGeneration.GeneratePseudoLegal(_board, ref _moveBuffer, _board.SideToMove);
+                }
+                else if (_moveGenerationStrategy == MoveGenerationStrategy.PseudoLegalNonQuietOnly)
+                {
+                    MoveGeneration.GeneratePseudoLegal(_board, ref _moveBuffer, _board.SideToMove, Board.MoveKind.NonQuiet);
                 }
                 else
                 {

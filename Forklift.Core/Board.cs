@@ -180,14 +180,21 @@ public sealed class Board
         OccAll &= ~b;
     }
 
+    [Flags]
     public enum MoveKind
     {
-        Normal = 0,
-        EnPassant = 1,
-        CastleKing = 2,
-        CastleQueen = 3,
-        Promotion = 4,          // non-capture promotion
-        PromotionCapture = 5     // capture + promotion
+        None = 0,
+
+        Normal = 1 << 0,
+        Capture = 1 << 1,
+        Promotion = 1 << 2,
+        CastleKing = 1 << 3,
+        CastleQueen = 1 << 4,
+
+        // En passant is always a capture
+        EnPassant = (1 << 5) | Capture,
+        PromotionCapture = Promotion | Capture,
+        NonQuiet = Capture | Promotion,
     }
 
     public readonly record struct Move(
@@ -226,7 +233,7 @@ public sealed class Board
         }
 
         public static Move Capture(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
-            => new(from, to, mover, captured, Piece.Empty, MoveKind.Normal);
+            => new(from, to, mover, captured, Piece.Empty, MoveKind.Capture);
 
         public static Move PromotionPush(Square0x88 from, Square0x88 to, Piece mover, Piece promotion)
         {
@@ -250,13 +257,11 @@ public sealed class Board
                 throw new ArgumentException("Promotion capture must specify captured piece.", nameof(captured));
             return new(from, to, mover, captured, promotion, MoveKind.PromotionCapture);
         }
-        public bool IsQuiet => !IsCapture && !IsPromotion;
-        public bool IsCapture => Kind == MoveKind.Normal && Captured != Piece.Empty
-                     || Kind == MoveKind.EnPassant
-                     || Kind == MoveKind.PromotionCapture;
-        public bool IsPromotion => Kind == MoveKind.Promotion || Kind == MoveKind.PromotionCapture;
-        public bool IsCastle => Kind == MoveKind.CastleKing || Kind == MoveKind.CastleQueen;
-        public bool IsEnPassant => Kind == MoveKind.EnPassant;
+        public bool IsQuiet => (Kind & MoveKind.NonQuiet) == 0;
+        public bool IsCapture => (Kind & MoveKind.Capture) != 0;
+        public bool IsPromotion => (Kind & MoveKind.Promotion) != 0;
+        public bool IsCastle => (Kind & (MoveKind.CastleKing | MoveKind.CastleQueen)) != 0;
+        public bool IsEnPassant => (Kind & MoveKind.EnPassant) == MoveKind.EnPassant;
 
         public override string ToString()
         {
@@ -349,7 +354,7 @@ public sealed class Board
 
         // Save undo (we'll fill the new special fields below)
         var undo = new Undo(
-            Captured: m.Kind == MoveKind.EnPassant
+            Captured: m.Kind.HasFlag(MoveKind.EnPassant)
                 ? (SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn)
                 : (Piece)mailbox[m.To88],
             EnPassantFilePrev: EnPassantFile,
@@ -438,7 +443,7 @@ public sealed class Board
 
             if (white)
             {
-                if (m.Kind == MoveKind.CastleKing)
+                if (m.Kind.HasFlag(MoveKind.CastleKing))
                 {
                     rFrom = H1;
                     rTo = F1;
@@ -451,7 +456,7 @@ public sealed class Board
             }
             else
             {
-                if (m.Kind == MoveKind.CastleKing)
+                if (m.Kind.HasFlag(MoveKind.CastleKing))
                 {
                     rFrom = H8;
                     rTo = F8;

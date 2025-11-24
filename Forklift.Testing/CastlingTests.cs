@@ -26,8 +26,8 @@ namespace Forklift.Testing
                 ref readonly var m = ref moves[i];
                 if (m.Mover == Piece.WhiteKing)
                 {
-                    foundKingSide |= m.Kind == Board.MoveKind.CastleKing;
-                    foundQueenSide |= m.Kind == Board.MoveKind.CastleQueen;
+                    foundKingSide |= m.Kind.HasFlag(Board.MoveKind.CastleKing);
+                    foundQueenSide |= m.Kind.HasFlag(Board.MoveKind.CastleQueen);
                 }
             }
 
@@ -126,7 +126,7 @@ namespace Forklift.Testing
             b.MakeMove(mv);
             // Now bishop attacks f2, so castling through f1 is illegal
             var legals = b.GenerateLegal().ToList();
-            legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind == Board.MoveKind.CastleKing);
+            legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind.HasFlag(Board.MoveKind.CastleKing));
         }
     }
 }
