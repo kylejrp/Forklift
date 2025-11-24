@@ -8,7 +8,7 @@ namespace Forklift.Testing
         [Fact]
         public void Promotion_Generates_AllFour_Pieces()
         {
-            var b = BoardFactory.FromFenOrStart("8/P7/8/8/8/8/8/7k w - - 0 1");
+            var b = BoardFactory.FromFenOrStart("7K/P7/8/8/8/8/8/7k w - - 0 1");
             var moves = b.GenerateLegal();
 
             Span<Piece> found = stackalloc Piece[4];
@@ -26,7 +26,7 @@ namespace Forklift.Testing
         public void PromotionCapture_Generates_AllFour_Pieces()
         {
             // White pawn on a7, black piece on b8 -> capture promotions x4
-            var b = BoardFactory.FromFenOrStart("1r6/P7/8/8/8/8/8/7k w - - 0 1");
+            var b = BoardFactory.FromFenOrStart("1r5K/P7/8/8/8/8/8/7k w - - 0 1");
             var capPromos = b.GenerateLegal().Where(m => m.IsPromotion && m.IsCapture).ToList();
             capPromos.Should().HaveCount(4);
         }

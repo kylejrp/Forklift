@@ -14,7 +14,8 @@ public class MoveGenerationBufferTests
         yield return new object[] { "q2Q3r/n6R/kpB1N1K1/p1p1Bppp/1PN3P1/1n1pp1b1/P1PPPP1P/r5Rb w - - 0 1" };
         yield return new object[] { "R6R/pbpppK2/1B1QNNp1/1p3p1p/P1P3P1/1Pnnq1b1/2kPPPBP/r6r w - - 0 1" };
         yield return new object[] { "1QqQqQq1/r6Q/Q6q/q6Q/B2q4/q6Q/k6K/1qQ1QqRb w - - 0 1" };
-        yield return new object[] { "QQqQqQqq/q6Q/Q6q/q6Q/Q6q/q6Q/Q6q/QqQqQqQq w - - 0 1" };
+        yield return new object[] { "QQQQQQBk/Q6B/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1" }; // 265 pseudo-legal moves
+        // yield return new object[] { "QQqQqQqq/q6Q/Q6q/q6Q/Q6q/q6Q/Q6q/QqQqQqQq w - - 0 1" }; illegal position, no longer supported
     }
 
     [Theory]

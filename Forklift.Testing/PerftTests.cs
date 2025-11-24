@@ -132,7 +132,7 @@ namespace Forklift.Testing
         }
 
         [Theory]
-        [InlineData("8/8/8/8/8/8/8/8 w - - 0 1", 1, 0)] // Empty board
+        [InlineData("K7/8/8/8/8/8/8/7k w - - 0 1", 1, 3)] // Emptiest legal board
         [InlineData("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1, 20)] // Standard starting position
         public void Perft_Count_Should_Handle_Specific_Positions(string fen, int depth, long expectedNodes)
         {
@@ -183,7 +183,7 @@ namespace Forklift.Testing
                     var stm = board.SideToMove;
                     bool blackInCheck = board.InCheck(Color.Black);
 
-                    var k64Black = board.FindKingSq64(Color.Black);
+                    var k64Black = (Square0x64)board.BlackKing!.Value;
                     var kAlg = Squares.ToAlgebraicString((Square0x88)k64Black);
 
                     // High-level breakdown from your Board.AttackerBreakdown
