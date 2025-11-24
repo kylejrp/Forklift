@@ -439,7 +439,7 @@ try {
     $ratingsCsv = Join-Path $MatchDir 'ratings.csv'
     $ordoRan = $false
     if ($gameCount -gt 0 -and $ordoCmd) {
-        $ordoArgs = @('-a', $AnchorOld, '-A', 'Old', '-p', $pgnPath, '-o', $ratingsTxt, '-c', $ratingsCsv)
+        $ordoArgs = @('-a', $AnchorOld, '-A', 'Old', '-p', $pgnPath, '-o', $ratingsTxt, '-c', $ratingsCsv, '-s', '10000', '-Q', '-n', $resolvedConcurrency)
         Write-Host "[elo-eval] Running ordo command: $($ordoCmd.Source) $($ordoArgs -join ' ')"
         $ordoOutput = & $ordoCmd.Source @ordoArgs
         if ($LASTEXITCODE -eq 0) {
@@ -538,8 +538,9 @@ try {
 
             if ($newRow -and $oldRow) {
                 $diff = ($newRow.Rating - $oldRow.Rating)
-                $line = "| Ordo | New {0:F2} vs Old {1:F2} (Δ {2:F2}) |" -f $newRow.Rating, $oldRow.Rating, $diff
+                $line = "| Ordo | New {0:F2} vs Old {1:F2} (Δ {2:F2}" -f $newRow.Rating, $oldRow.Rating, $diff
                 if ($newRow.Error -ne $null) { $line += " ±{0:F2}" -f $newRow.Error }
+                $line += ") |"
                 $summaryLines.Add($line)
             }
             else {
