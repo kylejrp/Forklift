@@ -234,22 +234,27 @@ namespace Forklift.Core
             int s64 = BitOperations.TrailingZeroCount(bb);
             var from88 = (Square0x88)new Square0x64(s64);
 
-            for (int i = 0; i < kingDeltas.Length; i++)
+            ulong attacks = board.Tables.KingAttackTable[s64];
+            ulong occAll = board.GetAllOccupancy();
+            ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
+
+            // Quiet moves
+            ulong quiets = attacks & ~occAll;
+            while (quiets != 0)
             {
-                var toUnsafe = new UnsafeSquare0x88(from88.Value + kingDeltas[i]);
-                if (Squares.IsOffboard(toUnsafe)) continue;
+                int toS64 = BitOperations.TrailingZeroCount(quiets);
+                quiets &= quiets - 1;
+                buffer[index++] = Move.Normal(from88, (Square0x88)new Square0x64(toS64), king);
+            }
 
-                var to88 = (Square0x88)toUnsafe;
-                var target = board.At(to88);
-
-                if (target == Piece.Empty)
-                {
-                    buffer[index++] = Move.Normal(from88, to88, king);
-                }
-                else if (target.IsWhite != white)
-                {
-                    buffer[index++] = Move.Capture(from88, to88, king, target);
-                }
+            // Captures
+            ulong captures = attacks & occOpp;
+            while (captures != 0)
+            {
+                int toS64 = BitOperations.TrailingZeroCount(captures);
+                captures &= captures - 1;
+                var to88 = (Square0x88)new Square0x64(toS64);
+                buffer[index++] = Move.Capture(from88, to88, king, board.At(to88));
             }
         }
 
