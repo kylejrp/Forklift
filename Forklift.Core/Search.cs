@@ -360,7 +360,6 @@ namespace Forklift.Core
                     board: board,
                     moveBuffer: moves,
                     history: _historyScores
-
                 );
 
                 bool exploredMove = false;
@@ -423,24 +422,19 @@ namespace Forklift.Core
                 alpha = bestScore;
             }
 
-            Span<Board.Move> pseudoMoves = stackalloc Board.Move[Board.MoveBufferMax];
-            var pseudoPicker = new MovePicker(
+            Span<Board.Move> nonQuietPseudoMoves = stackalloc Board.Move[Board.MoveBufferMax];
+            var nonQuietPseudoPicker = new MovePicker(
                 board: board,
-                moveBuffer: pseudoMoves,
+                moveBuffer: nonQuietPseudoMoves,
                 history: _historyScores,
-                moveGenerationStrategy: MovePicker.MoveGenerationStrategy.PseudoLegal
+                moveGenerationStrategy: MovePicker.MoveGenerationStrategy.PseudoLegalNonQuietOnly
             );
             var sideToMove = board.SideToMove;
-            bool exploredCapture = false;
+            bool exploredNonQuietMove = false;
             bool allCompleteCaptures = true;
 
-            while (pseudoPicker.Next() is Board.Move move)
+            while (nonQuietPseudoPicker.Next() is Board.Move move)
             {
-                if (move.IsQuiet)
-                {
-                    continue;
-                }
-
                 if (cancellationToken.IsCancellationRequested)
                 {
                     return new QuiescenceResult(alpha, false, nodesSearched);
@@ -455,7 +449,7 @@ namespace Forklift.Core
                     continue;
                 }
 
-                exploredCapture = true;
+                exploredNonQuietMove = true;
                 QuiescenceResult child = Quiescence(board, -beta, -alpha, ply + 1, cancellationToken);
                 int score = -child.BestScore;
                 board.UnmakeMove(move, undo);
@@ -482,9 +476,9 @@ namespace Forklift.Core
                 }
             }
 
-            if (!exploredCapture && !board.HasAnyLegalMoves())
+            if (!exploredNonQuietMove && !board.HasAnyLegalMoves())
             {
-                // No captures searched and no legal moves at all => stalemate or mate.
+                // No non-quiet moves searched and no legal moves at all => stalemate or mate.
                 return new QuiescenceResult(EvaluateTerminal(board, ply), true, nodesSearched);
             }
 
