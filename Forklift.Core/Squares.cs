@@ -277,65 +277,33 @@ public readonly struct AlgebraicNotation
 
 public static class Squares
 {
-
-    // ------------------------------------------------------------
-    // Tiny test-friendly helpers (alloc-free via AsSpan):
-    // S88/S64 let you write S88("e4") instead of verbose chains.
-    // ------------------------------------------------------------
     [DebuggerStepThrough, MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Square0x88 S88(string alg) => ParseAlgebraicTo0x88(alg.AsSpan());
+    public static Square0x88 S88(string alg) => ParseAlgebraicTo0x88(alg);
     [DebuggerStepThrough, MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Square0x64 S64(string alg) => ParseAlgebraicTo0x64(alg.AsSpan());
-
-
-    // Precompute both encodings for all 64 squares.
-    private static readonly Square0x64[] s64ByIndex = new Square0x64[64];
-    private static readonly Square0x88[] s88ByIndex = new Square0x88[64];
-    private static readonly string[] algByIndex = new string[64]; // interned literals
-
-    static Squares()
-    {
-        for (int r = 0; r < 8; r++)
-            for (int f = 0; f < 8; f++)
-            {
-                int idx = r * 8 + f;
-                s64ByIndex[idx] = new Square0x64(idx);
-                s88ByIndex[idx] = new Square0x88((r << 4) | f);
-                algByIndex[idx] = string.Intern($"{(char)('a' + f)}{(char)('1' + r)}");
-            }
-    }
+    public static Square0x64 S64(string alg) => ParseAlgebraicTo0x64(alg);
 
     public static bool IsOffboard(UnsafeSquare0x88 square) => (square.Value & 0x88) != 0;
 
-    public static Square0x64 ConvertTo0x64Index(Square0x88 square)
-        => s64ByIndex[(square.Value & 0xF) + ((square.Value >> 4) * 8)];
-
-    public static Square0x88 ConvertTo0x88Index(Square0x64 square)
-        => s88ByIndex[square.Value];
 
     // Fast parse from span (no allocation)
     public static Square0x64 ParseAlgebraicTo0x64(ReadOnlySpan<char> alg)
     {
         char f = alg[0], r = alg[1];
-        return s64ByIndex[((r - '1') * 8) + (f - 'a')];
+        return new Square0x64(((r - '1') * 8) + (f - 'a'));
     }
 
     public static Square0x88 ParseAlgebraicTo0x88(ReadOnlySpan<char> alg)
     {
         char f = alg[0], r = alg[1];
-        return s88ByIndex[((r - '1') * 8) + (f - 'a')];
+        return new Square0x88(((r - '1') << 4) | (f - 'a'));
     }
-
-    // String overloads stay for convenience (calls span)
     public static Square0x64 ParseAlgebraicTo0x64(string alg) => ParseAlgebraicTo0x64(alg.AsSpan());
     public static Square0x88 ParseAlgebraicTo0x88(string alg) => ParseAlgebraicTo0x88(alg.AsSpan());
 
-    // Reverse mapping (no allocation: returns the interned string)
-    public static string ToAlgebraicString(Square0x64 s64) => algByIndex[s64.Value];
-    public static string ToAlgebraicString(Square0x88 s88)
-        => algByIndex[((s88.Value >> 4) * 8) + (s88.Value & 0xF)];
+    // Reverse mapping
+    public static string ToAlgebraicString(Square0x64 s64) => new string([(char)('a' + (s64.Value % 8)), (char)('1' + (s64.Value / 8))]);
+    public static string ToAlgebraicString(Square0x88 s88) => new string([(char)('a' + (s88.Value & 0xF)), (char)('1' + (s88.Value >> 4))]);
 
-    // For convenience, keep AlgebraicNotation for UI/logging/tests
     public static AlgebraicNotation ToAlgebraic(Square0x88 s) => AlgebraicNotation.From(ToAlgebraicString(s));
     public static AlgebraicNotation ToAlgebraic(Square0x64 s) => AlgebraicNotation.From(ToAlgebraicString(s));
 }

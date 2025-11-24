@@ -76,7 +76,7 @@ namespace Forklift.Core
                 int s64 = BitOperations.TrailingZeroCount(pawns);
                 pawns &= pawns - 1;
                 var from64 = new Square0x64(s64);
-                var from88 = Squares.ConvertTo0x88Index(from64);
+                var from88 = (Square0x88)from64;
                 int rank = from88 >> 4;
 
                 // Forward one
@@ -142,7 +142,7 @@ namespace Forklift.Core
                 knights &= knights - 1;
 
                 var from64 = new Square0x64(s64);
-                var from88 = Squares.ConvertTo0x88Index(from64);
+                var from88 = (Square0x88)from64;
                 ulong attacks = board.Tables.KnightAttackTable[s64];
 
                 // Quiet moves
@@ -151,7 +151,7 @@ namespace Forklift.Core
                 {
                     int toS64 = BitOperations.TrailingZeroCount(quiets);
                     quiets &= quiets - 1;
-                    buffer[index++] = Move.Normal(from88, Squares.ConvertTo0x88Index(new Square0x64(toS64)), mover);
+                    buffer[index++] = Move.Normal(from88, (Square0x88)new Square0x64(toS64), mover);
                 }
 
                 // Captures
@@ -160,7 +160,7 @@ namespace Forklift.Core
                 {
                     int toS64 = BitOperations.TrailingZeroCount(captures);
                     captures &= captures - 1;
-                    var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
+                    var to88 = (Square0x88)new Square0x64(toS64);
                     buffer[index++] = Move.Capture(from88, to88, mover, board.At(to88));
                 }
             }
@@ -180,7 +180,7 @@ namespace Forklift.Core
                 sliders &= sliders - 1;
 
                 var from64 = new Square0x64(s64);
-                var from88 = Squares.ConvertTo0x88Index(from64);
+                var from88 = (Square0x88)from64;
 
                 var T = board.Tables;
                 int ti = from64.Value;
@@ -207,7 +207,7 @@ namespace Forklift.Core
                 {
                     int toS64 = BitOperations.TrailingZeroCount(quiets);
                     quiets &= quiets - 1;
-                    buffer[index++] = Move.Normal(from88, Squares.ConvertTo0x88Index(new Square0x64(toS64)), piece);
+                    buffer[index++] = Move.Normal(from88, (Square0x88)new Square0x64(toS64), piece);
                 }
 
                 // Captures
@@ -216,7 +216,7 @@ namespace Forklift.Core
                 {
                     int toS64 = BitOperations.TrailingZeroCount(captures);
                     captures &= captures - 1;
-                    var to88 = Squares.ConvertTo0x88Index(new Square0x64(toS64));
+                    var to88 = (Square0x88)new Square0x64(toS64);
                     buffer[index++] = Move.Capture(from88, to88, piece, board.At(to88));
                 }
             }
@@ -233,7 +233,7 @@ namespace Forklift.Core
             if (bb == 0) return;
 
             int s64 = BitOperations.TrailingZeroCount(bb);
-            var from88 = Squares.ConvertTo0x88Index(new Square0x64(s64));
+            var from88 = (Square0x88)new Square0x64(s64);
 
             for (int i = 0; i < deltas.Length; i++)
             {

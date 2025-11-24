@@ -201,12 +201,12 @@ public sealed class Board
         public static Move EnPassant(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
             => new(from, to, mover, captured, Piece.Empty, MoveKind.EnPassant);
 
-        private static readonly Square0x88 WhiteKingFrom88 = Squares.ParseAlgebraicTo0x88("e1".AsSpan());
-        private static readonly Square0x88 WhiteKingToKingSide88 = Squares.ParseAlgebraicTo0x88("g1".AsSpan());
-        private static readonly Square0x88 WhiteKingToQueenSide88 = Squares.ParseAlgebraicTo0x88("c1".AsSpan());
-        private static readonly Square0x88 BlackKingFrom88 = Squares.ParseAlgebraicTo0x88("e8".AsSpan());
-        private static readonly Square0x88 BlackKingToKingSide88 = Squares.ParseAlgebraicTo0x88("g8".AsSpan());
-        private static readonly Square0x88 BlackKingToQueenSide88 = Squares.ParseAlgebraicTo0x88("c8".AsSpan());
+        private static readonly Square0x88 WhiteKingFrom88 = Squares.ParseAlgebraicTo0x88("e1");
+        private static readonly Square0x88 WhiteKingToKingSide88 = Squares.ParseAlgebraicTo0x88("g1");
+        private static readonly Square0x88 WhiteKingToQueenSide88 = Squares.ParseAlgebraicTo0x88("c1");
+        private static readonly Square0x88 BlackKingFrom88 = Squares.ParseAlgebraicTo0x88("e8");
+        private static readonly Square0x88 BlackKingToKingSide88 = Squares.ParseAlgebraicTo0x88("g8");
+        private static readonly Square0x88 BlackKingToQueenSide88 = Squares.ParseAlgebraicTo0x88("c8");
 
         public static Move CastleKingSide(Color side)
         {
@@ -305,20 +305,20 @@ public sealed class Board
 
 
     // Hoisted castling squares for performance (span-based, no AlgebraicNotation)
-    private static readonly Square0x88 E1 = Squares.ParseAlgebraicTo0x88("e1".AsSpan());
-    private static readonly Square0x88 G1 = Squares.ParseAlgebraicTo0x88("g1".AsSpan());
-    private static readonly Square0x88 C1 = Squares.ParseAlgebraicTo0x88("c1".AsSpan());
-    private static readonly Square0x88 H1 = Squares.ParseAlgebraicTo0x88("h1".AsSpan());
-    private static readonly Square0x88 F1 = Squares.ParseAlgebraicTo0x88("f1".AsSpan());
-    private static readonly Square0x88 A1 = Squares.ParseAlgebraicTo0x88("a1".AsSpan());
-    private static readonly Square0x88 D1 = Squares.ParseAlgebraicTo0x88("d1".AsSpan());
-    private static readonly Square0x88 E8 = Squares.ParseAlgebraicTo0x88("e8".AsSpan());
-    private static readonly Square0x88 G8 = Squares.ParseAlgebraicTo0x88("g8".AsSpan());
-    private static readonly Square0x88 C8 = Squares.ParseAlgebraicTo0x88("c8".AsSpan());
-    private static readonly Square0x88 H8 = Squares.ParseAlgebraicTo0x88("h8".AsSpan());
-    private static readonly Square0x88 F8 = Squares.ParseAlgebraicTo0x88("f8".AsSpan());
-    private static readonly Square0x88 A8 = Squares.ParseAlgebraicTo0x88("a8".AsSpan());
-    private static readonly Square0x88 D8 = Squares.ParseAlgebraicTo0x88("d8".AsSpan());
+    private static readonly Square0x88 E1 = Squares.ParseAlgebraicTo0x88("e1");
+    private static readonly Square0x88 G1 = Squares.ParseAlgebraicTo0x88("g1");
+    private static readonly Square0x88 C1 = Squares.ParseAlgebraicTo0x88("c1");
+    private static readonly Square0x88 H1 = Squares.ParseAlgebraicTo0x88("h1");
+    private static readonly Square0x88 F1 = Squares.ParseAlgebraicTo0x88("f1");
+    private static readonly Square0x88 A1 = Squares.ParseAlgebraicTo0x88("a1");
+    private static readonly Square0x88 D1 = Squares.ParseAlgebraicTo0x88("d1");
+    private static readonly Square0x88 E8 = Squares.ParseAlgebraicTo0x88("e8");
+    private static readonly Square0x88 G8 = Squares.ParseAlgebraicTo0x88("g8");
+    private static readonly Square0x88 C8 = Squares.ParseAlgebraicTo0x88("c8");
+    private static readonly Square0x88 H8 = Squares.ParseAlgebraicTo0x88("h8");
+    private static readonly Square0x88 F8 = Squares.ParseAlgebraicTo0x88("f8");
+    private static readonly Square0x88 A8 = Squares.ParseAlgebraicTo0x88("a8");
+    private static readonly Square0x88 D8 = Squares.ParseAlgebraicTo0x88("d8");
 
     public Undo MakeMove(in Move m)
     {
@@ -1178,7 +1178,7 @@ public sealed class Board
             throw new InvalidOperationException("King bitboard is empty.");
 
         var s64 = (Square0x64)BitOperations.TrailingZeroCount(bb);
-        return Squares.ConvertTo0x88Index(s64);
+        return (Square0x88)s64;
     }
 
 
