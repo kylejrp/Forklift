@@ -14,7 +14,7 @@ namespace Forklift.Testing
             Span<Piece> found = stackalloc Piece[4];
             int n = 0;
             for (int i = 0; i < moves.Length; i++)
-                if (moves[i].Kind == Board.MoveKind.Promotion)
+                if (moves[i].IsPromotion)
                     found[n++] = moves[i].Promotion;
 
             found[..n].ToArray().Should().BeEquivalentTo(
@@ -27,7 +27,7 @@ namespace Forklift.Testing
         {
             // White pawn on a7, black piece on b8 -> capture promotions x4
             var b = BoardFactory.FromFenOrStart("1r6/P7/8/8/8/8/8/7k w - - 0 1");
-            var capPromos = b.GenerateLegal().Where(m => m.Kind == Board.MoveKind.PromotionCapture).ToList();
+            var capPromos = b.GenerateLegal().Where(m => m.IsPromotion && m.IsCapture).ToList();
             capPromos.Should().HaveCount(4);
         }
     }
