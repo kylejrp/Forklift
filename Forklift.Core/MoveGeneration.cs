@@ -221,12 +221,11 @@ namespace Forklift.Core
                 }
             }
         }
-
+        private static readonly int[] kingDeltas = [+1, -1, +16, -16, +15, +17, -15, -17];
         // --- King (no castling here; see GenerateCastling) --------------------------------
         private static void GenerateKingMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index)
         {
             bool white = sideToMove.IsWhite();
-            ReadOnlySpan<int> deltas = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
 
             Piece king = white ? Piece.WhiteKing : Piece.BlackKing;
             ulong bb = board.GetPieceBitboard(king);
@@ -235,9 +234,9 @@ namespace Forklift.Core
             int s64 = BitOperations.TrailingZeroCount(bb);
             var from88 = (Square0x88)new Square0x64(s64);
 
-            for (int i = 0; i < deltas.Length; i++)
+            for (int i = 0; i < kingDeltas.Length; i++)
             {
-                var toUnsafe = new UnsafeSquare0x88(from88.Value + deltas[i]);
+                var toUnsafe = new UnsafeSquare0x88(from88.Value + kingDeltas[i]);
                 if (Squares.IsOffboard(toUnsafe)) continue;
 
                 var to88 = (Square0x88)toUnsafe;
