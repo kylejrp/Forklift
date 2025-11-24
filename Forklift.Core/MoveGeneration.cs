@@ -169,7 +169,7 @@ namespace Forklift.Core
                     {
                         int toS64 = BitOperations.TrailingZeroCount(quiets);
                         quiets &= quiets - 1;
-                        buffer[index++] = Move.Normal(from88, (Square0x88)new Square0x64(toS64)), mover);
+                        buffer[index++] = Move.Normal(from88, (Square0x88)new Square0x64(toS64), mover);
                     }
                 }
 
