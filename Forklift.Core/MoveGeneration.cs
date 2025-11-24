@@ -94,7 +94,7 @@ namespace Forklift.Core
                     if (board.At(one88) == Piece.Empty)
                     {
                         var isPromotionRank = rank == PromotionRank[colorIdx];
-                        if (isPromotionRank && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Promotion)))
+                        if (isPromotionRank && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Promotion) || onlyKinds.Value.HasFlag(MoveKind.Normal)))
                         {
                             foreach (var promo in PromotionPieces[colorIdx])
                                 buffer[index++] = Move.PromotionPush(from88, one88, pawn, promo);
