@@ -26,10 +26,10 @@ namespace Forklift.Core
         // It is safe to use [SkipLocalsInit] here because the stackalloc'd Move buffer is fully written to
         // before any reads occur; no uninitialized memory is ever accessed. This is a performance optimization.
         [SkipLocalsInit]
-        public static Move[] GeneratePseudoLegal(Board board, Color sideToMove)
+        public static Move[] GeneratePseudoLegal(Board board, Color sideToMove, MoveKind? onlyKinds = null)
         {
             Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
-            GeneratePseudoLegal(board, ref moveBuffer, sideToMove);
+            GeneratePseudoLegal(board, ref moveBuffer, sideToMove, onlyKinds);
             return moveBuffer.ToArray();
         }
 
