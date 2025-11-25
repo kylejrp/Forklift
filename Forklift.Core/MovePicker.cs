@@ -97,7 +97,7 @@
                 }
                 else if (_moveGenerationStrategy == MoveGenerationStrategy.PseudoLegalNonQuietOnly)
                 {
-                    MoveGeneration.GeneratePseudoLegal(_board, ref _moveBuffer, _board.SideToMove, Board.MoveKind.NonQuiet);
+                    MoveGeneration.GeneratePseudoLegal(_board, ref _moveBuffer, _board.SideToMove, MoveGeneration.MoveKindFilter.NonQuiet);
                 }
                 else
                 {
@@ -126,7 +126,7 @@
 
             if (_stage == Stage.OrderTtMove)
             {
-                if (_ttMove.HasValue && (!_pvMove.HasValue || _pvMove.Value != _ttMove.Value) && PromoteMove(_ttMove))
+                if (_ttMove.HasValue && (!_pvMove.HasValue || _pvMove.Value != _ttMove.Value) && _board.MoveIsLegal(_ttMove) && PromoteMove(_ttMove))
                 {
                     _stage = Stage.PickBestTtMove;
                 }
