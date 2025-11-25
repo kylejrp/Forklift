@@ -188,12 +188,11 @@ namespace Forklift.Core
             // but we still use the stored best move for ordering – this keeps
             // the PV stable and avoids “playing from the table” at the root.
             var probe = _transpositionTable.Probe(board.ZKey, depth, alpha, beta, ply);
-            Board.Move? ttMove = probe.BestMove;
-
-            if (probe.HasScore && ply > 0)
+            var ttMove = probe.BestMove;
+            if (probe.Score.HasValue && ply > 0 && board.MoveIsLegal(ttMove))
             {
                 // Trusted hit: use the stored value and best move.
-                return new SearchNodeResult(ttMove, probe.Score, true, nodesSearched);
+                return new SearchNodeResult(ttMove, probe.Score.Value, true, nodesSearched);
             }
 
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];

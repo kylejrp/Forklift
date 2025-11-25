@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Forklift.Core;
 
@@ -23,20 +24,16 @@ public sealed class TranspositionTable
     private readonly Entry[] _entries;
     private readonly int _mask;
 
-    private struct Entry
-    {
-        public ulong ZobristKey;
-        public int Depth;
-        public int Score;
-        public NodeType NodeType;
-        public Board.Move BestMove;
-        public bool HasMove;
-        public bool IsValid;
-    }
+    public readonly record struct Entry(
+        ulong ZobristKey,
+        int Depth,
+        int Score,
+        NodeType NodeType,
+        Board.Move? BestMove);
 
-    public readonly record struct ProbeResult(bool Hit, bool HasScore, int Score, Board.Move? BestMove)
+    public readonly record struct ProbeResult(bool Hit, int? Score, Board.Move? BestMove)
     {
-        public static ProbeResult Miss => new(false, false, 0, null);
+        public static ProbeResult Miss => new(false, null, null);
     }
 
     public TranspositionTable(int sizePowerOfTwo = 20)
@@ -58,23 +55,22 @@ public sealed class TranspositionTable
     /// </summary>
     /// <param name="zobristKey">The Zobrist hash key representing the current board position.</param>
     /// <param name="depth">The search depth (in plies) for which the entry is valid.</param>
-    /// <param name="alpha">The lower bound of the alpha-beta search window.</param>
-    /// <param name="beta">The upper bound of the alpha-beta search window.</param>
+    /// <param name="alpha">The upper bound of the alpha-beta search window.</param>
+    /// <param name="beta">The lower bound of the alpha-beta search window.</param>
     /// <param name="ply">The current search ply, used to adjust mate scores relative to the root.</param>
     /// <returns>
-    /// A <see cref="ProbeResult"/> indicating whether a matching entry was found (<c>Hit</c>), 
-    /// whether the stored score is usable for the current search window (<c>HasScore</c>), 
+    /// A <see cref="ProbeResult"/> indicating whether a matching entry was found (<c>Hit</c>),
     /// the score (if available, adjusted for mate distance), and the best move (if available).
     /// </returns>
     public ProbeResult Probe(ulong zobristKey, int depth, int alpha, int beta, int ply)
     {
         ref var entry = ref _entries[(int)(zobristKey & (uint)_mask)];
-        if (!entry.IsValid || entry.ZobristKey != zobristKey)
+        if (entry.ZobristKey != zobristKey || depth == 0)
         {
             return ProbeResult.Miss;
         }
 
-        Board.Move? bestMove = entry.HasMove ? entry.BestMove : null;
+        Board.Move? bestMove = entry.BestMove;
 
         if (entry.Depth >= depth)
         {
@@ -89,11 +85,11 @@ public sealed class TranspositionTable
 
             if (useScore)
             {
-                return new ProbeResult(true, true, score, bestMove);
+                return new ProbeResult(true, score, bestMove);
             }
         }
 
-        return new ProbeResult(true, false, 0, bestMove);
+        return new ProbeResult(true, null, bestMove);
     }
 
     /// <summary>
@@ -111,8 +107,8 @@ public sealed class TranspositionTable
     /// The type of node:
     /// <list type="bullet">
     /// <item><description><see cref="NodeType.Exact"/>: The score is exact (PV node).</description></item>
-    /// <item><description><see cref="NodeType.Alpha"/>: The score is a lower bound (fail-low).</description></item>
-    /// <item><description><see cref="NodeType.Beta"/>: The score is an upper bound (fail-high).</description></item>
+    /// <item><description><see cref="NodeType.Alpha"/>: The score is an upper bound (fail-high).</description></item>
+    /// <item><description><see cref="NodeType.Beta"/>: The score is a lower bound (fail-low).</description></item>
     /// </list>
     /// </param>
     /// <param name="bestMove">The best move found from this position, or <c>null</c> if unknown.</param>
@@ -126,26 +122,17 @@ public sealed class TranspositionTable
     {
         ref var entry = ref _entries[(int)(zobristKey & (uint)_mask)];
 
-        if (entry.IsValid && entry.ZobristKey == zobristKey && entry.Depth >= depth)
+        if (entry.ZobristKey == zobristKey && entry.Depth >= depth)
         {
             return;
         }
 
-        entry.ZobristKey = zobristKey;
-        entry.Depth = depth;
-        entry.Score = NormalizeScoreForStorage(score, ply);
-        entry.NodeType = nodeType;
-        if (bestMove is Board.Move mv)
-        {
-            entry.BestMove = mv;
-            entry.HasMove = true;
-        }
-        else
-        {
-            entry.BestMove = default;
-            entry.HasMove = false;
-        }
-        entry.IsValid = true;
+        entry = new Entry(
+            ZobristKey: zobristKey,
+            Depth: depth,
+            Score: NormalizeScoreForStorage(score, ply),
+            NodeType: nodeType,
+            BestMove: bestMove);
     }
 
     private static int NormalizeScoreForStorage(int score, int ply)
