@@ -10,6 +10,8 @@ public sealed class TranspositionTable
 {
     public enum NodeType
     {
+        Miss,
+        BadScore,
         Exact,
         Alpha,
         Beta
@@ -31,9 +33,10 @@ public sealed class TranspositionTable
         NodeType NodeType,
         Board.Move? BestMove);
 
-    public readonly record struct ProbeResult(bool Hit, int? Score, Board.Move? BestMove)
+    public readonly record struct ProbeResult(NodeType NodeType, int? Score, Board.Move? BestMove)
     {
-        public static ProbeResult Miss => new(false, null, null);
+        public bool Hit => NodeType != NodeType.Miss;
+        public static ProbeResult Miss => new(NodeType.Miss, null, null);
     }
 
     public TranspositionTable(int sizePowerOfTwo = 20)
@@ -85,11 +88,11 @@ public sealed class TranspositionTable
 
             if (useScore)
             {
-                return new ProbeResult(true, score, bestMove);
+                return new ProbeResult(entry.NodeType, score, bestMove);
             }
         }
 
-        return new ProbeResult(true, null, bestMove);
+        return new ProbeResult(NodeType.BadScore, null, bestMove);
     }
 
     /// <summary>

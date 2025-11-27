@@ -5,7 +5,7 @@ namespace Forklift.Core
 {
     public static class Search
     {
-        public readonly record struct SearchSummary(Board.Move? BestMove, int BestScore, int CompletedDepth, int NodesSearched);
+        public readonly record struct SearchSummary(Board.Move? BestMove, Board.Move?[] PrincipalVariation, int BestScore, int CompletedDepth, int NodesSearched);
 
         private readonly record struct SearchNodeResult(Board.Move? BestMove, int BestScore, bool IsComplete, int NodesSearched);
 
@@ -25,15 +25,6 @@ namespace Forklift.Core
         private static readonly Board.Move?[] _killerMovesSecondary = new Board.Move?[MaxPly];
         private static readonly HistoryTable _historyScores = new HistoryTable();
 
-        private static readonly int[] _pieceOrderingValues = {
-            100, // Pawn
-            320, // Knight
-            330, // Bishop
-            500, // Rook
-            900, // Queen
-            2000 // King
-        };
-
         public static void ClearTranspositionTable() => _transpositionTable.Clear();
 
         public static void ClearHeuristics()
@@ -52,8 +43,9 @@ namespace Forklift.Core
             int finalBestScore = MinimumScore;
             int completedDepth = 0;
             int totalNodesSearched = 0;
-
-            Board.Move? pvMove = null;
+            PrincipalVariationTable pvTable = new PrincipalVariationTable(maxDepth);
+            ReadOnlySpan<Board.Move?> rootPv = pvTable.GetRootPrincipalVariation();
+            // TODO: on ponder hit, initialize pvTable from previous search PV
 
             for (int depth = 1; depth <= maxDepth; depth++)
             {
@@ -68,7 +60,7 @@ namespace Forklift.Core
                     alpha: MinimumScore,
                     beta: MaximumScore,
                     ply: 0,
-                    preferredMove: pvMove,
+                    pvTable: pvTable,
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
 
@@ -79,20 +71,25 @@ namespace Forklift.Core
                     break;
                 }
 
-                completedDepth = depth;
+                if (completedDepth < depth)
+                {
+                    // completed this depth
+                    completedDepth = depth;
+                    // only update the rootPv if we completed the depth
+                    rootPv = pvTable.GetRootPrincipalVariation();
+                }
 
                 if (result.BestMove is not null)
                 {
                     finalBestMove = result.BestMove;
                     finalBestScore = result.BestScore;
-                    pvMove = result.BestMove;
                 }
                 else if (finalBestMove is null)
                 {
                     finalBestScore = result.BestScore;
                 }
 
-                summaryCallback?.Invoke(new SearchSummary(finalBestMove, finalBestScore, completedDepth, totalNodesSearched));
+                summaryCallback?.Invoke(new SearchSummary(finalBestMove, rootPv.ToArray(), finalBestScore, completedDepth, totalNodesSearched));
             }
 
             if (finalBestMove is null)
@@ -107,7 +104,7 @@ namespace Forklift.Core
                 }
             }
 
-            return new SearchSummary(finalBestMove, finalBestScore, completedDepth, totalNodesSearched);
+            return new SearchSummary(finalBestMove, rootPv.ToArray(), finalBestScore, completedDepth, totalNodesSearched);
         }
 
         private static SearchNodeResult Negamax(
@@ -116,7 +113,7 @@ namespace Forklift.Core
             int alpha,
             int beta,
             int ply,
-            Board.Move? preferredMove,
+            PrincipalVariationTable pvTable,
             bool parentMoveWasNullMove,
             CancellationToken cancellationToken)
         {
@@ -130,6 +127,8 @@ namespace Forklift.Core
                 QuiescenceResult q = Quiescence(board, alpha, beta, ply + 1, cancellationToken);
                 return new SearchNodeResult(null, q.BestScore, q.IsComplete, q.NodesSearched);
             }
+
+            pvTable.ResetAtPly(ply);
 
             int alphaOriginal = alpha;
             int nodesSearched = 0;
@@ -153,7 +152,7 @@ namespace Forklift.Core
                     alpha: -beta,
                     beta: -beta + 1,
                     ply: ply + 1,
-                    preferredMove: null,
+                    pvTable: pvTable,
                     parentMoveWasNullMove: true,
                     cancellationToken: cancellationToken);
                 board.UnmakeNullMove(nullState);
@@ -188,19 +187,47 @@ namespace Forklift.Core
             // but we still use the stored best move for ordering – this keeps
             // the PV stable and avoids “playing from the table” at the root.
             var probe = _transpositionTable.Probe(board.ZKey, depth, alpha, beta, ply);
-            var ttMove = probe.BestMove;
-            if (probe.Score.HasValue && ply > 0 && board.MoveIsLegal(ttMove))
+            Board.Move? ttMove = null;
+            if (probe.Score.HasValue && ply > 0)
             {
                 // Trusted hit: use the stored value and best move.
-                return new SearchNodeResult(ttMove, probe.Score.Value, true, nodesSearched);
+                ttMove = probe.BestMove;
+
+                // If the score is a definitive cutoff (Beta/Lower Bound) or fail-low (Alpha/Upper Bound)
+                // that is compatible with our current window, we can return immediately,
+                // as this node is NOT the principal variation.
+
+                // For a Triangular PV table, we must only cut off if we are certain
+                // the move won't become part of the PV.
+
+                if (probe.NodeType == TranspositionTable.NodeType.Beta && probe.Score.Value >= beta && board.MoveIsLegal(ttMove))
+                {
+                    // TT found a move that caused a beta cutoff at this depth.
+                    return new SearchNodeResult(ttMove, probe.Score.Value, true, nodesSearched);
+                }
+
+                if (probe.NodeType == TranspositionTable.NodeType.Alpha && probe.Score.Value <= alpha && board.MoveIsLegal(ttMove))
+                {
+                    // TT found a score lower than our current alpha. Fail low.
+                    return new SearchNodeResult(ttMove, probe.Score.Value, true, nodesSearched);
+                }
+
+                // If NodeType == Exact OR (NodeType == Beta/Alpha but score doesn't cause cutoff),
+                // we must continue the search body. This ensures the PV is written.
+                // We use ttMove later for move ordering.
+            }
+            else if (ply == 0 && board.MoveIsLegal(probe.BestMove))
+            {
+                ttMove = probe.BestMove;
             }
 
+            var pvMove = pvTable.GetMoveAt(ply);
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
             var picker = new MovePicker(
                 board: board,
                 moveBuffer: moves,
                 history: _historyScores,
-                pvMove: preferredMove,
+                pvMove: pvMove,
                 ttMove: ttMove,
                 killer1: ply < MaxPly && _killerMovesPrimary[ply] is Board.Move killer1 && killer1.IsQuiet ? killer1 : null,
                 killer2: ply < MaxPly && _killerMovesSecondary[ply] is Board.Move killer2 && killer2.IsQuiet ? killer2 : null
@@ -235,7 +262,7 @@ namespace Forklift.Core
                     alpha: -beta,
                     beta: -alpha,
                     ply: ply + 1,
-                    preferredMove: null,
+                    pvTable: pvTable,
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
@@ -261,6 +288,7 @@ namespace Forklift.Core
                     if (score > alpha)
                     {
                         alpha = score;
+                        pvTable.UpdateFromChild(ply, move);
                     }
                 }
 
@@ -297,7 +325,7 @@ namespace Forklift.Core
             }
 
             bool completed;
-            if (preferredMove is not null)
+            if (pvMove is not null)
             {
                 // Root (or PV-ordered) node: as long as we saw at least one
                 // complete child, we consider this iteration usable at the root.
@@ -524,82 +552,6 @@ namespace Forklift.Core
         private static int GetHistoryScore(Board.Move move)
         {
             return _historyScores.Get(move);
-        }
-
-        private static int ScoreCapture(Board.Move move)
-        {
-            int victimValue = _pieceOrderingValues[(int)move.Captured.Type];
-            int attackerValue = _pieceOrderingValues[(int)move.Mover.Type];
-            return victimValue * 10 - attackerValue;
-        }
-        private static void OrderCapturesByMvvLva(Span<Board.Move> moves, int startIndex, int moveCount)
-        {
-            for (int current = startIndex; current < moveCount; current++)
-            {
-                int bestIndex = -1;
-                int bestScore = int.MinValue;
-
-                for (int candidate = current; candidate < moveCount; candidate++)
-                {
-                    var move = moves[candidate];
-                    if (!move.IsCapture)
-                    {
-                        continue;
-                    }
-
-                    int score = ScoreCapture(move);
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        bestIndex = candidate;
-                    }
-                }
-
-                if (bestIndex == -1)
-                {
-                    break;
-                }
-
-                if (bestIndex != current)
-                {
-                    (moves[current], moves[bestIndex]) = (moves[bestIndex], moves[current]);
-                }
-            }
-        }
-
-        private static void OrderQuietMovesByHistory(Span<Board.Move> moves, int startIndex, int moveCount)
-        {
-            for (int current = startIndex; current < moveCount; current++)
-            {
-                int bestIndex = -1;
-                int bestScore = int.MinValue;
-
-                for (int candidate = current; candidate < moveCount; candidate++)
-                {
-                    var move = moves[candidate];
-                    if (!move.IsQuiet)
-                    {
-                        continue;
-                    }
-
-                    int score = GetHistoryScore(move);
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        bestIndex = candidate;
-                    }
-                }
-
-                if (bestIndex == -1)
-                {
-                    break;
-                }
-
-                if (bestIndex != current)
-                {
-                    (moves[current], moves[bestIndex]) = (moves[bestIndex], moves[current]);
-                }
-            }
         }
 
         private static bool HasNonPawnMaterial(Board board)
