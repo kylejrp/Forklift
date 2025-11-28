@@ -44,7 +44,7 @@ namespace Forklift.Core
             int completedDepth = 0;
             int totalNodesSearched = 0;
             PrincipalVariationTable pvTable = new PrincipalVariationTable(maxDepth);
-            ReadOnlySpan<Board.Move?> rootPv = pvTable.GetRootPrincipalVariation();
+            ReadOnlySpan<Board.Move?> rootPv = pvTable.GetRootPv().ToArray();
             // TODO: on ponder hit, initialize pvTable from previous search PV
 
             for (int depth = 1; depth <= maxDepth; depth++)
@@ -60,6 +60,7 @@ namespace Forklift.Core
                     alpha: MinimumScore,
                     beta: MaximumScore,
                     ply: 0,
+                    pv: rootPv,
                     pvTable: pvTable,
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
@@ -76,7 +77,7 @@ namespace Forklift.Core
                     // completed this depth
                     completedDepth = depth;
                     // only update the rootPv if we completed the depth
-                    rootPv = pvTable.GetRootPrincipalVariation();
+                    rootPv = pvTable.GetRootPv().ToArray();
                 }
 
                 if (result.BestMove is not null)
@@ -113,6 +114,7 @@ namespace Forklift.Core
             int alpha,
             int beta,
             int ply,
+            ReadOnlySpan<Board.Move?> pv,
             PrincipalVariationTable pvTable,
             bool parentMoveWasNullMove,
             CancellationToken cancellationToken)
@@ -128,7 +130,7 @@ namespace Forklift.Core
                 return new SearchNodeResult(null, q.BestScore, q.IsComplete, q.NodesSearched);
             }
 
-            pvTable.ResetAtPly(ply);
+            pvTable.InitPly(ply);
 
             int alphaOriginal = alpha;
             int nodesSearched = 0;
@@ -152,6 +154,7 @@ namespace Forklift.Core
                     alpha: -beta,
                     beta: -beta + 1,
                     ply: ply + 1,
+                    pv: null,
                     pvTable: pvTable,
                     parentMoveWasNullMove: true,
                     cancellationToken: cancellationToken);
@@ -187,47 +190,18 @@ namespace Forklift.Core
             // but we still use the stored best move for ordering – this keeps
             // the PV stable and avoids “playing from the table” at the root.
             var probe = _transpositionTable.Probe(board.ZKey, depth, alpha, beta, ply);
-            Board.Move? ttMove = null;
-            if (probe.Score.HasValue && ply > 0)
+            Board.Move? ttMove = probe.BestMove;
+            if (ply > 0 && probe.Hit && probe.Score.HasValue && board.MoveIsLegal(ttMove))
             {
-                // Trusted hit: use the stored value and best move.
-                ttMove = probe.BestMove;
-
-                // If the score is a definitive cutoff (Beta/Lower Bound) or fail-low (Alpha/Upper Bound)
-                // that is compatible with our current window, we can return immediately,
-                // as this node is NOT the principal variation.
-
-                // For a Triangular PV table, we must only cut off if we are certain
-                // the move won't become part of the PV.
-
-                if (probe.NodeType == TranspositionTable.NodeType.Beta && probe.Score.Value >= beta && board.MoveIsLegal(ttMove))
-                {
-                    // TT found a move that caused a beta cutoff at this depth.
-                    return new SearchNodeResult(ttMove, probe.Score.Value, true, nodesSearched);
-                }
-
-                if (probe.NodeType == TranspositionTable.NodeType.Alpha && probe.Score.Value <= alpha && board.MoveIsLegal(ttMove))
-                {
-                    // TT found a score lower than our current alpha. Fail low.
-                    return new SearchNodeResult(ttMove, probe.Score.Value, true, nodesSearched);
-                }
-
-                // If NodeType == Exact OR (NodeType == Beta/Alpha but score doesn't cause cutoff),
-                // we must continue the search body. This ensures the PV is written.
-                // We use ttMove later for move ordering.
-            }
-            else if (ply == 0 && board.MoveIsLegal(probe.BestMove))
-            {
-                ttMove = probe.BestMove;
+                return new SearchNodeResult(ttMove, probe.Score.Value, true, nodesSearched);
             }
 
-            var pvMove = pvTable.GetMoveAt(ply);
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
             var picker = new MovePicker(
                 board: board,
                 moveBuffer: moves,
                 history: _historyScores,
-                pvMove: pvMove,
+                pvMove: pv.Length > 0 ? pv[0] : null,
                 ttMove: ttMove,
                 killer1: ply < MaxPly && _killerMovesPrimary[ply] is Board.Move killer1 && killer1.IsQuiet ? killer1 : null,
                 killer2: ply < MaxPly && _killerMovesSecondary[ply] is Board.Move killer2 && killer2.IsQuiet ? killer2 : null
@@ -241,7 +215,7 @@ namespace Forklift.Core
             bool aborted = false;
             bool betaCutoff = false;
             List<Board.Move> quietMovesSearched = new List<Board.Move>();
-
+            var pvMove = pv.Length > 0 ? pv[0] : null;
             while (picker.Next() is Board.Move move)
             {
                 legalMoveCount++;
@@ -262,6 +236,7 @@ namespace Forklift.Core
                     alpha: -beta,
                     beta: -alpha,
                     ply: ply + 1,
+                    pv: pv.Length > 1 && move == pvMove ? pv[1..] : default,
                     pvTable: pvTable,
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
@@ -288,7 +263,7 @@ namespace Forklift.Core
                     if (score > alpha)
                     {
                         alpha = score;
-                        pvTable.UpdateFromChild(ply, move);
+                        pvTable.Update(ply, bestMove.Value);
                     }
                 }
 
