@@ -1,9 +1,12 @@
 using System.Threading.Channels;
+using Forklift.Core;
+using OneOf;
+using static Forklift.Core.Search;
 
 static class UciLogger
 {
-    private static readonly Channel<string> _channel =
-        Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+    private static readonly Channel<OneOf<string, SearchInfo>> _channel =
+        Channel.CreateUnbounded<OneOf<string, SearchInfo>>(new UnboundedChannelOptions
         {
             SingleReader = true,
             SingleWriter = false
@@ -13,7 +16,10 @@ static class UciLogger
     {
         await foreach (var line in _channel.Reader.ReadAllAsync())
         {
-            Console.WriteLine(line);
+            line.Switch(
+                str => Console.WriteLine(str),
+                info => Console.WriteLine(info)
+            );
         }
     });
 
@@ -28,7 +34,20 @@ static class UciLogger
         }, TaskContinuationOptions.OnlyOnFaulted);
     }
 
-    public static bool TryLog(string line)
+    public readonly record struct SearchInfo(
+        SearchSummary Summary,
+        TimeSpan Elapsed
+    )
+    {
+        public override string ToString()
+        {
+            var nps = Summary.NodesSearched / Math.Max(Elapsed.TotalMilliseconds / 1000.0, 1);
+            var pvString = Summary.BestMove?.ToUCIString() ?? "0000";
+            return $"info depth {Summary.CompletedDepth} score cp {Summary.BestScore} nodes {Summary.NodesSearched} nps {nps:F0} time {Elapsed.TotalMilliseconds:F0} pv {pvString}";
+        }
+    };
+
+    public static bool TryLog(OneOf<string, SearchInfo> line)
     {
         // Non-blocking enqueue
         return _channel.Writer.TryWrite(line);
