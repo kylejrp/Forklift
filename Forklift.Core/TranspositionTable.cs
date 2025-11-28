@@ -62,8 +62,8 @@ public sealed class TranspositionTable
     /// <param name="beta">The upper bound of the alpha-beta search window.</param>
     /// <param name="ply">The current search ply, used to adjust mate scores relative to the root.</param>
     /// <returns>
-    /// A <see cref="ProbeResult"/> indicating whether a matching entry was found (<c>Hit</c>), 
-    /// whether the stored score is usable for the current search window (<c>HasScore</c>), 
+    /// A <see cref="ProbeResult"/> indicating whether a matching entry was found (<c>Hit</c>),
+    /// whether the stored score is usable for the current search window (<c>HasScore</c>),
     /// the score (if available, adjusted for mate distance), and the best move (if available).
     /// </returns>
     public ProbeResult Probe(ulong zobristKey, int depth, int alpha, int beta, int ply)

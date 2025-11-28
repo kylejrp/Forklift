@@ -1,4 +1,6 @@
-﻿namespace Forklift.Core
+﻿using System.Diagnostics;
+
+namespace Forklift.Core
 {
     public ref struct MovePicker
     {
@@ -126,7 +128,7 @@
 
             if (_stage == Stage.OrderTtMove)
             {
-                if (_ttMove.HasValue && (!_pvMove.HasValue || _pvMove.Value != _ttMove.Value) && _board.MoveIsLegal(_ttMove) && PromoteMove(_ttMove))
+                if (_ttMove.HasValue && (!_pvMove.HasValue || _pvMove.Value != _ttMove.Value) && PromoteMove(_ttMove))
                 {
                     _stage = Stage.PickBestTtMove;
                 }
