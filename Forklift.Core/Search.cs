@@ -5,7 +5,7 @@ namespace Forklift.Core
 {
     public static class Search
     {
-        public readonly record struct SearchSummary(Board.Move? BestMove, int BestScore, int CompletedDepth, int NodesSearched);
+        public readonly record struct SearchSummary(Board.Move?[] PrincipalVariation, int BestScore, int CompletedDepth, int NodesSearched);
 
         private readonly record struct SearchNodeResult(Board.Move? BestMove, int BestScore, bool IsComplete, int NodesSearched);
 
@@ -53,7 +53,7 @@ namespace Forklift.Core
             int completedDepth = 0;
             int totalNodesSearched = 0;
 
-            Board.Move? pvMove = null;
+            Board.Move?[] pvMoves = Array.Empty<Board.Move?>();
 
             for (int depth = 1; depth <= maxDepth; depth++)
             {
@@ -68,7 +68,7 @@ namespace Forklift.Core
                     alpha: MinimumScore,
                     beta: MaximumScore,
                     ply: 0,
-                    preferredMove: pvMove,
+                    preferredMoves: pvMoves,
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
 
@@ -85,14 +85,14 @@ namespace Forklift.Core
                 {
                     finalBestMove = result.BestMove;
                     finalBestScore = result.BestScore;
-                    pvMove = result.BestMove;
+                    pvMoves = result.BestMove.HasValue ? [result.BestMove] : pvMoves;
                 }
                 else if (finalBestMove is null)
                 {
                     finalBestScore = result.BestScore;
                 }
 
-                summaryCallback?.Invoke(new SearchSummary(finalBestMove, finalBestScore, completedDepth, totalNodesSearched));
+                summaryCallback?.Invoke(new SearchSummary(pvMoves, finalBestScore, completedDepth, totalNodesSearched));
             }
 
             if (finalBestMove is null)
@@ -107,7 +107,7 @@ namespace Forklift.Core
                 }
             }
 
-            return new SearchSummary(finalBestMove, finalBestScore, completedDepth, totalNodesSearched);
+            return new SearchSummary(pvMoves, finalBestScore, completedDepth, totalNodesSearched);
         }
 
         private static SearchNodeResult Negamax(
@@ -116,7 +116,7 @@ namespace Forklift.Core
             int alpha,
             int beta,
             int ply,
-            Board.Move? preferredMove,
+            Board.Move?[] preferredMoves,
             bool parentMoveWasNullMove,
             CancellationToken cancellationToken)
         {
@@ -153,7 +153,7 @@ namespace Forklift.Core
                     alpha: -beta,
                     beta: -beta + 1,
                     ply: ply + 1,
-                    preferredMove: null,
+                    preferredMoves: Array.Empty<Board.Move?>(),
                     parentMoveWasNullMove: true,
                     cancellationToken: cancellationToken);
                 board.UnmakeNullMove(nullState);
@@ -192,6 +192,7 @@ namespace Forklift.Core
                 return new SearchNodeResult(ttMove, probeScore.Value, true, nodesSearched);
             }
 
+            var preferredMove = preferredMoves.Length > 0 ? preferredMoves[0] : null;
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
             var picker = new MovePicker(
                 board: board,
@@ -232,7 +233,7 @@ namespace Forklift.Core
                     alpha: -beta,
                     beta: -alpha,
                     ply: ply + 1,
-                    preferredMove: null,
+                    preferredMoves: preferredMoves.Length > 1 ? preferredMoves[1..] : Array.Empty<Board.Move?>(),
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);

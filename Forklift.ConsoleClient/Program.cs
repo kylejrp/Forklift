@@ -282,7 +282,7 @@ void HandleGo(
                 var stopwatch = Stopwatch.StartNew();
                 var summaryCallback = (Search.SearchSummary s) => { TryLog(new SearchInfo(s, stopwatch.Elapsed)); };
                 var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken, summaryCallback);
-                var bestMove = summary.BestMove;
+                var bestMove = summary.PrincipalVariation.Length > 0 ? summary.PrincipalVariation[0] : null;
                 var bestScore = summary.BestScore;
                 var completedDepth = summary.CompletedDepth;
 
