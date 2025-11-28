@@ -41,7 +41,9 @@ static class UciLogger
     {
         public override string ToString()
         {
-            return $"info depth {Summary.CompletedDepth} score cp {Summary.BestScore} nodes {Summary.NodesSearched} nps {Summary.NodesSearched / Math.Max(Elapsed.TotalMilliseconds / 1000.0, 1):F0} time {Elapsed.TotalMilliseconds:F0}{$" pv {Summary.BestMove?.ToUCIString() ?? "0000"}"}";
+            var nps = Summary.NodesSearched / Math.Max(Elapsed.TotalMilliseconds / 1000.0, 1);
+            var pvString = Summary.BestMove?.ToUCIString() ?? "0000";
+            return $"info depth {Summary.CompletedDepth} score cp {Summary.BestScore} nodes {Summary.NodesSearched} nps {nps:F0} time {Elapsed.TotalMilliseconds:F0} pv {pvString}";
         }
     };
 
