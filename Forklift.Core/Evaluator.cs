@@ -11,7 +11,7 @@ namespace Forklift.Core
         private static readonly int[] MgValue = { 82, 337, 365, 477, 1025, 0 };
         private static readonly int[] EgValue = { 94, 281, 297, 512, 936, 0 };
 
-        public const int MaxEvaluationScore = 30_000;
+        public const int MaxEvaluationScore = 1 << 18; // ±262144
         public const int MinEvaluationScore = -MaxEvaluationScore;
         private const int PhaseMax = 24;
 
