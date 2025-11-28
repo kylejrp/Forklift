@@ -12,9 +12,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Forklift.Analyzers\Forklift.Analyzers.csproj"
-      OutputItemType="Analyzer"
-      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Forklift.Analyzers\Forklift.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OneOf" />
   </ItemGroup>
 
 

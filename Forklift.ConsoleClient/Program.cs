@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using Forklift.Core;
+using static UciLogger;
 
 const int DefaultSearchDepth = 8;
 const int MaxSearchDepthForTimedMode = 20;
@@ -158,35 +159,35 @@ while (true)
 
 void HandleUci()
 {
-    UciLogger.TryLog("id name Forklift");
-    UciLogger.TryLog("id author kylejrp");
-    UciLogger.TryLog("option name Hash type spin default 1 min 1 max 1");
-    UciLogger.TryLog("option name Threads type spin default 1 min 1 max 1");
-    UciLogger.TryLog("uciok");
+    TryLog("id name Forklift");
+    TryLog("id author kylejrp");
+    TryLog("option name Hash type spin default 1 min 1 max 1");
+    TryLog("option name Threads type spin default 1 min 1 max 1");
+    TryLog("uciok");
 }
 
 void HandleIsReady()
 {
-    UciLogger.TryLog("readyok");
+    TryLog("readyok");
 }
 
 void HandleSetOption(string name, string value)
 {
     options[name] = value;
-    if (debugMode) UciLogger.TryLog($"info string setoption {name} = {value}");
+    if (debugMode) TryLog($"info string setoption {name} = {value}");
 }
 
 void HandleUciNewGame()
 {
     board.SetStartPosition();
     Search.ClearTranspositionTable();
-    if (debugMode) UciLogger.TryLog("info string ucinewgame called");
+    if (debugMode) TryLog("info string ucinewgame called");
 }
 
 void HandleDebug(bool enable)
 {
     debugMode = enable;
-    UciLogger.TryLog($"info string debug {(debugMode ? "on" : "off")}");
+    TryLog($"info string debug {(debugMode ? "on" : "off")}");
 }
 
 void HandlePosition(string[] tokens)
@@ -277,9 +278,9 @@ void HandleGo(
         {
             try
             {
-                if (debugMode) UciLogger.TryLog("info string search started");
+                if (debugMode) TryLog("info string search started");
                 var stopwatch = Stopwatch.StartNew();
-                var summaryCallback = (Search.SearchSummary s) => { UciLogger.TryLog($"info depth {s.CompletedDepth} score cp {s.BestScore} nodes {s.NodesSearched} nps {s.NodesSearched / Math.Max(stopwatch.ElapsedMilliseconds / 1000.0, 1):F0} time {stopwatch.ElapsedMilliseconds} pv {s.BestMove?.ToUCIString() ?? "(none)"}"); };
+                var summaryCallback = (Search.SearchSummary s) => { TryLog(new SearchInfo(s, stopwatch.Elapsed)); };
                 var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken, summaryCallback);
                 var bestMove = summary.BestMove;
                 var bestScore = summary.BestScore;
@@ -287,7 +288,7 @@ void HandleGo(
 
                 if (bestMove is not Board.Move move)
                 {
-                    UciLogger.TryLog("bestmove (none)");
+                    TryLog("bestmove 0000");
                     return;
                 }
 
@@ -295,15 +296,15 @@ void HandleGo(
                 if (debugMode)
                 {
                     var budgetDisplay = allocatedTimeMs.HasValue ? $" (budget {allocatedTimeMs.Value})" : string.Empty;
-                    UciLogger.TryLog($"info string search completed in {elapsedMs / 1000.0:F2}s{budgetDisplay}");
+                    TryLog($"info string search completed in {elapsedMs / 1000.0:F2}s{budgetDisplay}");
                 }
-                UciLogger.TryLog($"bestmove {move.ToUCIString()}");
+                TryLog($"bestmove {move.ToUCIString()}");
             }
             catch (Exception ex)
             {
                 var sanitizedMessage = ex.Message.Replace("\r", "").Replace("\n", "\\n");
                 Console.Error.WriteLine($"info string search error: {sanitizedMessage}");
-                UciLogger.TryLog("bestmove (none)");
+                TryLog("bestmove 0000");
 #if DEBUG
                 throw;
 #endif
@@ -314,7 +315,7 @@ void HandleGo(
 
 void HandleStop()
 {
-    if (debugMode) UciLogger.TryLog("info string stop called");
+    if (debugMode) TryLog("info string stop called");
     lock (searchLock)
     {
         currentSearchCancellationTokenSource?.Cancel();
@@ -357,7 +358,7 @@ void RunBenchmark()
     currentSearchTask?.Wait();
 
     var elapsedMs = sw.ElapsedMilliseconds;
-    UciLogger.TryLog($"info string benchmark completed in {elapsedMs / 1000.0:F2}s");
+    TryLog($"info string benchmark completed in {elapsedMs / 1000.0:F2}s");
 
     // TODO: do a comprehensive benchmark with deep positions
 }
@@ -375,7 +376,7 @@ static int? ComputeTimeBudget(
 {
     if (debugMode)
     {
-        UciLogger.TryLog(
+        TryLog(
             $"info string go inputs side={sideToMove} movetime={moveTimeMs?.ToString() ?? "-"} wtime={whiteTimeMs?.ToString() ?? "-"} " +
             $"btime={blackTimeMs?.ToString() ?? "-"} winc={whiteIncrementMs?.ToString() ?? "-"} binc={blackIncrementMs?.ToString() ?? "-"}");
     }
@@ -385,7 +386,7 @@ static int? ComputeTimeBudget(
         int clamped = Math.Max(moveTimeMs.Value, 0);
         if (debugMode)
         {
-            UciLogger.TryLog($"info string allocated via movetime: {clamped}ms");
+            TryLog($"info string allocated via movetime: {clamped}ms");
         }
 
         return clamped;
@@ -398,7 +399,7 @@ static int? ComputeTimeBudget(
     {
         if (debugMode)
         {
-            UciLogger.TryLog("info string remaining time exhausted; allocating 0ms");
+            TryLog("info string remaining time exhausted; allocating 0ms");
         }
 
         return 0;
@@ -408,7 +409,7 @@ static int? ComputeTimeBudget(
     {
         if (debugMode)
         {
-            UciLogger.TryLog("info string no time control; unlimited time");
+            TryLog("info string no time control; unlimited time");
         }
 
         return null;
@@ -428,7 +429,7 @@ static int? ComputeTimeBudget(
     {
         string remainingDisplay = remainingTimeMs?.ToString() ?? "-";
         string incrementDisplay = incrementMs?.ToString() ?? "-";
-        UciLogger.TryLog($"info string allocated time: {allocatedMs}ms (remaining={remainingDisplay}, increment={incrementDisplay})");
+        TryLog($"info string allocated time: {allocatedMs}ms (remaining={remainingDisplay}, increment={incrementDisplay})");
     }
 
     return allocatedMs;

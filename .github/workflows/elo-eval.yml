@@ -9,6 +9,7 @@ on:
     branches: ["*"]
     paths:
       - "Forklift.Core/**"
+      - "Forklift.ConsoleClient/**"
       - ".github/workflows/elo-eval.yml"
       - "scripts/elo-eval.ps1"
       - "scripts/install-chess-tools.sh"
