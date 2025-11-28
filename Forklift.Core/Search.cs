@@ -183,17 +183,13 @@ namespace Forklift.Core
             // Exact  : full value for this position (can be returned directly).
             // Alpha  : upper bound  (score <= alpha when stored).
             // Beta   : lower bound  (score >= beta  when stored).
-            //
-            // At the root (ply == 0), we *never* return the TT score directly,
-            // but we still use the stored best move for ordering – this keeps
-            // the PV stable and avoids “playing from the table” at the root.
             var probe = _transpositionTable.Probe(board.ZKey, depth, alpha, beta, ply);
             Board.Move? ttMove = probe.BestMove;
 
-            if (probe.HasScore && ply > 0)
+            if (probe.HasUsableScore(out var probeScore))
             {
                 // Trusted hit: use the stored value and best move.
-                return new SearchNodeResult(ttMove, probe.Score, true, nodesSearched);
+                return new SearchNodeResult(ttMove, probeScore.Value, true, nodesSearched);
             }
 
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
