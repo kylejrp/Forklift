@@ -144,6 +144,11 @@
 
             if (_stage == Stage.OrderCapturesByMvvLva)
             {
+                if (_moveGenerationStrategy == MoveGenerationStrategy.PseudoLegalNonQuietOnly)
+                {
+                    //FilterOutBadCaptures();
+                }
+
                 _stage = Stage.PickBestCaptureByMvvLva;
                 OrderCapturesByMvvLva();
             }
@@ -300,6 +305,30 @@
                 _orderedIndex += captureCount;
                 _lastCaptureIndex = _orderedIndex - 1;
             }
+        }
+
+        private void FilterOutBadCaptures()
+        {
+            int writeIndex = _currentIndex;
+            for (int readIndex = _currentIndex; readIndex < _count; readIndex++)
+            {
+                var move = _moveBuffer[readIndex];
+                if (move.IsCapture)
+                {
+                    int victimValue = _pieceOrderingValues[(int)move.Captured.Type];
+                    int attackerValue = _pieceOrderingValues[(int)move.Mover.Type];
+                    int score = victimValue - attackerValue;
+                    if (score >= 0)
+                    {
+                        _moveBuffer[writeIndex++] = move;
+                    }
+                }
+                else
+                {
+                    _moveBuffer[writeIndex++] = move;
+                }
+            }
+            _count = writeIndex;
         }
 
         private static readonly int[] _pieceOrderingValues = {

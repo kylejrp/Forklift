@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace Forklift.Core
@@ -34,6 +35,7 @@ namespace Forklift.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void InitPly(int ply)
         {
+            Debug.Assert(ply < _maxDepth);
             _pvLengths[ply] = 0;
         }
 

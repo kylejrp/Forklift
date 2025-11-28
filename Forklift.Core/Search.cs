@@ -115,7 +115,7 @@ namespace Forklift.Core
             int beta,
             int ply,
             ReadOnlySpan<Board.Move?> pv,
-            PrincipalVariationTable pvTable,
+            PrincipalVariationTable? pvTable,
             bool parentMoveWasNullMove,
             CancellationToken cancellationToken)
         {
@@ -130,7 +130,7 @@ namespace Forklift.Core
                 return new SearchNodeResult(null, q.BestScore, q.IsComplete, q.NodesSearched);
             }
 
-            pvTable.InitPly(ply);
+            pvTable?.InitPly(ply);
 
             int alphaOriginal = alpha;
             int nodesSearched = 0;
@@ -155,7 +155,7 @@ namespace Forklift.Core
                     beta: -beta + 1,
                     ply: ply + 1,
                     pv: null,
-                    pvTable: pvTable,
+                    pvTable: null,
                     parentMoveWasNullMove: true,
                     cancellationToken: cancellationToken);
                 board.UnmakeNullMove(nullState);
@@ -185,15 +185,11 @@ namespace Forklift.Core
             // Exact  : full value for this position (can be returned directly).
             // Alpha  : upper bound  (score <= alpha when stored).
             // Beta   : lower bound  (score >= beta  when stored).
-            //
-            // At the root (ply == 0), we *never* return the TT score directly,
-            // but we still use the stored best move for ordering – this keeps
-            // the PV stable and avoids “playing from the table” at the root.
             var probe = _transpositionTable.Probe(board.ZKey, depth, alpha, beta, ply);
             Board.Move? ttMove = probe.BestMove;
-            if (ply > 0 && probe.Hit && probe.Score.HasValue && board.MoveIsLegal(ttMove))
+            if (probe.HasUsableScore)
             {
-                return new SearchNodeResult(ttMove, probe.Score.Value, true, nodesSearched);
+                return new SearchNodeResult(ttMove, probe.Score!.Value, true, nodesSearched);
             }
 
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
@@ -237,7 +233,7 @@ namespace Forklift.Core
                     beta: -alpha,
                     ply: ply + 1,
                     pv: pv.Length > 1 && move == pvMove ? pv[1..] : default,
-                    pvTable: pvTable,
+                    pvTable: null,
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
@@ -263,7 +259,7 @@ namespace Forklift.Core
                     if (score > alpha)
                     {
                         alpha = score;
-                        pvTable.Update(ply, bestMove.Value);
+                        pvTable?.Update(ply, bestMove.Value);
                     }
                 }
 
