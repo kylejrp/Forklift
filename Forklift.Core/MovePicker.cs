@@ -1,4 +1,6 @@
-﻿namespace Forklift.Core
+﻿using System.Diagnostics;
+
+namespace Forklift.Core
 {
     public ref struct MovePicker
     {
@@ -97,7 +99,7 @@
                 }
                 else if (_moveGenerationStrategy == MoveGenerationStrategy.PseudoLegalNonQuietOnly)
                 {
-                    MoveGeneration.GeneratePseudoLegal(_board, ref _moveBuffer, _board.SideToMove, Board.MoveKind.NonQuiet);
+                    MoveGeneration.GeneratePseudoLegal(_board, ref _moveBuffer, _board.SideToMove, MoveGeneration.MoveKindFilter.NonQuiet);
                 }
                 else
                 {

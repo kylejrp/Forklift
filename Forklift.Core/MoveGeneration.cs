@@ -12,64 +12,107 @@ namespace Forklift.Core
     {
         // Precomputed pawn move tables
         private static readonly int[] PawnPushDelta = { +16, -16 }; // [White, Black]
-        private static readonly int[][] PawnCaptureDeltas = new int[][] {
-            new int[] { +15, +17 }, // White
-            new int[] { -15, -17 }  // Black
-        };
+        private static readonly int[][] PawnCaptureDeltas = [
+            [+15, +17], // White
+            [-15, -17]  // Black
+        ];
         private static readonly int[] PromotionRank = { 6, 1 }; // [White, Black]
         private static readonly int[] DoublePushStartRank = { 1, 6 }; // [White, Black]
-        private static readonly Piece[][] PromotionPieces = new Piece[][] {
-            new Piece[] { Piece.WhiteQueen, Piece.WhiteRook, Piece.WhiteBishop, Piece.WhiteKnight },
-            new Piece[] { Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight }
-        };
+        private static readonly Piece[][] PromotionPieces = [
+            [Piece.WhiteQueen, Piece.WhiteRook, Piece.WhiteBishop, Piece.WhiteKnight],
+            [Piece.BlackQueen, Piece.BlackRook, Piece.BlackBishop, Piece.BlackKnight]
+        ];
 
         // It is safe to use [SkipLocalsInit] here because the stackalloc'd Move buffer is fully written to
         // before any reads occur; no uninitialized memory is ever accessed. This is a performance optimization.
         [SkipLocalsInit]
-        public static Move[] GeneratePseudoLegal(Board board, Color sideToMove, MoveKind? onlyKinds = null)
+        public static Move[] GeneratePseudoLegal(Board board, Color sideToMove, IMoveFilter? moveFilter = null)
         {
             Span<Move> moveBuffer = stackalloc Move[MoveBufferMax];
-            GeneratePseudoLegal(board, ref moveBuffer, sideToMove, onlyKinds);
+            GeneratePseudoLegal(board, ref moveBuffer, sideToMove, moveFilter);
             return moveBuffer.ToArray();
+        }
+
+        public interface IMoveFilter
+        {
+            bool Accept(MoveKind kind);
+            bool Accept(Square0x64 fromSquare);
+            ulong? FromBitboardMask();
+        }
+
+        public class MoveKindFilter : IMoveFilter
+        {
+            private readonly MoveKind _kinds;
+
+            public MoveKindFilter(MoveKind kinds)
+            {
+                _kinds = kinds;
+            }
+
+            public bool Accept(MoveKind kind) => _kinds.HasFlag(kind);
+            public bool Accept(Square0x64 fromSquare) => true;
+            public ulong? FromBitboardMask() => null;
+            public static readonly MoveKindFilter NonQuiet = new MoveKindFilter(MoveKind.NonQuiet);
+        }
+
+        public class Square0x64Filter : IMoveFilter
+        {
+            private readonly Square0x64 _fromSquare;
+
+            public Square0x64Filter(Square0x64 fromSquare)
+            {
+                _fromSquare = fromSquare;
+            }
+
+            public bool Accept(MoveKind kind) => true;
+            public bool Accept(Square0x64 fromSquare) => fromSquare == _fromSquare;
+            public ulong? FromBitboardMask()
+            {
+                ulong mask = 1UL << _fromSquare.Value;
+                return mask;
+            }
+        }
+
+        public class Square0x88Filter : Square0x64Filter
+        {
+            public Square0x88Filter(Square0x88 fromSquare) : base((Square0x64)fromSquare) { }
         }
 
         /// <summary>
         /// Generates all pseudo-legal moves for the current board state.
         /// </summary>
-        public static void GeneratePseudoLegal(Board board, ref Span<Move> buffer, Color sideToMove, MoveKind? onlyKinds = null)
+        public static void GeneratePseudoLegal(Board board, ref Span<Move> buffer, Color sideToMove, IMoveFilter? moveFilter = null)
         {
             int index = 0;
 
-            GeneratePawnMoves(board, ref buffer, sideToMove, ref index, onlyKinds);
+            GeneratePawnMoves(board, ref buffer, sideToMove, ref index, moveFilter);
 
-            GenerateKnightMoves(board, ref buffer, sideToMove, ref index, onlyKinds);
-
+            GenerateKnightMoves(board, ref buffer, sideToMove, ref index, moveFilter);
             // Sliders
             GenerateSliderMoves(board, ref buffer, sideToMove, ref index,
-                sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, onlyKinds);
+                sideToMove.IsWhite() ? Piece.WhiteBishop : Piece.BlackBishop, moveFilter);
 
             GenerateSliderMoves(board, ref buffer, sideToMove, ref index,
-                sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, onlyKinds);
+                sideToMove.IsWhite() ? Piece.WhiteRook : Piece.BlackRook, moveFilter);
 
             GenerateSliderMoves(board, ref buffer, sideToMove, ref index,
-                sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, onlyKinds);
+                sideToMove.IsWhite() ? Piece.WhiteQueen : Piece.BlackQueen, moveFilter);
 
-            GenerateKingMoves(board, ref buffer, sideToMove, ref index, onlyKinds);
+            GenerateKingMoves(board, ref buffer, sideToMove, ref index, moveFilter);
 
-            GenerateCastling(board, ref buffer, sideToMove, ref index, onlyKinds);
+            GenerateCastling(board, ref buffer, sideToMove, ref index, moveFilter);
 
-            GenerateEnPassant(board, ref buffer, sideToMove, ref index, onlyKinds);
-
+            GenerateEnPassant(board, ref buffer, sideToMove, ref index, moveFilter);
             buffer = buffer[..index];
         }
 
         // --- Pawns (pushes, captures, promotions; EP is generated separately) -------------
-        private static void GeneratePawnMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, MoveKind? onlyKinds = null)
+        private static void GeneratePawnMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, IMoveFilter? moveFilter = null)
         {
-            if (onlyKinds != null
-                && !onlyKinds.Value.HasFlag(MoveKind.Normal)
-                && !onlyKinds.Value.HasFlag(MoveKind.Promotion)
-                && !onlyKinds.Value.HasFlag(MoveKind.Capture))
+            if (moveFilter != null
+                && !moveFilter.Accept(MoveKind.Normal)
+                && !moveFilter.Accept(MoveKind.Promotion)
+                && !moveFilter.Accept(MoveKind.Capture))
             {
                 return;
             }
@@ -77,6 +120,10 @@ namespace Forklift.Core
             int colorIdx = sideToMove.IsWhite() ? 0 : 1;
             Piece pawn = colorIdx == 0 ? Piece.WhitePawn : Piece.BlackPawn;
             ulong pawns = board.GetPieceBitboard(pawn);
+            if (moveFilter?.FromBitboardMask() is ulong fromMask)
+            {
+                pawns &= fromMask;
+            }
 
             while (pawns != 0)
             {
@@ -94,12 +141,12 @@ namespace Forklift.Core
                     if (board.At(one88) == Piece.Empty)
                     {
                         var isPromotionRank = rank == PromotionRank[colorIdx];
-                        if (isPromotionRank && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Promotion) || onlyKinds.Value.HasFlag(MoveKind.Normal)))
+                        if (isPromotionRank && (moveFilter == null || moveFilter.Accept(MoveKind.Promotion) || moveFilter.Accept(MoveKind.Normal)))
                         {
                             foreach (var promo in PromotionPieces[colorIdx])
                                 buffer[index++] = Move.PromotionPush(from88, one88, pawn, promo);
                         }
-                        else if (!isPromotionRank && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Normal)))
+                        else if (!isPromotionRank && (moveFilter == null || moveFilter.Accept(MoveKind.Normal)))
                         {
                             buffer[index++] = Move.Normal(from88, one88, pawn);
                             // Double push from start rank (lookup table)
@@ -123,12 +170,12 @@ namespace Forklift.Core
                     var target = board.At(to88);
                     if (target == Piece.Empty || target.IsWhite == (colorIdx == 0)) continue;
                     var isPromotionRank = rank == PromotionRank[colorIdx];
-                    if (isPromotionRank && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Promotion) || onlyKinds.Value.HasFlag(MoveKind.Capture)))
+                    if (isPromotionRank && (moveFilter == null || moveFilter.Accept(MoveKind.Promotion) || moveFilter.Accept(MoveKind.Capture)))
                     {
                         foreach (var promo in PromotionPieces[colorIdx])
                             buffer[index++] = Move.PromotionCapture(from88, to88, pawn, target, promo);
                     }
-                    else if (!isPromotionRank && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Capture)))
+                    else if (!isPromotionRank && (moveFilter == null || moveFilter.Accept(MoveKind.Capture)))
                     {
                         buffer[index++] = Move.Capture(from88, to88, pawn, target);
                     }
@@ -137,11 +184,11 @@ namespace Forklift.Core
         }
 
         // --- Knights ----------------------------------------------------------------------
-        private static void GenerateKnightMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, MoveKind? onlyKinds = null)
+        private static void GenerateKnightMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, IMoveFilter? moveFilter = null)
         {
-            if (onlyKinds != null
-                && !onlyKinds.Value.HasFlag(MoveKind.Normal)
-                && !onlyKinds.Value.HasFlag(MoveKind.Capture))
+            if (moveFilter != null
+                && !moveFilter.Accept(MoveKind.Normal)
+                && !moveFilter.Accept(MoveKind.Capture))
             {
                 return;
             }
@@ -151,6 +198,11 @@ namespace Forklift.Core
             ulong knights = board.GetPieceBitboard(mover);
             ulong occAll = board.GetAllOccupancy();
             ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
+
+            if (moveFilter?.FromBitboardMask() is ulong fromMask)
+            {
+                knights &= fromMask;
+            }
 
             while (knights != 0)
             {
@@ -162,7 +214,7 @@ namespace Forklift.Core
                 ulong attacks = board.Tables.KnightAttackTable[s64];
 
                 // Quiet moves
-                if (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Normal))
+                if (moveFilter == null || moveFilter.Accept(MoveKind.Normal))
                 {
                     ulong quiets = attacks & ~occAll;
                     while (quiets != 0)
@@ -174,7 +226,7 @@ namespace Forklift.Core
                 }
 
                 // Captures
-                if (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Capture))
+                if (moveFilter == null || moveFilter.Accept(MoveKind.Capture))
                 {
                     ulong captures = attacks & occOpp;
                     while (captures != 0)
@@ -189,11 +241,11 @@ namespace Forklift.Core
         }
 
         // --- Sliders (bishops/rooks/queens) ----------------------------------------------
-        private static void GenerateSliderMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, Piece piece, MoveKind? onlyKinds = null)
+        private static void GenerateSliderMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, Piece piece, IMoveFilter? moveFilter = null)
         {
-            if (onlyKinds != null
-                && !onlyKinds.Value.HasFlag(MoveKind.Normal)
-                && !onlyKinds.Value.HasFlag(MoveKind.Capture))
+            if (moveFilter != null
+                && !moveFilter.Accept(MoveKind.Normal)
+                && !moveFilter.Accept(MoveKind.Capture))
             {
                 return;
             }
@@ -202,6 +254,11 @@ namespace Forklift.Core
             ulong sliders = board.GetPieceBitboard(piece);
             ulong occAll = board.GetAllOccupancy();
             ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
+
+            if (moveFilter?.FromBitboardMask() is ulong fromMask)
+            {
+                sliders &= fromMask;
+            }
 
             while (sliders != 0)
             {
@@ -231,7 +288,7 @@ namespace Forklift.Core
                     (bAtt | rAtt);
 
                 // Quiet moves
-                if (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Normal))
+                if (moveFilter == null || moveFilter.Accept(MoveKind.Normal))
                 {
                     ulong quiets = attacks & ~occAll;
                     while (quiets != 0)
@@ -243,7 +300,7 @@ namespace Forklift.Core
                 }
 
                 // Captures
-                if (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Capture))
+                if (moveFilter == null || moveFilter.Accept(MoveKind.Capture))
                 {
                     ulong captures = attacks & occOpp;
                     while (captures != 0)
@@ -258,11 +315,11 @@ namespace Forklift.Core
         }
 
         // --- King (no castling here; see GenerateCastling) --------------------------------
-        private static void GenerateKingMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, MoveKind? onlyKinds = null)
+        private static void GenerateKingMoves(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, IMoveFilter? moveFilter = null)
         {
-            if (onlyKinds != null
-                && !onlyKinds.Value.HasFlag(MoveKind.Normal)
-                && !onlyKinds.Value.HasFlag(MoveKind.Capture))
+            if (moveFilter != null
+                && !moveFilter.Accept(MoveKind.Normal)
+                && !moveFilter.Accept(MoveKind.Capture))
             {
                 return;
             }
@@ -274,12 +331,17 @@ namespace Forklift.Core
 
             var s64 = (Square0x64)from88;
 
+            if (moveFilter?.Accept(s64) == false)
+            {
+                return;
+            }
+
             ulong attacks = board.Tables.KingAttackTable[s64.Value];
             ulong occAll = board.GetAllOccupancy();
             ulong occOpp = board.GetOccupancy(white ? Color.Black : Color.White);
 
             // Quiet moves
-            if (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Normal))
+            if (moveFilter == null || moveFilter.Accept(MoveKind.Normal))
             {
                 ulong quiets = attacks & ~occAll;
                 while (quiets != 0)
@@ -291,7 +353,7 @@ namespace Forklift.Core
             }
 
             // Captures
-            if (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.Capture))
+            if (moveFilter == null || moveFilter.Accept(MoveKind.Capture))
             {
                 ulong captures = attacks & occOpp;
                 while (captures != 0)
@@ -324,18 +386,22 @@ namespace Forklift.Core
         private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88("h8");
         private static readonly Square0x88 A8_88 = Squares.ParseAlgebraicTo0x88("a8");
 
-        private static void GenerateCastling(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, MoveKind? onlyKinds = null)
+        private static void GenerateCastling(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, IMoveFilter? moveFilter = null)
         {
-            if (onlyKinds != null && !onlyKinds.Value.HasFlag(MoveKind.CastleKing) && !onlyKinds.Value.HasFlag(MoveKind.CastleQueen))
+            if (moveFilter != null
+                && !moveFilter.Accept(MoveKind.CastleKing)
+                && !moveFilter.Accept(MoveKind.CastleQueen))
             {
                 return;
             }
 
             bool white = sideToMove.IsWhite();
 
-            // Must have a king and not already be in check.
-            ulong kingBB = board.GetPieceBitboard(white ? Piece.WhiteKing : Piece.BlackKing);
-            if (kingBB == 0) return;
+            if (moveFilter?.Accept((Square0x64)(white ? board.WhiteKing!.Value : board.BlackKing!.Value)) == false)
+            {
+                return;
+            }
+
             if (board.InCheck(sideToMove)) return;
 
             Color enemy = sideToMove.Flip();
@@ -343,7 +409,7 @@ namespace Forklift.Core
             if (white)
             {
                 // ---- White O-O ----
-                if ((board.CastlingRights & CastlingRightsFlags.WhiteKing) != 0 && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.CastleKing)))
+                if ((board.CastlingRights & CastlingRightsFlags.WhiteKing) != 0 && (moveFilter == null || moveFilter.Accept(MoveKind.CastleKing)))
                 {
                     // Path empties + rook presence first (cheap)
                     if (board.At((Square0x88)F1_64) == Piece.Empty &&
@@ -355,13 +421,13 @@ namespace Forklift.Core
                             !board.IsSquareAttacked(F1_64, enemy) &&
                             !board.IsSquareAttacked(G1_64, enemy))
                         {
-                            buffer[index++] = Board.Move.CastleKingSide(Color.White);
+                            buffer[index++] = Move.CastleKingSide(Color.White);
                         }
                     }
                 }
 
                 // ---- White O-O-O ----
-                if ((board.CastlingRights & CastlingRightsFlags.WhiteQueen) != 0 && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.CastleQueen)))
+                if ((board.CastlingRights & CastlingRightsFlags.WhiteQueen) != 0 && (moveFilter == null || moveFilter.Accept(MoveKind.CastleQueen)))
                 {
                     if (board.At((Square0x88)B1_64) == Piece.Empty &&
                         board.At((Square0x88)C1_64) == Piece.Empty &&
@@ -380,7 +446,7 @@ namespace Forklift.Core
             else
             {
                 // ---- Black O-O ----
-                if ((board.CastlingRights & CastlingRightsFlags.BlackKing) != 0 && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.CastleKing)))
+                if ((board.CastlingRights & CastlingRightsFlags.BlackKing) != 0 && (moveFilter == null || moveFilter.Accept(MoveKind.CastleKing)))
                 {
                     if (board.At((Square0x88)F8_64) == Piece.Empty &&
                         board.At((Square0x88)G8_64) == Piece.Empty &&
@@ -396,7 +462,7 @@ namespace Forklift.Core
                 }
 
                 // ---- Black O-O-O ----
-                if ((board.CastlingRights & CastlingRightsFlags.BlackQueen) != 0 && (onlyKinds == null || onlyKinds.Value.HasFlag(MoveKind.CastleQueen)))
+                if ((board.CastlingRights & CastlingRightsFlags.BlackQueen) != 0 && (moveFilter == null || moveFilter.Accept(MoveKind.CastleQueen)))
                 {
                     if (board.At((Square0x88)B8_64) == Piece.Empty &&
                         board.At((Square0x88)C8_64) == Piece.Empty &&
@@ -415,12 +481,13 @@ namespace Forklift.Core
         }
 
         // --- En Passant -------------------------------------------------------------------
-        private static void GenerateEnPassant(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, MoveKind? onlyKinds = null)
+        private static void GenerateEnPassant(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, IMoveFilter? moveFilter = null)
         {
-            if (onlyKinds != null
-                && !onlyKinds.Value.HasFlag(MoveKind.EnPassant)
-                && !onlyKinds.Value.HasFlag(MoveKind.Capture))
+            if (moveFilter != null
+                && !moveFilter.Accept(MoveKind.Capture))
             {
+                // MoveKind.Capture already accepts MoveKind.EnPassant,
+                // so we don't need to check it separately here
                 return;
             }
 
@@ -433,17 +500,29 @@ namespace Forklift.Core
             // EP target is the passed-over square:
             int epRank = white ? 5 : 2;
             var ep88 = new Square0x88((epRank << 4) | file.Value);
-            var captured = white ? Piece.BlackPawn : Piece.WhitePawn;
 
-            var leftFrom = white ? new UnsafeSquare0x88(ep88.Value - 15) : new UnsafeSquare0x88(ep88.Value + 15);
-            var rightFrom = white ? new UnsafeSquare0x88(ep88.Value - 17) : new UnsafeSquare0x88(ep88.Value + 17);
+            var captured = white ? Piece.BlackPawn : Piece.WhitePawn;
+            var leftFromUnsafe = white ? new UnsafeSquare0x88(ep88.Value - 15) : new UnsafeSquare0x88(ep88.Value + 15);
+            var rightFromUnsafe = white ? new UnsafeSquare0x88(ep88.Value - 17) : new UnsafeSquare0x88(ep88.Value + 17);
             var mover = white ? Piece.WhitePawn : Piece.BlackPawn;
 
-            if (!Squares.IsOffboard(leftFrom) && board.At((Square0x88)leftFrom) == mover)
-                buffer[index++] = Move.EnPassant((Square0x88)leftFrom, ep88, mover, captured);
+            if (!Squares.IsOffboard(leftFromUnsafe) && board.At((Square0x88)leftFromUnsafe) == mover)
+            {
+                var leftFrom88 = (Square0x88)leftFromUnsafe;
+                if (moveFilter?.Accept((Square0x64)leftFrom88) != false)
+                {
+                    buffer[index++] = Move.EnPassant(leftFrom88, ep88, mover, captured);
+                }
+            }
 
-            if (!Squares.IsOffboard(rightFrom) && board.At((Square0x88)rightFrom) == mover)
-                buffer[index++] = Move.EnPassant((Square0x88)rightFrom, ep88, mover, captured);
+            if (!Squares.IsOffboard(rightFromUnsafe) && board.At((Square0x88)rightFromUnsafe) == mover)
+            {
+                var rightFrom88 = (Square0x88)rightFromUnsafe;
+                if (moveFilter?.Accept((Square0x64)rightFrom88) != false)
+                {
+                    buffer[index++] = Move.EnPassant(rightFrom88, ep88, mover, captured);
+                }
+            }
         }
     }
 }

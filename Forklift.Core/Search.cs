@@ -25,15 +25,6 @@ namespace Forklift.Core
         private static readonly Board.Move?[] _killerMovesSecondary = new Board.Move?[MaxPly];
         private static readonly HistoryTable _historyScores = new HistoryTable();
 
-        private static readonly int[] _pieceOrderingValues = {
-            100, // Pawn
-            320, // Knight
-            330, // Bishop
-            500, // Rook
-            900, // Queen
-            2000 // King
-        };
-
         public static void ClearTranspositionTable() => _transpositionTable.Clear();
 
         public static void ClearHeuristics()
@@ -521,82 +512,6 @@ namespace Forklift.Core
         private static int GetHistoryScore(Board.Move move)
         {
             return _historyScores.Get(move);
-        }
-
-        private static int ScoreCapture(Board.Move move)
-        {
-            int victimValue = _pieceOrderingValues[(int)move.Captured.Type];
-            int attackerValue = _pieceOrderingValues[(int)move.Mover.Type];
-            return victimValue * 10 - attackerValue;
-        }
-        private static void OrderCapturesByMvvLva(Span<Board.Move> moves, int startIndex, int moveCount)
-        {
-            for (int current = startIndex; current < moveCount; current++)
-            {
-                int bestIndex = -1;
-                int bestScore = int.MinValue;
-
-                for (int candidate = current; candidate < moveCount; candidate++)
-                {
-                    var move = moves[candidate];
-                    if (!move.IsCapture)
-                    {
-                        continue;
-                    }
-
-                    int score = ScoreCapture(move);
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        bestIndex = candidate;
-                    }
-                }
-
-                if (bestIndex == -1)
-                {
-                    break;
-                }
-
-                if (bestIndex != current)
-                {
-                    (moves[current], moves[bestIndex]) = (moves[bestIndex], moves[current]);
-                }
-            }
-        }
-
-        private static void OrderQuietMovesByHistory(Span<Board.Move> moves, int startIndex, int moveCount)
-        {
-            for (int current = startIndex; current < moveCount; current++)
-            {
-                int bestIndex = -1;
-                int bestScore = int.MinValue;
-
-                for (int candidate = current; candidate < moveCount; candidate++)
-                {
-                    var move = moves[candidate];
-                    if (!move.IsQuiet)
-                    {
-                        continue;
-                    }
-
-                    int score = GetHistoryScore(move);
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        bestIndex = candidate;
-                    }
-                }
-
-                if (bestIndex == -1)
-                {
-                    break;
-                }
-
-                if (bestIndex != current)
-                {
-                    (moves[current], moves[bestIndex]) = (moves[bestIndex], moves[current]);
-                }
-            }
         }
 
         private static bool HasNonPawnMaterial(Board board)
