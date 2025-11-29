@@ -144,7 +144,6 @@ namespace Forklift.Core
 
             pvTable?.InitPly(ply);
 
-            int alphaOriginal = alpha;
             int nodesSearched = 0;
 
             // --- Transposition table probe -----------------------------------
@@ -262,6 +261,7 @@ namespace Forklift.Core
 
             bool sawCompleteChild = false;
             bool aborted = false;
+            int alphaOriginal = alpha;
             bool betaCutoff = false;
             List<Board.Move> quietMovesSearched = new List<Board.Move>();
 
