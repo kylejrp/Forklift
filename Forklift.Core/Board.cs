@@ -107,6 +107,7 @@ public sealed class Board
     public bool KeepTrackOfHistory { get; set; } = true;
 
     public const int MoveBufferMax = 265;
+    public const int MoveBufferMaxForASinglePiece = 32;
 
 
     /// <summary>
@@ -698,6 +699,24 @@ public sealed class Board
         return false;
     }
 
+    [SkipLocalsInit]
+    public bool MoveIsLegal(Move? move)
+    {
+        if (move is not Move m) return false;
+
+        Span<Move> moveBuffer = stackalloc Move[MoveBufferMaxForASinglePiece];
+        MoveGeneration.GeneratePseudoLegal(this, ref moveBuffer, SideToMove, new MoveGeneration.Square0x88Filter(m.From88));
+
+        var index = moveBuffer.IndexOf(m);
+        if (index < 0) return false;
+
+        var u = MakeMove(m);
+        bool inCheck = InCheck(SideToMove.Flip());
+        UnmakeMove(m, u);
+
+        return !inCheck;
+    }
+
     /// <summary>
     /// Generates all pseudo-legal moves for the side to move.
     /// </summary>
@@ -833,27 +852,25 @@ public sealed class Board
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsSquareAttacked(Square0x64 t64, Color bySide)
     {
-        var T = Tables;
         int ti = t64.Value;
         bool byWhite = bySide.IsWhite();
         ulong occAll = OccAll; // single load; JIT can keep this in a register
 
         // Knights
         ulong knights = byWhite ? GetPieceBitboard(Piece.WhiteKnight) : GetPieceBitboard(Piece.BlackKnight);
-        if ((T.KnightAttackTable[ti] & knights) != 0) return true;
+        if ((Tables.KnightAttackTable[ti] & knights) != 0) return true;
 
         // Kings
         ulong kings = byWhite ? GetPieceBitboard(Piece.WhiteKing) : GetPieceBitboard(Piece.BlackKing);
-        if ((T.KingAttackTable[ti] & kings) != 0) return true;
-
+        if ((Tables.KingAttackTable[ti] & kings) != 0) return true;
         // Pawns (reverse attack-from masks keyed by target)
         if (byWhite)
         {
-            if ((T.WhitePawnAttackFrom[ti] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
+            if ((Tables.WhitePawnAttackFrom[ti] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
         }
         else
         {
-            if ((T.BlackPawnAttackFrom[ti] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
+            if ((Tables.BlackPawnAttackFrom[ti] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
         }
 
         // Bishop-like
@@ -862,7 +879,7 @@ public sealed class Board
         ulong bishopLike = byWhite
             ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
             : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
-        if ((T.BishopTable[T.BishopOffsets[ti] + bIdx] & bishopLike) != 0) return true;
+        if ((Tables.BishopTable[Tables.BishopOffsets[ti] + bIdx] & bishopLike) != 0) return true;
 
         // Rook-like
         ulong rookOcc = occAll & EngineTables.RookMasks[ti];
@@ -870,7 +887,7 @@ public sealed class Board
         ulong rookLike = byWhite
             ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
             : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
-        if ((T.RookTable[T.RookOffsets[ti] + rIdx] & rookLike) != 0) return true;
+        if ((Tables.RookTable[Tables.RookOffsets[ti] + rIdx] & rookLike) != 0) return true;
 
         return false;
     }
@@ -1168,10 +1185,7 @@ public sealed class Board
 
     public bool InCheck(Color side)
     {
-        ulong kingBB = GetPieceBitboard(side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing);
-        if (kingBB == 0) return false;
-        var kingSq64 = (Square0x64)BitOperations.TrailingZeroCount(kingBB);
-
+        var kingSq64 = (Square0x64)(side.IsWhite() ? _whiteKingSquare88!.Value : _blackKingSquare88!.Value);
         var attacker = side.IsWhite() ? Color.Black : Color.White;
         return IsSquareAttacked(kingSq64, attacker);
     }
