@@ -54,6 +54,7 @@ namespace Forklift.Core
             int totalNodesSearched = 0;
 
             Board.Move?[] pvMoves = Array.Empty<Board.Move?>();
+            var pvTable = new PrincipalVariationTable(maxDepth);
 
             for (int depth = 1; depth <= maxDepth; depth++)
             {
@@ -62,6 +63,8 @@ namespace Forklift.Core
                     break;
                 }
 
+                pvTable.Clear();
+
                 var result = Negamax(
                     board: board,
                     depth: depth,
@@ -69,6 +72,7 @@ namespace Forklift.Core
                     beta: MaximumScore,
                     ply: 0,
                     preferredMoves: pvMoves,
+                    pvTable: pvTable,
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
 
@@ -85,11 +89,17 @@ namespace Forklift.Core
                 {
                     finalBestMove = result.BestMove;
                     finalBestScore = result.BestScore;
-                    pvMoves = result.BestMove.HasValue ? [result.BestMove] : pvMoves;
+                    pvMoves = pvTable.GetRootPrincipalVariation();
+                    Debug.Assert(pvMoves.Length > 0 && pvMoves[0] == finalBestMove);
                 }
                 else if (finalBestMove is null)
                 {
                     finalBestScore = result.BestScore;
+                }
+
+                if (pvMoves.Length == 0 && finalBestMove is not null)
+                {
+                    pvMoves = new Board.Move?[] { finalBestMove };
                 }
 
                 summaryCallback?.Invoke(new SearchSummary(pvMoves, finalBestScore, completedDepth, totalNodesSearched));
@@ -117,6 +127,7 @@ namespace Forklift.Core
             int beta,
             int ply,
             Board.Move?[] preferredMoves,
+            PrincipalVariationTable? pvTable,
             bool parentMoveWasNullMove,
             CancellationToken cancellationToken)
         {
@@ -131,8 +142,68 @@ namespace Forklift.Core
                 return new SearchNodeResult(null, q.BestScore, q.IsComplete, q.NodesSearched);
             }
 
+            pvTable?.InitPly(ply);
+
             int alphaOriginal = alpha;
             int nodesSearched = 0;
+
+            // --- Transposition table probe -----------------------------------
+            // Probe without alpha/beta; just get raw info for this key.
+            var ttEntry = _transpositionTable.Probe(board.ZKey, ply);
+            Board.Move? ttMove = null;
+
+            var preferredMove = preferredMoves.Length > 0 ? preferredMoves[0] : (Board.Move?)null;
+            bool isPreferredMoveNode = preferredMove.HasValue;
+
+            // 1) Always feed ttMove to move ordering if we have a hit.
+            //    This is independent of whether we can use the score for a cutoff.
+            if (ttEntry.NodeType != TranspositionTable.NodeType.Miss && ttEntry.BestMove is Board.Move ttMoveValue)
+            {
+                ttMove = ttMoveValue;
+            }
+
+            // 2) Conservative early return from TT.
+            //    Only at non-PV nodes, only when not in your "preferred move" special case,
+            //    only when the stored depth is high enough, and only when the bound matches.
+            if (!isPreferredMoveNode
+                && ttEntry.NodeType != TranspositionTable.NodeType.Miss
+                && ttEntry.Depth >= depth // require at least current search depth
+                && ttEntry.Score.HasValue)
+            {
+                var ttScore = ttEntry.Score.Value;
+
+                switch (ttEntry.NodeType)
+                {
+                    case TranspositionTable.NodeType.Exact:
+                        // Full value for this position, safe to return at non-PV nodes.
+                        return new SearchNodeResult(ttMove, ttScore, true, nodesSearched);
+
+                    case TranspositionTable.NodeType.Beta:
+                        // Stored as a lower bound: score >= stored beta.
+                        // If it still fails high against our current beta, we can cut.
+                        if (ttScore >= beta)
+                        {
+                            return new SearchNodeResult(ttMove, ttScore, true, nodesSearched);
+                        }
+                        break;
+
+                    case TranspositionTable.NodeType.Alpha:
+                        // Stored as an upper bound: score <= stored alpha.
+                        // If it still fails low against our current alpha, we can cut.
+                        if (ttScore <= alpha)
+                        {
+                            return new SearchNodeResult(ttMove, ttScore, true, nodesSearched);
+                        }
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
+            // If we get here, either there was no TT hit, or it wasn't compatible
+            // with the current window / depth for a cutoff. But we still got ttMove
+            // above and can use it to seed move ordering.
 
             if (!parentMoveWasNullMove &&
                 depth >= NullMoveMinDepth &&
@@ -154,6 +225,7 @@ namespace Forklift.Core
                     beta: -beta + 1,
                     ply: ply + 1,
                     preferredMoves: Array.Empty<Board.Move?>(),
+                    pvTable: null,
                     parentMoveWasNullMove: true,
                     cancellationToken: cancellationToken);
                 board.UnmakeNullMove(nullState);
@@ -173,26 +245,6 @@ namespace Forklift.Core
                 }
             }
 
-            // --- Transposition table probe -----------------------------------
-            //
-            // We only trust stored scores when:
-            // - The stored node was searched to at least this depth, and
-            // - The node type (Exact / Alpha / Beta) is compatible with the
-            //   current alpha/beta window.
-            //
-            // Exact  : full value for this position (can be returned directly).
-            // Alpha  : upper bound  (score <= alpha when stored).
-            // Beta   : lower bound  (score >= beta  when stored).
-            var probe = _transpositionTable.Probe(board.ZKey, depth, alpha, beta, ply);
-            Board.Move? ttMove = probe.BestMove;
-
-            if (probe.HasUsableScore(out var probeScore))
-            {
-                // Trusted hit: use the stored value and best move.
-                return new SearchNodeResult(ttMove, probeScore.Value, true, nodesSearched);
-            }
-
-            var preferredMove = preferredMoves.Length > 0 ? preferredMoves[0] : null;
             Span<Board.Move> moves = stackalloc Board.Move[Board.MoveBufferMax];
             var picker = new MovePicker(
                 board: board,
@@ -233,7 +285,8 @@ namespace Forklift.Core
                     alpha: -beta,
                     beta: -alpha,
                     ply: ply + 1,
-                    preferredMoves: preferredMoves.Length > 1 ? preferredMoves[1..] : Array.Empty<Board.Move?>(),
+                    preferredMoves: preferredMoves.Length > 1 && move == preferredMove ? preferredMoves[1..] : Array.Empty<Board.Move?>(),
+                    pvTable: pvTable,
                     parentMoveWasNullMove: false,
                     cancellationToken: cancellationToken);
                 board.UnmakeMove(move, undo);
@@ -258,6 +311,10 @@ namespace Forklift.Core
 
                     if (score > alpha)
                     {
+                        if (score < beta)
+                        {
+                            pvTable?.Update(ply, move);
+                        }
                         alpha = score;
                     }
                 }

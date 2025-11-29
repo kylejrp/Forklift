@@ -11,7 +11,6 @@ public sealed class TranspositionTable
     public enum NodeType
     {
         Miss,
-        BadScore,
         Exact,
         Alpha,
         Beta
@@ -40,20 +39,9 @@ public sealed class TranspositionTable
         public Board.Move? BestMove { get; set; } = bestMove;
     };
 
-    public readonly record struct ProbeResult(NodeType NodeType, int? Score, Board.Move? BestMove)
+    public readonly record struct ProbeResult(NodeType NodeType, int? Score, Board.Move? BestMove, int? Depth)
     {
-        public bool HasUsableScore([NotNullWhen(true)] out int? score)
-        {
-            if (NodeType != NodeType.Miss && NodeType != NodeType.BadScore && Score.HasValue)
-            {
-                score = Score.Value;
-                return true;
-            }
-            score = null;
-            return false;
-        }
-
-        private static readonly ProbeResult _miss = new(NodeType.Miss, null, null);
+        private static readonly ProbeResult _miss = new(NodeType.Miss, null, null, null);
         public static ProbeResult Miss => _miss;
     }
 
@@ -83,34 +71,14 @@ public sealed class TranspositionTable
     /// A <see cref="ProbeResult"/> indicating whether a matching entry was found (<c>Hit</c>),
     /// the score (if available, adjusted for mate distance), and the best move (if available).
     /// </returns>
-    public ProbeResult Probe(ulong zobristKey, int depth, int alpha, int beta, int ply)
+    public ProbeResult Probe(ulong zobristKey, int ply)
     {
         ref var entry = ref _entries[(int)(zobristKey & (uint)_mask)];
         if (entry.ZobristKey != zobristKey)
-        {
             return ProbeResult.Miss;
-        }
 
-        Board.Move? bestMove = entry.BestMove;
-
-        if (entry.Depth >= depth)
-        {
-            int score = RestoreScoreFromStorage(entry.Score, ply);
-            bool useScore = entry.NodeType switch
-            {
-                NodeType.Exact => true,
-                NodeType.Alpha => score <= alpha,
-                NodeType.Beta => score >= beta,
-                _ => false,
-            };
-
-            if (useScore)
-            {
-                return new ProbeResult(entry.NodeType, score, bestMove);
-            }
-        }
-
-        return new ProbeResult(NodeType.BadScore, null, bestMove);
+        int score = RestoreScoreFromStorage(entry.Score, ply);
+        return new ProbeResult(entry.NodeType, score, entry.BestMove, entry.Depth);
     }
 
     /// <summary>
