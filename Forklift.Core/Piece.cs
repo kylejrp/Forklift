@@ -5,9 +5,9 @@ namespace Forklift.Core
 {
     public readonly struct Piece : IEquatable<Piece>
     {
-        private readonly sbyte value;
+        private readonly byte value;
 
-        private Piece(sbyte value) { this.value = value; }
+        private Piece(byte value) { this.value = value; }
 
         // Public canonical instances
         public static readonly Piece Empty = new(0);
@@ -56,7 +56,7 @@ namespace Forklift.Core
             BlackKing
         };
 
-        public enum PieceType : sbyte
+        public enum PieceType : byte
         {
             Pawn = 0,
             Knight = 1,
@@ -140,8 +140,8 @@ namespace Forklift.Core
                 'n' => Knight,
                 _ => throw new ArgumentException("Invalid promotion character", nameof(c))
             };
-            sbyte mask = color == Core.Color.Black ? (sbyte)0b1000 : (sbyte)0;
-            return FromRaw((sbyte)(type.value | mask));
+            var mask = color == Core.Color.Black ? (byte)0b1000 : (byte)0;
+            return FromRaw((byte)(type.value | mask));
         }
 
         public static Piece FromFENChar(char c) => c switch
@@ -176,13 +176,13 @@ namespace Forklift.Core
 
         // ===== Validated construction =====
 
-        public static Piece FromRaw(sbyte v)
+        public static Piece FromRaw(byte v)
         {
             if (v == 0) return Empty; // empty ok
-            sbyte t = (sbyte)(v & 0b0111);
+            byte t = (byte)(v & 0b0111);
             if (t < 1 || t > 6)
                 throw new ArgumentOutOfRangeException(nameof(v), $"Invalid piece type bits in value: {v}");
-            sbyte c = (sbyte)(v & 0b1000);
+            byte c = (byte)(v & 0b1000);
             if (c != 0 && c != 0b1000)
                 throw new ArgumentOutOfRangeException(nameof(v), $"Invalid color bit in value: {v}");
             return new Piece(v);
@@ -194,8 +194,8 @@ namespace Forklift.Core
         public bool Equals(Piece other) => value == other.value;
         public override int GetHashCode() => value;
 
-        public static implicit operator sbyte(Piece p) => p.value;
-        public static explicit operator Piece(sbyte v) => FromRaw(v);
+        public static implicit operator byte(Piece p) => p.value;
+        public static explicit operator Piece(byte v) => FromRaw(v);
 
         public static bool operator ==(Piece a, Piece b) => a.value == b.value;
         public static bool operator !=(Piece a, Piece b) => a.value != b.value;
