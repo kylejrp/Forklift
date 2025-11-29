@@ -158,7 +158,8 @@ namespace Forklift.Core
             if (!isPreferredMoveNode
                 && ttEntry.NodeType != TranspositionTable.NodeType.Miss
                 && ttEntry.Depth >= depth // require at least current search depth
-                && ttEntry.Score.HasValue)
+                && ttEntry.Score.HasValue
+                && (board.MoveIsLegal(ttEntry.BestMove) || ttEntry.BestMove is null))
             {
                 var ttScore = ttEntry.Score.Value;
 
