@@ -464,12 +464,11 @@ public sealed class Board
     /// Lightweight snapshot used to make/unmake null moves without affecting history tracking.
     /// </summary>
     internal readonly record struct NullMoveState(
-        FileIndex? EnPassantFilePrev,
+        ulong ZKeyPrev,
         int HalfmovePrev,
-        Color SideToMovePrev,
-        ulong ZKeyPrev);
-
-
+        FileIndex? EnPassantFilePrev,
+        Color SideToMovePrev
+    );
 
     private static readonly Square0x64 H1_64 = Squares.ParseAlgebraicTo0x64("h1");
     private static readonly int H1_64_Index = H1_64.Value;
