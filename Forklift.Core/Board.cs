@@ -247,12 +247,6 @@ public sealed class Board
         public int From64Index => (_data >> FromShift) & Mask6;
         public int To64Index => (_data >> ToShift) & Mask6;
 
-        //public Square0x64 From64 => new((_data >> FromShift) & Mask6);
-        //public Square0x64 To64 => new((_data >> ToShift) & Mask6);
-
-        //public Square0x88 From88 => (Square0x88)From64;
-        //public Square0x88 To88 => (Square0x88)To64;
-
         public Piece Mover => (Piece)((_data >> MoverShift) & Mask4);
         public Piece Captured => (Piece)((_data >> CaptShift) & Mask4);
         public Piece Promotion => (Piece)((_data >> PromoShift) & Mask4);
@@ -342,9 +336,9 @@ public sealed class Board
         int FullmovePrev,
         Color SideToMovePrev,
         ulong ZKeyPrev,
-        Square0x64? EnPassantCapturedSq64,
-        Square0x64? CastleRookFrom64,
-        Square0x64? CastleRookTo64);
+        int? EnPassantCapturedSq64Index,
+        int? CastleRookFrom64Index,
+        int? CastleRookTo64Index);
 
     /// <summary>
     /// Lightweight snapshot used to make/unmake null moves without affecting history tracking.
@@ -399,6 +393,10 @@ public sealed class Board
         var from64Index = m.From64Index;
         var to88Index = ((to64Index >> 3) << 4) | (to64Index & 7);
         var from88Index = ((from64Index >> 3) << 4) | (from64Index & 7);
+        var mover = m.Mover;
+        var captured = m.Captured;
+        var promotion = m.Promotion;
+        var kind = m.Kind;
 
 #if DEBUG
         var destPieceBefore = (Piece)mailbox[to88Index];
@@ -406,24 +404,24 @@ public sealed class Board
         {
             // EP destination must be empty by definition
             if (destPieceBefore != Piece.Empty)
-                throw new InvalidOperationException($"EP destination square was not empty. (Move: {m} Mover: {m.Mover} Occupant: {destPieceBefore})");
+                throw new InvalidOperationException($"EP destination square was not empty. (Move: {m} Mover: {mover} Occupant: {destPieceBefore})");
         }
         else if (m.IsCapture)
         {
             if (destPieceBefore == Piece.Empty)
-                throw new InvalidOperationException($"Capture to empty square at {Squares.ToAlgebraic((Square0x88)to88Index)} (Move: {m} Mover: {m.Mover})");
-            if (destPieceBefore == m.Mover || destPieceBefore.IsWhite == m.Mover.IsWhite)
-                throw new InvalidOperationException($"Capture of own piece generated. (Move: {m} Mover: {m.Mover}, Captured: {destPieceBefore})");
+                throw new InvalidOperationException($"Capture to empty square at {Squares.ToAlgebraic((Square0x88)to88Index)} (Move: {m} Mover: {mover})");
+            if (destPieceBefore == mover || destPieceBefore.IsWhite == mover.IsWhite)
+                throw new InvalidOperationException($"Capture of own piece generated. (Move: {m} Mover: {mover}, Captured: {destPieceBefore})");
         }
         else
         {
             if (destPieceBefore != Piece.Empty)
-                throw new InvalidOperationException($"Quiet move to occupied square at {Squares.ToAlgebraic((Square0x88)to88Index)} (Move: {m} Mover: {m.Mover}, Occupant: {destPieceBefore})");
+                throw new InvalidOperationException($"Quiet move to occupied square at {Squares.ToAlgebraic((Square0x88)to88Index)} (Move: {m} Mover: {mover}, Occupant: {destPieceBefore})");
         }
 #endif
 
         var undo = new Undo(
-            Captured: m.Kind.HasFlag(MoveKind.EnPassant)
+            Captured: kind.HasFlag(MoveKind.EnPassant)
                 ? (SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn)
                 : (Piece)mailbox[to88Index],
             EnPassantFilePrev: EnPassantFile,
@@ -432,22 +430,22 @@ public sealed class Board
             FullmovePrev: FullmoveNumber,
             SideToMovePrev: SideToMove,
             ZKeyPrev: ZKey,
-            EnPassantCapturedSq64: null,
-            CastleRookFrom64: null,
-            CastleRookTo64: null);
+            EnPassantCapturedSq64Index: null,
+            CastleRookFrom64Index: null,
+            CastleRookTo64Index: null);
 
         // --- Clear old EP key
         SetEnPassantFile(null);
 
         // --- Halfmove + fullmove
-        bool isPawnMove = (m.Mover.Type == Piece.PieceType.Pawn);
+        bool isPawnMove = mover.Type == Piece.PieceType.Pawn;
         HalfmoveClock = (isPawnMove || undo.Captured != Piece.Empty) ? 0 : (HalfmoveClock + 1);
         if (!SideToMove.IsWhite()) FullmoveNumber++;
 
         // --- Update castling rights if king/rook move or rook captured on home square
         var newCR = CastlingRights;
         // own king moved -> clear both sides
-        if (m.Mover == Piece.WhiteKing)
+        if (mover == Piece.WhiteKing)
         {
             Debug.Assert(m.IsCastleQueenSide && CastlingRights.HasFlag(CastlingRightsFlags.WhiteQueen) ||
                          m.IsCastleKingSide && CastlingRights.HasFlag(CastlingRightsFlags.WhiteKing) ||
@@ -455,7 +453,7 @@ public sealed class Board
             newCR &= ~(CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen);
             WhiteKingSquare64Index = to64Index;
         }
-        if (m.Mover == Piece.BlackKing)
+        if (mover == Piece.BlackKing)
         {
             Debug.Assert(m.IsCastleQueenSide && CastlingRights.HasFlag(CastlingRightsFlags.BlackQueen) ||
                          m.IsCastleKingSide && CastlingRights.HasFlag(CastlingRightsFlags.BlackKing) ||
@@ -464,12 +462,12 @@ public sealed class Board
             BlackKingSquare64Index = to64Index;
         }
         // own rook moved from corner
-        if (m.Mover == Piece.WhiteRook)
+        if (mover == Piece.WhiteRook)
         {
             if (from64Index == A1_64_Index) newCR &= ~CastlingRightsFlags.WhiteQueen;
             if (from64Index == H1_64_Index) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
-        if (m.Mover == Piece.BlackRook)
+        if (mover == Piece.BlackRook)
         {
             if (from64Index == A8_64_Index) newCR &= ~CastlingRightsFlags.BlackQueen;
             if (from64Index == H8_64_Index) newCR &= ~CastlingRightsFlags.BlackKing;
@@ -496,14 +494,14 @@ public sealed class Board
         }
 
         // --- Move the mover piece off the from-square
-        RemoveFromBitboards(from64Index, m.Mover);
+        RemoveFromBitboards(from64Index, mover);
         mailbox[from88Index] = Piece.Empty;
-        XorZPiece(m.Mover, from64Index);
+        XorZPiece(mover, from64Index);
 
         // --- Special: castling rook movement
         if (m.IsCastle)
         {
-            bool white = m.Mover.IsWhite;
+            bool white = mover.IsWhite;
             // Define king/rook target squares
             var kFrom88 = from88Index;
             var kTo88 = to88Index;
@@ -513,7 +511,7 @@ public sealed class Board
 
             if (white)
             {
-                if (m.Kind.HasFlag(MoveKind.CastleKing))
+                if (kind.HasFlag(MoveKind.CastleKing))
                 {
                     rFrom88 = H1_88_Index;
                     rFrom64 = H1_64_Index;
@@ -530,7 +528,7 @@ public sealed class Board
             }
             else
             {
-                if (m.Kind.HasFlag(MoveKind.CastleKing))
+                if (kind.HasFlag(MoveKind.CastleKing))
                 {
                     rFrom88 = H8_88_Index;
                     rFrom64 = H8_64_Index;
@@ -547,9 +545,9 @@ public sealed class Board
             }
 
             // Move king to kTo
-            mailbox[kTo88] = m.Mover;
-            AddToBitboards(kTo64, m.Mover);
-            XorZPiece(m.Mover, kTo64);
+            mailbox[kTo88] = mover;
+            AddToBitboards(kTo64, mover);
+            XorZPiece(mover, kTo64);
 
             // Move rook rFrom -> rTo
             var rook = white ? Piece.WhiteRook : Piece.BlackRook;
@@ -561,14 +559,14 @@ public sealed class Board
             AddToBitboards(rTo64, rook);
             XorZPiece(rook, rTo64);
 
-            undo = undo with { CastleRookFrom64 = (Square0x64)rFrom64, CastleRookTo64 = (Square0x64)rTo64 };
+            undo = undo with { CastleRookFrom64Index = rFrom64, CastleRookTo64Index = rTo64 };
         }
         else
         {
             // --- EP capture removal (captured pawn sits behind the to-square)
             if (m.IsEnPassant)
             {
-                bool white = m.Mover.IsWhite;
+                bool white = mover.IsWhite;
                 var capSq88 = white ? (to88Index - 16) : (to88Index + 16);
                 var capSq64 = Squares.Convert0x88IndexTo0x64Index(capSq88);
                 var capPiece = white ? Piece.BlackPawn : Piece.WhitePawn;
@@ -580,11 +578,11 @@ public sealed class Board
                 RemoveFromBitboards(capSq64, capPiece);
                 mailbox[capSq88] = Piece.Empty;
                 XorZPiece(capPiece, capSq64);
-                undo = undo with { EnPassantCapturedSq64 = (Square0x64)capSq64 };
+                undo = undo with { EnPassantCapturedSq64Index = capSq64 };
             }
 
             // --- Place the moved piece (promotion if any)
-            var placed = m.IsPromotion ? m.Promotion : m.Mover;
+            var placed = m.IsPromotion ? promotion : mover;
             mailbox[to88Index] = placed;
             AddToBitboards(to64Index, placed);
             XorZPiece(placed, to64Index);
@@ -621,6 +619,9 @@ public sealed class Board
         var from64Index = m.From64Index;
         var to88Index = ((to64Index >> 3) << 4) | (to64Index & 7);
         var from88Index = ((from64Index >> 3) << 4) | (from64Index & 7);
+        var mover = m.Mover;
+        var promotion = m.Promotion;
+
 
         if (KeepTrackOfHistory)
         {
@@ -652,44 +653,44 @@ public sealed class Board
         if (m.IsCastle)
         {
             // Undo rook move
-            if (u.CastleRookFrom64 is Square0x64 rFrom && u.CastleRookTo64 is Square0x64 rTo)
+            if (u.CastleRookFrom64Index is int rFrom64Index && u.CastleRookTo64Index is int rTo64Index)
             {
-                var rook = m.Mover.IsWhite ? Piece.WhiteRook : Piece.BlackRook;
+                var rook = mover.IsWhite ? Piece.WhiteRook : Piece.BlackRook;
 
-                RemoveFromBitboards(rTo, rook);
-                mailbox[(Square0x88)rTo] = Piece.Empty;
+                RemoveFromBitboards(rTo64Index, rook);
+                mailbox[Squares.Convert0x64IndexTo0x88Index(rTo64Index)] = Piece.Empty;
 
-                mailbox[(Square0x88)rFrom] = rook;
-                AddToBitboards(rFrom, rook);
+                mailbox[Squares.Convert0x64IndexTo0x88Index(rFrom64Index)] = rook;
+                AddToBitboards(rFrom64Index, rook);
             }
 
             // Move king back
-            RemoveFromBitboards(to64Index, m.Mover);
+            RemoveFromBitboards(to64Index, mover);
             mailbox[to88Index] = Piece.Empty;
 
-            mailbox[from88Index] = m.Mover;
-            AddToBitboards(from64Index, m.Mover);
+            mailbox[from88Index] = mover;
+            AddToBitboards(from64Index, mover);
         }
         else
         {
             // Remove piece from To (promotion piece may be there)
-            var placed = m.IsPromotion ? m.Promotion : m.Mover;
+            var placed = m.IsPromotion ? promotion : mover;
 
             RemoveFromBitboards(to64Index, placed);  // placed is Piece (non-null)
             mailbox[to88Index] = Piece.Empty;
 
             // Put mover back
-            mailbox[from88Index] = m.Mover;
-            AddToBitboards(from64Index, m.Mover);
+            mailbox[from88Index] = mover;
+            AddToBitboards(from64Index, mover);
 
             // Restore captured piece ...
             if (m.IsEnPassant)
             {
-                if (u.EnPassantCapturedSq64 is Square0x64 capSq)
+                if (u.EnPassantCapturedSq64Index is int capSq64Index)
                 {
-                    var capPiece = m.Mover.IsWhite ? Piece.BlackPawn : Piece.WhitePawn;
-                    mailbox[(Square0x88)capSq] = capPiece;
-                    AddToBitboards(capSq, capPiece);
+                    var capPiece = mover.IsWhite ? Piece.BlackPawn : Piece.WhitePawn;
+                    mailbox[Squares.Convert0x64IndexTo0x88Index(capSq64Index)] = capPiece;
+                    AddToBitboards(capSq64Index, capPiece);
                 }
             }
             else if (m.IsCapture && u.Captured != Piece.Empty)
@@ -699,8 +700,8 @@ public sealed class Board
             }
         }
 
-        if (m.Mover == Piece.WhiteKing) WhiteKingSquare64Index = m.From64Index;
-        else if (m.Mover == Piece.BlackKing) BlackKingSquare64Index = m.From64Index;
+        if (mover == Piece.WhiteKing) WhiteKingSquare64Index = m.From64Index;
+        else if (mover == Piece.BlackKing) BlackKingSquare64Index = m.From64Index;
 
         EnPassantFile = u.EnPassantFilePrev;
         CastlingRights = u.CastlingPrev;
