@@ -331,7 +331,7 @@ namespace Forklift.Core
             if (mv.IsEnPassant)
                 epRemoved64 = mv.Mover.IsWhite ? to64Index - 8 : to64Index + 8;
 
-            bool OccupiedAfter(int sq64Index) => board.At(sq64Index) != Piece.Empty;
+            bool OccupiedAfter(int sq64Index) => board.At64(sq64Index) != Piece.Empty;
 
             // Reconstruct "was this square occupied BEFORE mv?" from the post-move board + mv.
             bool OccupiedBefore(int sq64Index, Board.Move mv)
@@ -378,7 +378,7 @@ namespace Forklift.Core
             {
                 // 1. After-move: find first piece along this direction from the king.
                 var cur88 = king88Index;
-                int? sliderSq = null;
+                int? sliderSq64 = null;
 
                 while (true)
                 {
@@ -390,19 +390,19 @@ namespace Forklift.Core
                     if (!OccupiedAfter(sq64))
                         continue;
 
-                    sliderSq = sq64;
+                    sliderSq64 = sq64;
                     break;
                 }
 
-                if (sliderSq is null)
+                if (sliderSq64 is null)
                     continue;
 
-                var sliderPc = board.At(sliderSq.Value);
+                var sliderPc = board.At64(sliderSq64.Value);
                 if (!PieceMatchesDir(sliderPc, dir))
                     continue;
 
                 // If the moved piece itself is the slider, that's a direct check, not a discovered one.
-                if (sliderSq.Value == to64Index)
+                if (sliderSq64 == to64Index)
                     continue;
 
                 // 2. Before-move: what was the first occupied square on this ray?

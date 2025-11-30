@@ -121,28 +121,19 @@ public sealed class Board
         if (startPosition) SetStartPosition();
     }
 
-    public Piece At(int sq64Index) => (Piece)mailbox[((sq64Index >> 3) << 4) | (sq64Index & 7)];
+    /// <summary>
+    /// Gets the piece at the specified square.
+    /// </summary>
+    /// <param name="sq64Index">The square index in 0x64 format (0..63).</param>
+    /// <returns></returns>
+    public Piece At64(int sq64Index) => (Piece)mailbox[Squares.Convert0x64IndexTo0x88Index(sq64Index)];
 
     /// <summary>
     /// Gets the piece at the specified square.
     /// </summary>
-    /// <param name="sq88">The square in 0x88 format.</param>
-    /// <returns>The piece at the square.</returns>
-    public Piece? At(UnsafeSquare0x88 sq88) => Squares.IsOffboard(sq88) ? null : At((Square0x88)sq88);
-
-    /// <summary>
-    /// Gets the piece at the specified square. Casts the square to a 0x88 square.
-    /// </summary>
-    /// <param name="sq64">The square in 0x64 format.</param>
-    /// <returns>The piece at the square.</returns>
-    public Piece At(Square0x64 sq64) => At((Square0x88)sq64);
-
-    /// <summary>
-    /// Gets the piece at the specified square.
-    /// </summary>
-    /// <param name="sq88">The square in 0x88 format.</param>
-    /// <returns>The piece at the square.</returns>
-    public Piece At(Square0x88 sq88) => (Piece)mailbox[sq88];
+    /// <param name="sq88Index">The square index in 0x88 format (0..127).</param>
+    /// <returns></returns>
+    public Piece At88(int sq88Index) => (Piece)mailbox[sq88Index];
 
     public int? WhiteKingSquare64Index { get; private set; } = null;
     public int? BlackKingSquare64Index { get; private set; } = null;

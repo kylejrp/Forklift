@@ -168,7 +168,7 @@ namespace Forklift.Core
                         toAttackSquares &= toAttackSquares - 1;
                         int toRank = to64 / 8;
                         bool isPromotionRank = toRank == promotionRank;
-                        var captured = board.At(to64);
+                        var captured = board.At64(to64);
                         if (isPromotionRank && (moveFilter == null || moveFilter.Accept(MoveKind.Promotion))) // capture or null already accepted, so just need to additionally check for promotion
                         {
                             foreach (var promo in PromotionPieces[isWhite ? 0 : 1])
@@ -233,7 +233,7 @@ namespace Forklift.Core
                     {
                         var to64 = BitOperations.TrailingZeroCount(captures);
                         captures &= captures - 1;
-                        buffer[index++] = Move.Capture(from64, to64, mover, board.At(to64));
+                        buffer[index++] = Move.Capture(from64, to64, mover, board.At64(to64));
                     }
                 }
             }
@@ -302,7 +302,7 @@ namespace Forklift.Core
                     {
                         var to64 = BitOperations.TrailingZeroCount(captures);
                         captures &= captures - 1;
-                        buffer[index++] = Move.Capture(from64, to64, piece, board.At(to64));
+                        buffer[index++] = Move.Capture(from64, to64, piece, board.At64(to64));
                     }
                 }
             }
@@ -352,7 +352,7 @@ namespace Forklift.Core
                 {
                     var to64 = BitOperations.TrailingZeroCount(captures);
                     captures &= captures - 1;
-                    buffer[index++] = Move.Capture(from64, to64, king, board.At(to64));
+                    buffer[index++] = Move.Capture(from64, to64, king, board.At64(to64));
                 }
             }
         }
@@ -368,34 +368,47 @@ namespace Forklift.Core
         private static readonly Square0x64 G1_64 = Squares.ParseAlgebraicTo0x64("g1");
         private static readonly int G1_64_Index = G1_64.Value;
         private static readonly Square0x88 G1_88 = Squares.ParseAlgebraicTo0x88("g1");
+        private static readonly int G1_88_Index = G1_88.Value;
         private static readonly Square0x64 D1_64 = Squares.ParseAlgebraicTo0x64("d1");
         private static readonly int D1_64_Index = D1_64.Value;
         private static readonly Square0x88 D1_88 = Squares.ParseAlgebraicTo0x88("d1");
+        private static readonly int D1_88_Index = D1_88.Value;
         private static readonly Square0x64 C1_64 = Squares.ParseAlgebraicTo0x64("c1");
         private static readonly int C1_64_Index = C1_64.Value;
         private static readonly Square0x88 C1_88 = Squares.ParseAlgebraicTo0x88("c1");
+        private static readonly int C1_88_Index = C1_88.Value;
         private static readonly Square0x88 B1_88 = Squares.ParseAlgebraicTo0x88("b1");
+        private static readonly int B1_88_Index = B1_88.Value;
         private static readonly Square0x88 H1_88 = Squares.ParseAlgebraicTo0x88("h1");
+        private static readonly int H1_88_Index = H1_88.Value;
         private static readonly Square0x88 A1_88 = Squares.ParseAlgebraicTo0x88("a1");
+        private static readonly int A1_88_Index = A1_88.Value;
         private static readonly Square0x64 E8_64 = Squares.ParseAlgebraicTo0x64("e8");
         private static readonly int E8_64_Index = E8_64.Value;
         private static readonly Square0x64 F8_64 = Squares.ParseAlgebraicTo0x64("f8");
         private static readonly int F8_64_Index = F8_64.Value;
         private static readonly Square0x88 F8_88 = Squares.ParseAlgebraicTo0x88("f8");
+        private static readonly int F8_88_Index = F8_88.Value;
         private static readonly Square0x64 G8_64 = Squares.ParseAlgebraicTo0x64("g8");
         private static readonly int G8_64_Index = G8_64.Value;
         private static readonly Square0x88 G8_88 = Squares.ParseAlgebraicTo0x88("g8");
+        private static readonly int G8_88_Index = G8_88.Value;
         private static readonly Square0x64 D8_64 = Squares.ParseAlgebraicTo0x64("d8");
         private static readonly int D8_64_Index = D8_64.Value;
         private static readonly Square0x88 D8_88 = Squares.ParseAlgebraicTo0x88("d8");
+        private static readonly int D8_88_Index = D8_88.Value;
         private static readonly Square0x64 C8_64 = Squares.ParseAlgebraicTo0x64("c8");
         private static readonly int C8_64_Index = C8_64.Value;
         private static readonly Square0x88 C8_88 = Squares.ParseAlgebraicTo0x88("c8");
+        private static readonly int C8_88_Index = C8_88.Value;
         private static readonly Square0x64 B8_64 = Squares.ParseAlgebraicTo0x64("b8");
         private static readonly int B8_64_Index = B8_64.Value;
         private static readonly Square0x88 B8_88 = Squares.ParseAlgebraicTo0x88("b8");
+        private static readonly int B8_88_Index = B8_88.Value;
         private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88("h8");
+        private static readonly int H8_88_Index = H8_88.Value;
         private static readonly Square0x88 A8_88 = Squares.ParseAlgebraicTo0x88("a8");
+        private static readonly int A8_88_Index = A8_88.Value;
 
         private static void GenerateCastling(Board board, ref Span<Move> buffer, Color sideToMove, ref int index, IMoveFilter? moveFilter = null)
         {
@@ -423,9 +436,9 @@ namespace Forklift.Core
                 if ((board.CastlingRights & CastlingRightsFlags.WhiteKing) != 0 && (moveFilter == null || moveFilter.Accept(MoveKind.CastleKing)))
                 {
                     // Path empties + rook presence first (cheap)
-                    if (board.At(F1_88) == Piece.Empty &&
-                        board.At(G1_88) == Piece.Empty &&
-                        board.At(H1_88) == Piece.WhiteRook)
+                    if (board.At88(F1_88_Index) == Piece.Empty &&
+                        board.At88(G1_88_Index) == Piece.Empty &&
+                        board.At88(H1_88_Index) == Piece.WhiteRook)
                     {
                         // Three probes, short-circuit
                         if (!board.IsSquareAttacked(E1_64_Index, enemy) &&
@@ -440,10 +453,10 @@ namespace Forklift.Core
                 // ---- White O-O-O ----
                 if ((board.CastlingRights & CastlingRightsFlags.WhiteQueen) != 0 && (moveFilter == null || moveFilter.Accept(MoveKind.CastleQueen)))
                 {
-                    if (board.At(B1_88) == Piece.Empty &&
-                        board.At(C1_88) == Piece.Empty &&
-                        board.At(D1_88) == Piece.Empty &&
-                        board.At(A1_88) == Piece.WhiteRook)
+                    if (board.At88(B1_88_Index) == Piece.Empty &&
+                        board.At88(C1_88_Index) == Piece.Empty &&
+                        board.At88(D1_88_Index) == Piece.Empty &&
+                        board.At88(A1_88_Index) == Piece.WhiteRook)
                     {
                         if (!board.IsSquareAttacked(E1_64_Index, enemy) &&
                             !board.IsSquareAttacked(D1_64_Index, enemy) &&
@@ -459,9 +472,9 @@ namespace Forklift.Core
                 // ---- Black O-O ----
                 if ((board.CastlingRights & CastlingRightsFlags.BlackKing) != 0 && (moveFilter == null || moveFilter.Accept(MoveKind.CastleKing)))
                 {
-                    if (board.At(F8_88) == Piece.Empty &&
-                        board.At(G8_88) == Piece.Empty &&
-                        board.At(H8_88) == Piece.BlackRook)
+                    if (board.At88(F8_88_Index) == Piece.Empty &&
+                        board.At88(G8_88_Index) == Piece.Empty &&
+                        board.At88(H8_88_Index) == Piece.BlackRook)
                     {
                         if (!board.IsSquareAttacked(E8_64_Index, enemy) &&
                             !board.IsSquareAttacked(F8_64_Index, enemy) &&
@@ -475,10 +488,10 @@ namespace Forklift.Core
                 // ---- Black O-O-O ----
                 if ((board.CastlingRights & CastlingRightsFlags.BlackQueen) != 0 && (moveFilter == null || moveFilter.Accept(MoveKind.CastleQueen)))
                 {
-                    if (board.At(B8_88) == Piece.Empty &&
-                        board.At(C8_88) == Piece.Empty &&
-                        board.At(D8_88) == Piece.Empty &&
-                        board.At(A8_88) == Piece.BlackRook)
+                    if (board.At88(B8_88_Index) == Piece.Empty &&
+                        board.At88(C8_88_Index) == Piece.Empty &&
+                        board.At88(D8_88_Index) == Piece.Empty &&
+                        board.At88(A8_88_Index) == Piece.BlackRook)
                     {
                         if (!board.IsSquareAttacked(E8_64_Index, enemy) &&
                             !board.IsSquareAttacked(D8_64_Index, enemy) &&
