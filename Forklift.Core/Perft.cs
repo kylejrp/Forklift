@@ -299,10 +299,10 @@ namespace Forklift.Core
             var checkedSide = board.SideToMove;
             if (!board.InCheck(checkedSide)) return false;
 
-            var kingSq64 = checkedSide.IsWhite() ? board.WhiteKingSq64!.Value : board.BlackKingSq64!.Value;
+            var kingSq64 = checkedSide.IsWhite() ? board.WhiteKingSquare64Index!.Value : board.BlackKingSquare64Index!.Value;
             var attackerSide = checkedSide.Flip();
 
-            ulong attackers = board.AttackersToSquare(kingSq64.Value, attackerSide, Piece.PieceType.Knight | Piece.PieceType.Pawn | Piece.PieceType.King | Piece.PieceType.Bishop | Piece.PieceType.Rook | Piece.PieceType.Queen);
+            ulong attackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Knight | Piece.PieceType.Pawn | Piece.PieceType.King | Piece.PieceType.Bishop | Piece.PieceType.Rook | Piece.PieceType.Queen);
             return BitOperations.PopCount(attackers) >= 2;
         }
 
@@ -320,8 +320,8 @@ namespace Forklift.Core
             var them = us.Flip();
 
             // board is POST-move: king square is the opponent's king in the position after mv.
-            var king64 = them.IsWhite() ? board.WhiteKingSq64!.Value : board.BlackKingSq64!.Value;
-            var king88Index = ((king64.Value >> 3) << 4) | (king64.Value & 7);
+            var king64 = them.IsWhite() ? board.WhiteKingSquare64Index!.Value : board.BlackKingSquare64Index!.Value;
+            var king88Index = Squares.Convert0x64IndexTo0x88Index(king64);
 
             int from64Index = mv.From64Index;
             int to64Index = mv.To64Index;

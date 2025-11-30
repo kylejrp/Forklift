@@ -321,7 +321,7 @@ namespace Forklift.Core
             bool white = sideToMove.IsWhite();
 
             Piece king = white ? Piece.WhiteKing : Piece.BlackKing;
-            var from64 = white ? board.WhiteKingSq64!.Value.Value : board.BlackKingSq64!.Value.Value;
+            var from64 = white ? board.WhiteKingSquare64Index!.Value : board.BlackKingSquare64Index!.Value;
 
             if (moveFilter?.Accept(from64) == false)
             {
@@ -408,7 +408,7 @@ namespace Forklift.Core
 
             bool white = sideToMove.IsWhite();
 
-            if (moveFilter?.AcceptsAllSquares() == false && moveFilter?.Accept(white ? board.WhiteKingSq64!.Value.Value : board.BlackKingSq64!.Value.Value) == false)
+            if (moveFilter?.AcceptsAllSquares() == false && moveFilter?.Accept(white ? board.WhiteKingSquare64Index!.Value : board.BlackKingSquare64Index!.Value) == false)
             {
                 return;
             }

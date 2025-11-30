@@ -23,8 +23,8 @@ public sealed class Board
         var copy = new Board(this.Tables);
         Array.Copy(this.mailbox, copy.mailbox, this.mailbox.Length);
         Array.Copy(this.pieceBB, copy.pieceBB, this.pieceBB.Length);
-        copy._whiteKingSquare64Index = this._whiteKingSquare64Index;
-        copy._blackKingSquare64Index = this._blackKingSquare64Index;
+        copy.WhiteKingSquare64Index = this.WhiteKingSquare64Index;
+        copy.BlackKingSquare64Index = this.BlackKingSquare64Index;
         copy.OccWhite = this.OccWhite;
         copy.OccBlack = this.OccBlack;
         copy.OccAll = this.OccAll;
@@ -144,13 +144,8 @@ public sealed class Board
     /// <returns>The piece at the square.</returns>
     public Piece At(Square0x88 sq88) => (Piece)mailbox[sq88];
 
-    private int? _whiteKingSquare64Index = null;
-    private int? _blackKingSquare64Index = null;
-
-    public Square0x88? WhiteKingSq88 => WhiteKingSq64.HasValue ? (Square0x88)WhiteKingSq64 : null;
-    public Square0x88? BlackKingSq88 => BlackKingSq64.HasValue ? (Square0x88)BlackKingSq64 : null;
-    public Square0x64? WhiteKingSq64 => _whiteKingSquare64Index.HasValue ? (Square0x64)_whiteKingSquare64Index : null;
-    public Square0x64? BlackKingSq64 => _blackKingSquare64Index.HasValue ? (Square0x64)_blackKingSquare64Index : null;
+    public int? WhiteKingSquare64Index { get; private set; } = null;
+    public int? BlackKingSquare64Index { get; private set; } = null;
 
     /// <summary>
     /// Places a piece on the board at the specified square.
@@ -160,13 +155,13 @@ public sealed class Board
     public void Place(Square0x88 sq88, Piece pc)
     {
         var existing = RemoveIfAny(sq88);
-        if (existing == Piece.WhiteKing) _whiteKingSquare64Index = null;
-        else if (existing == Piece.BlackKing) _blackKingSquare64Index = null;
+        if (existing == Piece.WhiteKing) WhiteKingSquare64Index = null;
+        else if (existing == Piece.BlackKing) BlackKingSquare64Index = null;
         mailbox[sq88.Value] = pc;
         var sq64 = (Square0x64)sq88;
         if (pc != Piece.Empty) AddToBitboards((Square0x64)sq88, pc);
-        if (pc == Piece.WhiteKing) _whiteKingSquare64Index = sq64.Value;
-        else if (pc == Piece.BlackKing) _blackKingSquare64Index = sq64.Value;
+        if (pc == Piece.WhiteKing) WhiteKingSquare64Index = sq64.Value;
+        else if (pc == Piece.BlackKing) BlackKingSquare64Index = sq64.Value;
     }
 
     private Piece RemoveIfAny(Square0x88 sq88)
@@ -467,7 +462,7 @@ public sealed class Board
                          m.IsCastleKingSide && CastlingRights.HasFlag(CastlingRightsFlags.WhiteKing) ||
                          !m.IsCastle);
             newCR &= ~(CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen);
-            _whiteKingSquare64Index = to64Index;
+            WhiteKingSquare64Index = to64Index;
         }
         if (m.Mover == Piece.BlackKing)
         {
@@ -475,7 +470,7 @@ public sealed class Board
                          m.IsCastleKingSide && CastlingRights.HasFlag(CastlingRightsFlags.BlackKing) ||
                          !m.IsCastle);
             newCR &= ~(CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen);
-            _blackKingSquare64Index = to64Index;
+            BlackKingSquare64Index = to64Index;
         }
         // own rook moved from corner
         if (m.Mover == Piece.WhiteRook)
@@ -713,8 +708,8 @@ public sealed class Board
             }
         }
 
-        if (m.Mover == Piece.WhiteKing) _whiteKingSquare64Index = m.From64Index;
-        else if (m.Mover == Piece.BlackKing) _blackKingSquare64Index = m.From64Index;
+        if (m.Mover == Piece.WhiteKing) WhiteKingSquare64Index = m.From64Index;
+        else if (m.Mover == Piece.BlackKing) BlackKingSquare64Index = m.From64Index;
 
         EnPassantFile = u.EnPassantFilePrev;
         CastlingRights = u.CastlingPrev;
@@ -1296,7 +1291,7 @@ public sealed class Board
 
     public bool InCheck(Color side)
     {
-        var kingSq64 = side.IsWhite() ? _whiteKingSquare64Index!.Value : _blackKingSquare64Index!.Value;
+        var kingSq64 = side.IsWhite() ? WhiteKingSquare64Index!.Value : BlackKingSquare64Index!.Value;
         var attacker = side.IsWhite() ? Color.Black : Color.White;
         return IsSquareAttacked(kingSq64, attacker);
     }

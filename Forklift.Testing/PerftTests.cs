@@ -183,17 +183,17 @@ namespace Forklift.Testing
                     var stm = board.SideToMove;
                     bool blackInCheck = board.InCheck(Color.Black);
 
-                    var k64Black = board.BlackKingSq64!.Value;
+                    var k64Black = board.BlackKingSquare64Index!.Value;
                     var kAlg = ToAlgebraicString((Square0x88)k64Black);
 
                     // High-level breakdown from your Board.AttackerBreakdown
-                    var breakdown = board.AttackerBreakdownBool(k64Black.Value, byWhite: true);
+                    var breakdown = board.AttackerBreakdownBool(k64Black, byWhite: true);
 
                     // Raw table masks at the king square (to verify the tables themselves)
                     var T = board.Tables;
-                    ulong knightFromMask = T.KnightAttackTable[(int)k64Black];
-                    ulong kingFromMask = T.KingAttackTable[(int)k64Black];
-                    ulong wpawnFromMask = T.WhitePawnAttackFrom[(int)k64Black]; // white attackers
+                    ulong knightFromMask = T.KnightAttackTable[k64Black];
+                    ulong kingFromMask = T.KingAttackTable[k64Black];
+                    ulong wpawnFromMask = T.WhitePawnAttackFrom[k64Black]; // white attackers
 
                     // Which *white* pieces actually intersect those masks?
                     var wkMask = knightFromMask & board.GetPieceBitboard(Piece.WhiteKnight);
