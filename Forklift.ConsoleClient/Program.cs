@@ -300,15 +300,10 @@ void HandleGo(
                 var stopwatch = Stopwatch.StartNew();
                 var summaryCallback = (Search.SearchSummary s) => { TryLog(new SearchInfo(s, stopwatch.Elapsed)); };
                 var summary = Search.FindBestMove(boardSnapshot, useFailSafeDepth ? 1 : searchDepth, cancellationToken, summaryCallback);
-                var bestMove = summary.BestMove;
+                stopwatch.Stop();
+                var bestMove = summary.PrincipalVariation.Length > 0 ? summary.PrincipalVariation[0] : null;
                 var bestScore = summary.BestScore;
                 var completedDepth = summary.CompletedDepth;
-
-                if (bestMove is not Board.Move move)
-                {
-                    TryLog("bestmove 0000");
-                    return;
-                }
 
                 var elapsedMs = stopwatch.ElapsedMilliseconds;
                 if (debugMode)
@@ -316,6 +311,13 @@ void HandleGo(
                     var budgetDisplay = allocatedTimeMs.HasValue ? $" (budget {allocatedTimeMs.Value})" : string.Empty;
                     TryLog($"info string search completed in {elapsedMs / 1000.0:F2}s{budgetDisplay}");
                 }
+
+                if (bestMove is not Board.Move move)
+                {
+                    TryLog("bestmove 0000");
+                    return;
+                }
+
                 TryLog($"bestmove {move.ToUCIString()}");
             }
             catch (Exception ex)
