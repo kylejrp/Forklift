@@ -46,7 +46,7 @@ namespace Forklift.Testing
                 S64("f1").Value,
                 Piece.WhiteKing
             );
-            var u = b.MakeMove(mv);
+            b.MakeMove(mv, out var u);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteQueen).Should().Be(0);
             b.UnmakeMove(mv, u);
@@ -63,7 +63,7 @@ namespace Forklift.Testing
                 S64("h2").Value,
                 Piece.WhiteRook
             );
-            var u = b.MakeMove(mv);
+            b.MakeMove(mv, out var u);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
             b.UnmakeMove(mv, u);
 
@@ -73,7 +73,7 @@ namespace Forklift.Testing
                 S64("a2").Value,
                 Piece.WhiteRook
             );
-            var u2 = b.MakeMove(mv2);
+            b.MakeMove(mv2, out var u2);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteQueen).Should().Be(0);
             b.UnmakeMove(mv2, u2);
 
@@ -85,7 +85,7 @@ namespace Forklift.Testing
                 Piece.BlackRook,
                 Piece.WhiteRook
             );
-            var u3 = b.MakeMove(mv3);
+            b.MakeMove(mv3, out var u3);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
             b.UnmakeMove(mv3, u3);
         }
@@ -100,13 +100,13 @@ namespace Forklift.Testing
                 S64("h2").Value,
                 Piece.WhiteRook
             );
-            b.MakeMove(mv1);
+            b.MakeMove(mv1, out var _);
             var mv2 = Board.Move.Normal(
                 S64("h2").Value,
                 S64("h1").Value,
                 Piece.WhiteRook
             );
-            b.MakeMove(mv2);
+            b.MakeMove(mv2, out var _);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
         }
 
@@ -123,7 +123,7 @@ namespace Forklift.Testing
                 S64("f3").Value,
                 Piece.WhitePawn
             );
-            b.MakeMove(mv);
+            b.MakeMove(mv, out var _);
             // Now bishop attacks f2, so castling through f1 is illegal
             var legals = b.GenerateLegal().ToList();
             legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind.HasFlag(Board.MoveKind.CastleKing));

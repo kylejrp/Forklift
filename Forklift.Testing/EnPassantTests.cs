@@ -23,7 +23,7 @@ namespace Forklift.Testing
                 S64("d5").Value,
                 Piece.BlackPawn
             );
-            var u = b.MakeMove(mv);
+            b.MakeMove(mv, out var undo);
 
             // Now white to move with EP on file 'd'
             return b;
@@ -46,7 +46,7 @@ namespace Forklift.Testing
                 S64("d5").Value,
                 Piece.BlackPawn
             );
-            b.MakeMove(mv);
+            b.MakeMove(mv, out var _);
             return b;
         }
 
@@ -69,7 +69,7 @@ namespace Forklift.Testing
                 S64("e3").Value,
                 Piece.WhitePawn
             );
-            b.MakeMove(mv1);
+            b.MakeMove(mv1, out var _);
             b.EnPassantFile.Should().BeNull();
 
             // Black plays d7-d5 (double push): EP set
@@ -78,7 +78,7 @@ namespace Forklift.Testing
                 S64("d5").Value,
                 Piece.BlackPawn
             );
-            b.MakeMove(mv2);
+            b.MakeMove(mv2, out var _);
             b.EnPassantFile.Should().Be(new FileIndex(3)); // 'd' file
 
             // White plays a non-EP move: king h1-g1
@@ -87,7 +87,7 @@ namespace Forklift.Testing
                 S64("g1").Value,
                 Piece.WhiteKing
             );
-            b.MakeMove(mv3);
+            b.MakeMove(mv3, out var _);
             b.EnPassantFile.Should().BeNull();
         }
 
@@ -98,7 +98,7 @@ namespace Forklift.Testing
             var epMoves = b.GenerateLegal().Where(m => m.IsEnPassant).ToList();
             epMoves.Should().ContainSingle();
             // Make/unmake EP move to check it exists
-            var u = b.MakeMove(epMoves[0]);
+            b.MakeMove(epMoves[0], out var u);
             b.UnmakeMove(epMoves[0], u);
         }
 
@@ -109,7 +109,7 @@ namespace Forklift.Testing
             var b = BuildEpPosition_WhiteToCapture();
             var ep = b.GenerateLegal().First(m => m.IsEnPassant);
             var occ0 = b.OccAll;
-            var u = b.MakeMove(ep);
+            b.MakeMove(ep, out var u);
             b.OccAll.Should().NotBe(occ0); // captured pawn removed
             b.UnmakeMove(ep, u);
             b.OccAll.Should().Be(occ0);
@@ -139,7 +139,7 @@ namespace Forklift.Testing
 
             // Make EP move: EP file should be cleared, key updated
             var epMove = b.GenerateLegal().First(m => m.IsEnPassant);
-            var u = b.MakeMove(epMove);
+            b.MakeMove(epMove, out var u);
             b.EnPassantFile.Should().BeNull();
             var key1 = b.ZKey;
             key1.Should().NotBe(key0); // Key should change

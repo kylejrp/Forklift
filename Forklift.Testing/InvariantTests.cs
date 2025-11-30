@@ -17,7 +17,7 @@ namespace Forklift.Testing
                 if (legals.Count == 0) break;
 
                 var mv = legals[rng.Next(legals.Count)];
-                var u = b.MakeMove(mv);
+                b.MakeMove(mv, out var u);
                 // occasionally undo
                 if (rng.NextDouble() < 0.3) b.UnmakeMove(mv, u);
             }

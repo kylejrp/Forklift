@@ -18,7 +18,7 @@ namespace Forklift.Testing
                 if (legals.Count == 0) break;
                 var mv = legals[rng.Next(legals.Count)];
                 var keyBefore = b.ZKey;
-                var u = b.MakeMove(mv);
+                b.MakeMove(mv, out var u);
                 snapshots.Push((mv, u, keyBefore));
                 // sanity: recompute full key sometimes
                 if (i % 9 == 0)

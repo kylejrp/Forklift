@@ -26,7 +26,7 @@ namespace Forklift.Testing
             for (int i = 0; i < moves.Length; i++)
             {
                 var mv = moves[i];
-                var u = b.MakeMove(mv);
+                b.MakeMove(mv, out var u);
 
                 // This check duplicates the generator’s legality filter.
                 // Keep if you explicitly want to *verify* the invariant; comment out for speed.

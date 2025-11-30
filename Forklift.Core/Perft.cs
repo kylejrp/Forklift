@@ -37,7 +37,7 @@ namespace Forklift.Core
                 {
                     var mv = moves[i];
                     var bc = board.Copy(keepTrackOfHistory: false);
-                    var u = bc.MakeMove(mv);
+                    bc.MakeMove(mv, out var u);
 
                     // Filter illegals cheaply after making the move
                     if (!bc.InCheck(bc.SideToMove.Flip()))
@@ -93,7 +93,7 @@ namespace Forklift.Core
                 for (int i = 0; i < moves.Length; i++)
                 {
                     var mv = moves[i];
-                    var u = b.MakeMove(mv);
+                    b.MakeMove(mv, out var u);
                     long n = PerftSerial(b, depth - 1);
                     b.UnmakeMove(mv, u);
 
@@ -117,7 +117,7 @@ namespace Forklift.Core
                 {
                     var mv = moves[i];
                     var bc = b.Copy(keepTrackOfHistory: false);
-                    var u = bc.MakeMove(mv);
+                    bc.MakeMove(mv, out var u);
                     long n = PerftSerial(bc, depth - 1);
                     bc.UnmakeMove(mv, u);
 
@@ -183,7 +183,7 @@ namespace Forklift.Core
                 {
                     var mv = moves[i];
                     var bc = board.Copy(keepTrackOfHistory: false);
-                    var u = bc.MakeMove(mv);
+                    bc.MakeMove(mv, out var u);
 
                     // legality filter on the child
                     if (!bc.InCheck(bc.SideToMove.Flip()))
@@ -239,7 +239,7 @@ namespace Forklift.Core
             long nodes = 0;
             foreach (var mv in buffer)
             {
-                var u = board.MakeMove(mv);
+                board.MakeMove(mv, out var u);
                 bool legal = !board.InCheck(board.SideToMove.Flip());
                 if (legal)
                     nodes += PerftSerial(board, depth - 1);
@@ -264,7 +264,7 @@ namespace Forklift.Core
 
             foreach (var mv in buffer)
             {
-                var u = board.MakeMove(mv);
+                board.MakeMove(mv, out var u);
                 bool legal = !board.InCheck(board.SideToMove.Flip());
                 if (legal)
                 {

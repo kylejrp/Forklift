@@ -51,7 +51,7 @@ namespace Forklift.Testing
             var legal = b.GenerateLegal();
             legal.Length.Should().BeGreaterThan(0);
             var firstMove = legal[0];
-            var undo = b.MakeMove(firstMove);
+            b.MakeMove(firstMove, out var undo);
 
             var hashBeforeNull = b.HashHistoryCount;
             var moveHistoryBeforeNull = b.MoveHistory.Count;

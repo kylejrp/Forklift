@@ -175,7 +175,7 @@ namespace Forklift.Testing
 
             foreach (var m in rootMoves)
             {
-                var u = board.MakeMove(m);
+                board.MakeMove(m, out var u);
 
                 var legal = board.GenerateLegal().ToList();
                 if (legal.Count != 20)

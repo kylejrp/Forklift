@@ -214,7 +214,7 @@ namespace Forklift.Core
                     break;
                 }
                 var sideToMove = board.SideToMove;
-                var undo = board.MakeMove(move);
+                board.MakeMove(move, out var undo);
                 if (board.InCheck(sideToMove))
                 {
                     board.UnmakeMove(move, undo);
@@ -366,7 +366,7 @@ namespace Forklift.Core
                         return new QuiescenceResult(alpha, false, nodesSearched);
                     }
 
-                    var undo = board.MakeMove(move);
+                    board.MakeMove(move, out var undo);
                     if (board.InCheck(sideToMove))
                     {
                         board.UnmakeMove(move, undo);
@@ -438,7 +438,7 @@ namespace Forklift.Core
                     return new QuiescenceResult(alpha, false, nodesSearched);
                 }
 
-                var undo = board.MakeMove(move);
+                board.MakeMove(move, out var undo);
                 if (board.InCheck(sideToMove))
                 {
                     board.UnmakeMove(move, undo);

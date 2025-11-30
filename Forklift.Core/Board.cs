@@ -506,7 +506,7 @@ public sealed class Board
     private static readonly Square0x88 D8_88 = Squares.ParseAlgebraicTo0x88("d8");
     private static readonly int D8_88_Index = D8_88.Value;
 
-    public Undo MakeMove(in Move m)
+    public void MakeMove(in Move m, out Undo undo)
     {
         var to64Index = m.To64Index;
         var from64Index = m.From64Index;
@@ -539,7 +539,7 @@ public sealed class Board
         }
 #endif
 
-        var undo = new Undo(
+        undo = new Undo(
             captured: kind.HasFlag(MoveKind.EnPassant)
                 ? (SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn)
                 : (Piece)mailbox[to88Index],
@@ -726,8 +726,6 @@ public sealed class Board
             _moveHistory.Add(m);
             _undoHistory.Add(undo);
         }
-
-        return undo;
     }
 
     public void UnmakeMove(in Move m, in Undo u)
@@ -883,7 +881,7 @@ public sealed class Board
         for (int j = 0; j < moveBuffer.Length; j++)   // iterate only pseudo-candidates, not full buffer
         {
             var mv = moveBuffer[j];
-            var u = MakeMove(mv);
+            MakeMove(mv, out var u);
             bool inCheck = InCheck(SideToMove.Flip());
             UnmakeMove(mv, u);
             if (!inCheck) moveBuffer[i++] = mv;
@@ -901,7 +899,7 @@ public sealed class Board
 
         foreach (var mv in moveBuffer)
         {
-            var u = MakeMove(mv);
+            MakeMove(mv, out var u);
             bool inCheck = InCheck(SideToMove.Flip());
             UnmakeMove(mv, u);
             if (!inCheck) return true;
@@ -920,7 +918,7 @@ public sealed class Board
         var index = moveBuffer.IndexOf(m);
         if (index < 0) return false;
 
-        var u = MakeMove(m);
+        MakeMove(m, out var u);
         bool inCheck = InCheck(SideToMove.Flip());
         UnmakeMove(m, u);
 
@@ -1564,7 +1562,7 @@ public sealed class Board
         var move = ParseUCIMove(uci);
         if (move is Move m)
         {
-            MakeMove(m);
+            MakeMove(m, out var _);
             return true;
         }
         return false;
