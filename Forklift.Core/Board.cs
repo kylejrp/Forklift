@@ -328,17 +328,137 @@ public sealed class Board
         }
     }
 
-    public readonly record struct Undo(
-        Piece Captured,
-        FileIndex? EnPassantFilePrev,
-        CastlingRightsFlags CastlingPrev,
-        int HalfmovePrev,
-        int FullmovePrev,
-        Color SideToMovePrev,
-        ulong ZKeyPrev,
-        int? EnPassantCapturedSq64Index,
-        int? CastleRookFrom64Index,
-        int? CastleRookTo64Index);
+    public struct Undo
+    {
+        private ulong _zKeyPrev;
+        private ulong _meta;
+
+        public ulong ZKeyPrev
+        {
+            readonly get => _zKeyPrev;
+            set => _zKeyPrev = value;
+        }
+
+        private const int CastlingShift = 0;
+        private const ulong CastlingMask = 0xF;
+
+        private const int EpFileShift = 4;
+        private const ulong EpFileMask = 0xF;
+
+        private const int HalfmoveShift = 8;
+        private const ulong HalfmoveMask = 0x7F;
+
+        private const int FullmoveShift = 15;
+        private const ulong FullmoveMask = 0xFF;
+
+        private const int SideShift = 23;
+        private const ulong SideMask = 0x1;
+
+        private const int CapturedShift = 24;
+        private const ulong PieceMask = 0xF;
+
+        private const int EpCapturedSqShift = 28;
+        private const int CastleRookFromShift = 34;
+        private const int CastleRookToShift = 40;
+        private const ulong SqMask = 0x3F;
+
+        private const int EpCapturedPresentShift = 46;
+        private const int CastleRookFromPresentShift = 47;
+        private const int CastleRookToPresentShift = 48;
+
+        public Undo(
+            Piece captured,
+            FileIndex? enPassantFilePrev,
+            CastlingRightsFlags castlingPrev,
+            int halfmovePrev,
+            int fullmovePrev,
+            Color sideToMovePrev,
+            ulong zKeyPrev)
+        {
+            _zKeyPrev = zKeyPrev;
+
+            ulong meta = 0;
+
+            meta |= ((ulong)castlingPrev & CastlingMask) << CastlingShift;
+
+            ulong epBits = enPassantFilePrev.HasValue
+                ? (ulong)enPassantFilePrev.Value.Value
+                : 0xF;
+            meta |= (epBits & EpFileMask) << EpFileShift;
+
+            meta |= ((ulong)halfmovePrev & HalfmoveMask) << HalfmoveShift;
+            meta |= ((ulong)fullmovePrev & FullmoveMask) << FullmoveShift;
+
+            ulong sideBit = sideToMovePrev.IsWhite() ? 0UL : 1UL;
+            meta |= (sideBit & SideMask) << SideShift;
+
+            meta |= ((ulong)captured & PieceMask) << CapturedShift;
+
+            _meta = meta;
+        }
+
+        public readonly CastlingRightsFlags CastlingPrev
+            => (CastlingRightsFlags)((_meta >> CastlingShift) & CastlingMask);
+
+        public readonly FileIndex? EnPassantFilePrev
+        {
+            get
+            {
+                ulong raw = (_meta >> EpFileShift) & EpFileMask;
+                return raw == 0xF ? null : new FileIndex((int)raw);
+            }
+        }
+
+        public readonly int HalfmovePrev
+            => (int)((_meta >> HalfmoveShift) & HalfmoveMask);
+
+        public readonly int FullmovePrev
+            => (int)((_meta >> FullmoveShift) & FullmoveMask);
+
+        public readonly Color SideToMovePrev
+            => (((_meta >> SideShift) & SideMask) == 0) ? Color.White : Color.Black;
+
+        public readonly Piece Captured
+            => (Piece)((_meta >> CapturedShift) & PieceMask);
+
+        public readonly int? EnPassantCapturedSq64Index
+            => ((_meta >> EpCapturedPresentShift) & 1UL) == 0
+                   ? null
+                   : (int)((_meta >> EpCapturedSqShift) & SqMask);
+
+        public readonly int? CastleRookFrom64Index
+            => ((_meta >> CastleRookFromPresentShift) & 1UL) == 0
+                   ? null
+                   : (int)((_meta >> CastleRookFromShift) & SqMask);
+
+        public readonly int? CastleRookTo64Index
+            => ((_meta >> CastleRookToPresentShift) & 1UL) == 0
+                   ? null
+                   : (int)((_meta >> CastleRookToShift) & SqMask);
+
+        public void SetEnPassantCapturedSq(int sq64)
+        {
+            _meta |= 1UL << EpCapturedPresentShift;
+            _meta &= ~(SqMask << EpCapturedSqShift);
+            _meta |= ((ulong)sq64 & SqMask) << EpCapturedSqShift;
+        }
+
+        public void SetCastleRookFrom(int sq64)
+        {
+            _meta |= 1UL << CastleRookFromPresentShift;
+            _meta &= ~(SqMask << CastleRookFromShift);
+            _meta |= ((ulong)sq64 & SqMask) << CastleRookFromShift;
+        }
+
+        public void SetCastleRookTo(int sq64)
+        {
+            _meta |= 1UL << CastleRookToPresentShift;
+            _meta &= ~(SqMask << CastleRookToShift);
+            _meta |= ((ulong)sq64 & SqMask) << CastleRookToShift;
+        }
+    }
+
+
 
     /// <summary>
     /// Lightweight snapshot used to make/unmake null moves without affecting history tracking.
@@ -421,18 +541,15 @@ public sealed class Board
 #endif
 
         var undo = new Undo(
-            Captured: kind.HasFlag(MoveKind.EnPassant)
+            captured: kind.HasFlag(MoveKind.EnPassant)
                 ? (SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn)
                 : (Piece)mailbox[to88Index],
-            EnPassantFilePrev: EnPassantFile,
-            CastlingPrev: CastlingRights,
-            HalfmovePrev: HalfmoveClock,
-            FullmovePrev: FullmoveNumber,
-            SideToMovePrev: SideToMove,
-            ZKeyPrev: ZKey,
-            EnPassantCapturedSq64Index: null,
-            CastleRookFrom64Index: null,
-            CastleRookTo64Index: null);
+            enPassantFilePrev: EnPassantFile,
+            castlingPrev: CastlingRights,
+            halfmovePrev: HalfmoveClock,
+            fullmovePrev: FullmoveNumber,
+            sideToMovePrev: SideToMove,
+            zKeyPrev: ZKey);
 
         // --- Clear old EP key
         SetEnPassantFile(null);
@@ -559,7 +676,8 @@ public sealed class Board
             AddToBitboards(rTo64, rook);
             XorZPiece(rook, rTo64);
 
-            undo = undo with { CastleRookFrom64Index = rFrom64, CastleRookTo64Index = rTo64 };
+            undo.SetCastleRookFrom(rFrom64);
+            undo.SetCastleRookTo(rTo64);
         }
         else
         {
@@ -578,7 +696,7 @@ public sealed class Board
                 RemoveFromBitboards(capSq64, capPiece);
                 mailbox[capSq88] = Piece.Empty;
                 XorZPiece(capPiece, capSq64);
-                undo = undo with { EnPassantCapturedSq64Index = capSq64 };
+                undo.SetEnPassantCapturedSq(capSq64);
             }
 
             // --- Place the moved piece (promotion if any)
