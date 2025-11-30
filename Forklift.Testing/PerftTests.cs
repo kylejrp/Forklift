@@ -175,7 +175,7 @@ namespace Forklift.Testing
 
             foreach (var m in rootMoves)
             {
-                var u = board.MakeMove(m);
+                board.MakeMove(m, out var u);
 
                 var legal = board.GenerateLegal().ToList();
                 if (legal.Count != 20)
@@ -183,17 +183,17 @@ namespace Forklift.Testing
                     var stm = board.SideToMove;
                     bool blackInCheck = board.InCheck(Color.Black);
 
-                    var k64Black = (Square0x64)board.BlackKing!.Value;
-                    var kAlg = Squares.ToAlgebraicString((Square0x88)k64Black);
+                    var k64Black = board.BlackKingSquare64Index!.Value;
+                    var kAlg = ToAlgebraicString((Square0x88)k64Black);
 
                     // High-level breakdown from your Board.AttackerBreakdown
                     var breakdown = board.AttackerBreakdownBool(k64Black, byWhite: true);
 
                     // Raw table masks at the king square (to verify the tables themselves)
                     var T = board.Tables;
-                    ulong knightFromMask = T.KnightAttackTable[(int)k64Black];
-                    ulong kingFromMask = T.KingAttackTable[(int)k64Black];
-                    ulong wpawnFromMask = T.WhitePawnAttackFrom[(int)k64Black]; // white attackers
+                    ulong knightFromMask = T.KnightAttackTable[k64Black];
+                    ulong kingFromMask = T.KingAttackTable[k64Black];
+                    ulong wpawnFromMask = T.WhitePawnAttackFrom[k64Black]; // white attackers
 
                     // Which *white* pieces actually intersect those masks?
                     var wkMask = knightFromMask & board.GetPieceBitboard(Piece.WhiteKnight);
@@ -246,7 +246,7 @@ EnPassantFile              = {(board.EnPassantFile?.ToString() ?? "null")}
 
         private static string ToUci(Board.Move m)
         {
-            var s = ToAlgebraicString(m.From88) + ToAlgebraicString(m.To88);
+            var s = ToAlgebraicString((Square0x64)m.From64Index) + ToAlgebraicString((Square0x64)m.To64Index);
             if (m.Promotion != Piece.Empty)
             {
                 s += m.Promotion.PromotionChar;

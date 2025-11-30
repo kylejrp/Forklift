@@ -13,7 +13,7 @@ namespace Forklift.Testing
             var key0 = b.ZKey; var occ0 = b.OccAll;
 
             var m = b.GenerateLegal().First();
-            var undo = b.MakeMove(m);
+            b.MakeMove(m, out var undo);
             b.UnmakeMove(m, undo);
 
             b.ZKey.Should().Be(key0);

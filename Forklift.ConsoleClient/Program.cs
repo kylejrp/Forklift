@@ -85,6 +85,24 @@ while (true)
 
         case "go":
             {
+                if (arguments.Length == 2 && arguments[0] == "perft")
+                {
+                    if (int.TryParse(arguments[1], out var perftDepth))
+                    {
+                        var stopwatch = Stopwatch.StartNew();
+                        var nodes = Perft.Divide(board, perftDepth);
+                        stopwatch.Stop();
+                        long totalNodes = 0;
+                        foreach (var node in nodes)
+                        {
+                            TryLog($"{node.MoveUci}: {node.Nodes}");
+                            totalNodes += node.Nodes;
+                        }
+                        TryLog($"\nNodes searched: {totalNodes} in {stopwatch.Elapsed.TotalSeconds:F2}s");
+                        continue;
+                    }
+                }
+
                 int? depth = null;
                 int? moveTimeMs = null;
                 int? whiteTimeMs = null;

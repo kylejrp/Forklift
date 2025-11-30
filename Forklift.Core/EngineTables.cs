@@ -17,8 +17,14 @@ namespace Forklift.Core
         // Attack-from masks keyed by target 0x64
         public readonly ulong[] KnightAttackTable;    // [target64] bitboard of sources
         public readonly ulong[] KingAttackTable;      // [target64] bitboard of sources
-        public readonly ulong[] WhitePawnAttackFrom;  // [target64] bitboard of sources
-        public readonly ulong[] BlackPawnAttackFrom;  // [target64] bitboard of sources
+        public readonly ulong[] WhitePawnAttackTable;  // [target64] bitboard of sources
+        public readonly ulong[] BlackPawnAttackTable;  // [target64] bitboard of sources
+
+        // Pawn push-from masks keyed by from 0x64
+        public readonly ulong[] WhitePawnPushFrom;    // [from64] bitboard of sources
+        public readonly ulong[] BlackPawnPushFrom;    // [from64] bitboard of sources
+        public readonly ulong[] WhitePawnAttackFrom;  // [from64] bitboard of sources
+        public readonly ulong[] BlackPawnAttackFrom;  // [from64] bitboard of sources
 
         // Packed magic attack tables: [offset[from] + idx] -> attacks
         public readonly int[] BishopOffsets;  // length 65, last = total
@@ -60,8 +66,12 @@ namespace Forklift.Core
         private EngineTables(
             ulong[] knightAttackTable,
             ulong[] kingAttackTable,
-            ulong[] whitePawnAttackFrom,
-            ulong[] blackPawnAttackFrom,
+            ulong[] whitePawnAttackTable,
+            ulong[] blackPawnAttackTable,
+            ulong[] wpPushFrom,
+            ulong[] bpPushFrom,
+            ulong[] wpAttackFrom,
+            ulong[] bpAttackFrom,
             int[] bishopOffsets,
             ulong[] bishopTable,
             int[] rookOffsets,
@@ -70,8 +80,12 @@ namespace Forklift.Core
         {
             KnightAttackTable = knightAttackTable;
             KingAttackTable = kingAttackTable;
-            WhitePawnAttackFrom = whitePawnAttackFrom;
-            BlackPawnAttackFrom = blackPawnAttackFrom;
+            WhitePawnAttackTable = whitePawnAttackTable;
+            BlackPawnAttackTable = blackPawnAttackTable;
+            WhitePawnPushFrom = wpPushFrom;
+            BlackPawnPushFrom = bpPushFrom;
+            WhitePawnAttackFrom = wpAttackFrom;
+            BlackPawnAttackFrom = bpAttackFrom;
             BishopOffsets = bishopOffsets;
             BishopTable = bishopTable;
             RookOffsets = rookOffsets;
@@ -123,16 +137,29 @@ namespace Forklift.Core
 
             // Build (or optionally bake) attack-from tables:
             var knightFrom = BuildKnightFrom();
-            var kingFrom   = BuildKingFrom();
-            var wpFrom     = BuildWhitePawnFrom();
-            var bpFrom     = BuildBlackPawnFrom();
+            var kingFrom = BuildKingFrom();
+            var wpAttackTable = BuildWhitePawnAttackTable();
+            var bpAttackTable = BuildBlackPawnAttackTable();
+            var wpPushFrom = BuildWhitePawnPushFrom();
+            var bpPushFrom = BuildBlackPawnPushFrom();
+            var wpAttackFrom = BuildWhitePawnAttackFrom();
+            var bpAttackFrom = BuildBlackPawnAttackFrom();
 
             MaybeWriteBakedToFile(bishopOffsets, bishopTable, rookOffsets, rookTable, CurrentBishopMagics, CurrentRookMagics);
 
             return new EngineTables(
-                knightFrom, kingFrom, wpFrom, bpFrom,
-                bishopOffsets, bishopTable,
-                rookOffsets,   rookTable,
+                knightFrom,
+                kingFrom,
+                wpAttackTable,
+                bpAttackTable,
+                wpPushFrom,
+                bpPushFrom,
+                wpAttackFrom,
+                bpAttackFrom,
+                bishopOffsets,
+                bishopTable,
+                rookOffsets,
+                rookTable,
                 zobrist ?? Zobrist.CreateDeterministic());
 
 #else
@@ -143,20 +170,126 @@ namespace Forklift.Core
             // Compute attack-from tables with the per-piece builders (lightweight and deterministic)
             var knightFrom = BuildKnightFrom();
             var kingFrom = BuildKingFrom();
-            var wpFrom = BuildWhitePawnFrom();
-            var bpFrom = BuildBlackPawnFrom();
+            var wpAttackTable = BuildWhitePawnAttackTable();
+            var bpAttackTable = BuildBlackPawnAttackTable();
+            var wpPushFrom = BuildWhitePawnPushFrom();
+            var bpPushFrom = BuildBlackPawnPushFrom();
+            var wpAttackFrom = BuildWhitePawnAttackFrom();
+            var bpAttackFrom = BuildBlackPawnAttackFrom();
 
             return new EngineTables(
                 knightFrom,
                 kingFrom,
-                wpFrom,
-                bpFrom,
+                wpAttackTable,
+                bpAttackTable,
+                wpPushFrom,
+                bpPushFrom,
+                wpAttackFrom,
+                bpAttackFrom,
                 BakedBishopOffsets,
                 BakedBishopTable,
                 BakedRookOffsets,
                 BakedRookTable,
                 zobrist ?? Zobrist.CreateDeterministic());
 #endif
+        }
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong[] BuildWhitePawnPushFrom()
+        {
+            // From a square f, white pawns can push to f+16 (if on-board)
+            var table = new ulong[64];
+
+            for (int f = 0; f < 56; f++)
+            {
+                var f88 = (Square0x88)new Square0x64(f);
+                ulong mask = 0UL;
+
+                var to = new UnsafeSquare0x88(f88.Value + 16);
+                if (!Squares.IsOffboard(to))
+                    mask |= 1UL << ((Square0x64)(Square0x88)to).Value;
+
+                table[f] = mask;
+            }
+            for (int f = 56; f < 64; f++)
+            {
+                table[f] = 0UL;
+            }
+            return table;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong[] BuildBlackPawnPushFrom()
+        {
+            // From a square f, black pawns can push to f-16 (if on-board)
+            var table = new ulong[64];
+
+            for (int f = 0; f < 8; f++)
+            {
+                table[f] = 0UL;
+            }
+            for (int f = 8; f < 64; f++)
+            {
+                var f88 = (Square0x88)new Square0x64(f);
+                ulong mask = 0UL;
+
+                var to = new UnsafeSquare0x88(f88.Value - 16);
+                if (!Squares.IsOffboard(to))
+                    mask |= 1UL << ((Square0x64)(Square0x88)to).Value;
+
+                table[f] = mask;
+            }
+            return table;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong[] BuildWhitePawnAttackFrom()
+        {
+            // From a square f, white pawns can attack f+15 and f+17 (if on-board)
+            var table = new ulong[64];
+
+            for (int f = 0; f < 64; f++)
+            {
+                var f88 = (Square0x88)new Square0x64(f);
+                ulong mask = 0UL;
+
+                var toL = new UnsafeSquare0x88(f88.Value + 15);
+                if (!Squares.IsOffboard(toL))
+                    mask |= 1UL << ((Square0x64)(Square0x88)toL).Value;
+
+                var toR = new UnsafeSquare0x88(f88.Value + 17);
+                if (!Squares.IsOffboard(toR))
+                    mask |= 1UL << ((Square0x64)(Square0x88)toR).Value;
+
+                table[f] = mask;
+            }
+            return table;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong[] BuildBlackPawnAttackFrom()
+        {
+            // From a square f, black pawns can attack f-15 and f-17 (if on-board)
+            var table = new ulong[64];
+
+            for (int f = 0; f < 64; f++)
+            {
+                var f88 = (Square0x88)new Square0x64(f);
+                ulong mask = 0UL;
+
+                var toL = new UnsafeSquare0x88(f88.Value - 15);
+                if (!Squares.IsOffboard(toL))
+                    mask |= 1UL << ((Square0x64)(Square0x88)toL).Value;
+
+                var toR = new UnsafeSquare0x88(f88.Value - 17);
+                if (!Squares.IsOffboard(toR))
+                    mask |= 1UL << ((Square0x64)(Square0x88)toR).Value;
+
+                table[f] = mask;
+            }
+            return table;
         }
 
         // =========================
@@ -440,7 +573,7 @@ namespace Forklift.Core
         private static ulong[] BuildKingFrom()
         {
             // King attack-from masks keyed by target (0x64)
-            ReadOnlySpan<int> DELTAS = stackalloc int[] { +1, -1, +16, -16, +15, +17, -15, -17 };
+            ReadOnlySpan<int> DELTAS = [+1, -1, +16, -16, +15, +17, -15, -17];
             var table = new ulong[64];
 
             for (int t = 0; t < 64; t++)
@@ -463,7 +596,7 @@ namespace Forklift.Core
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ulong[] BuildWhitePawnFrom()
+        private static ulong[] BuildWhitePawnAttackTable()
         {
             // For a target t, white pawns that could attack t are at t-15 and t-17 (if on-board)
             var table = new ulong[64];
@@ -487,7 +620,7 @@ namespace Forklift.Core
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ulong[] BuildBlackPawnFrom()
+        private static ulong[] BuildBlackPawnAttackTable()
         {
             // For a target t, black pawns that could attack t are at t+15 and t+17 (if on-board)
             var table = new ulong[64];

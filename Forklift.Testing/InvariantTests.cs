@@ -17,7 +17,7 @@ namespace Forklift.Testing
                 if (legals.Count == 0) break;
 
                 var mv = legals[rng.Next(legals.Count)];
-                var u = b.MakeMove(mv);
+                b.MakeMove(mv, out var u);
                 // occasionally undo
                 if (rng.NextDouble() < 0.3) b.UnmakeMove(mv, u);
             }
@@ -27,13 +27,13 @@ namespace Forklift.Testing
             ulong recomputedWhite = 0UL;
             ulong recomputedBlack = 0UL;
 
-            for (UnsafeSquare0x88 s88 = (UnsafeSquare0x88)0; (int)s88 < 128; s88++)
+            for (int s88Index = 0; s88Index < 128; s88Index++)
             {
-                if (Squares.IsOffboard(s88)) continue;
-                var p = b.At((Square0x88)s88);
+                if (Squares.IsOffboard(s88Index)) continue;
+                var p = b.At88(s88Index);
                 if (p == Piece.Empty) continue;
-                var s64 = (Square0x64)s88;
-                ulong bit = 1UL << (int)s64;
+                var s64 = Squares.Convert0x88IndexTo0x64Index(s88Index);
+                ulong bit = 1UL << s64;
                 recomputedAll |= bit;
                 if (p.IsWhite) recomputedWhite |= bit; else recomputedBlack |= bit;
             }

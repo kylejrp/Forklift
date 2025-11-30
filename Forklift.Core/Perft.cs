@@ -37,7 +37,7 @@ namespace Forklift.Core
                 {
                     var mv = moves[i];
                     var bc = board.Copy(keepTrackOfHistory: false);
-                    var u = bc.MakeMove(mv);
+                    bc.MakeMove(mv, out var u);
 
                     // Filter illegals cheaply after making the move
                     if (!bc.InCheck(bc.SideToMove.Flip()))
@@ -58,8 +58,8 @@ namespace Forklift.Core
 
         public struct DivideMove
         {
-            public byte From88;
-            public byte To88;
+            public byte From64;
+            public byte To64;
             public Piece Promotion; // Piece.Empty if no promotion
             public long Nodes;
 
@@ -67,8 +67,8 @@ namespace Forklift.Core
             {
                 get
                 {
-                    var fromAlg = Squares.ToAlgebraicString((Square0x88)From88);
-                    var toAlg = Squares.ToAlgebraicString((Square0x88)To88);
+                    var fromAlg = Squares.ToAlgebraicString((Square0x64)From64);
+                    var toAlg = Squares.ToAlgebraicString((Square0x64)To64);
                     string promo = Promotion != Piece.Empty ? char.ToLower(Piece.ToFENChar((Piece)Promotion)).ToString() : string.Empty;
                     return fromAlg + toAlg + promo;
                 }
@@ -93,14 +93,14 @@ namespace Forklift.Core
                 for (int i = 0; i < moves.Length; i++)
                 {
                     var mv = moves[i];
-                    var u = b.MakeMove(mv);
+                    b.MakeMove(mv, out var u);
                     long n = PerftSerial(b, depth - 1);
                     b.UnmakeMove(mv, u);
 
                     results[i] = new DivideMove
                     {
-                        From88 = (byte)mv.From88,
-                        To88 = (byte)mv.To88,
+                        From64 = (byte)mv.From64Index,
+                        To64 = (byte)mv.To64Index,
                         Promotion = mv.Promotion,
                         Nodes = n
                     };
@@ -117,15 +117,15 @@ namespace Forklift.Core
                 {
                     var mv = moves[i];
                     var bc = b.Copy(keepTrackOfHistory: false);
-                    var u = bc.MakeMove(mv);
+                    bc.MakeMove(mv, out var u);
                     long n = PerftSerial(bc, depth - 1);
                     bc.UnmakeMove(mv, u);
 
                     // independent slots; safe to write in parallel
                     results[i] = new DivideMove
                     {
-                        From88 = (byte)mv.From88,
-                        To88 = (byte)mv.To88,
+                        From64 = (byte)mv.From64Index,
+                        To64 = (byte)mv.To64Index,
                         Promotion = mv.Promotion,
                         Nodes = n
                     };
@@ -183,7 +183,7 @@ namespace Forklift.Core
                 {
                     var mv = moves[i];
                     var bc = board.Copy(keepTrackOfHistory: false);
-                    var u = bc.MakeMove(mv);
+                    bc.MakeMove(mv, out var u);
 
                     // legality filter on the child
                     if (!bc.InCheck(bc.SideToMove.Flip()))
@@ -239,7 +239,7 @@ namespace Forklift.Core
             long nodes = 0;
             foreach (var mv in buffer)
             {
-                var u = board.MakeMove(mv);
+                board.MakeMove(mv, out var u);
                 bool legal = !board.InCheck(board.SideToMove.Flip());
                 if (legal)
                     nodes += PerftSerial(board, depth - 1);
@@ -264,7 +264,7 @@ namespace Forklift.Core
 
             foreach (var mv in buffer)
             {
-                var u = board.MakeMove(mv);
+                board.MakeMove(mv, out var u);
                 bool legal = !board.InCheck(board.SideToMove.Flip());
                 if (legal)
                 {
@@ -299,7 +299,7 @@ namespace Forklift.Core
             var checkedSide = board.SideToMove;
             if (!board.InCheck(checkedSide)) return false;
 
-            var kingSq64 = (Square0x64)(checkedSide.IsWhite() ? board.WhiteKing!.Value : board.BlackKing!.Value);
+            var kingSq64 = checkedSide.IsWhite() ? board.WhiteKingSquare64Index!.Value : board.BlackKingSquare64Index!.Value;
             var attackerSide = checkedSide.Flip();
 
             ulong attackers = board.AttackersToSquare(kingSq64, attackerSide, Piece.PieceType.Knight | Piece.PieceType.Pawn | Piece.PieceType.King | Piece.PieceType.Bishop | Piece.PieceType.Rook | Piece.PieceType.Queen);
@@ -320,30 +320,31 @@ namespace Forklift.Core
             var them = us.Flip();
 
             // board is POST-move: king square is the opponent's king in the position after mv.
-            Square0x88 king = them.IsWhite() ? board.WhiteKing!.Value : board.BlackKing!.Value;
+            var king64 = them.IsWhite() ? board.WhiteKingSquare64Index!.Value : board.BlackKingSquare64Index!.Value;
+            var king88Index = Squares.Convert0x64IndexTo0x88Index(king64);
 
-            Square0x88 from = mv.From88;
-            Square0x88 to = mv.To88;
+            int from64Index = mv.From64Index;
+            int to64Index = mv.To64Index;
 
-            // EP-captured pawn square in 0x88, if any (PRE-move square)
-            Square0x88? epRemoved = null;
+            // EP-captured pawn square in 0x64, if any (PRE-move square)
+            int? epRemoved64 = null;
             if (mv.IsEnPassant)
-                epRemoved = mv.Mover.IsWhite ? (Square0x88)(to - 16) : (Square0x88)(to + 16);
+                epRemoved64 = mv.Mover.IsWhite ? to64Index - 8 : to64Index + 8;
 
-            bool OccupiedAfter(Square0x88 sq) => board.At(sq) != Piece.Empty;
+            bool OccupiedAfter(int sq64Index) => board.At64(sq64Index) != Piece.Empty;
 
             // Reconstruct "was this square occupied BEFORE mv?" from the post-move board + mv.
-            bool OccupiedBefore(Square0x88 sq, Board.Move mv)
+            bool OccupiedBefore(int sq64Index, Board.Move mv)
             {
                 // The moving piece started on 'from'
-                if (sq == from)
+                if (sq64Index == from64Index)
                     return true;
 
                 // EP-captured pawn existed on its square before the move
-                if (epRemoved.HasValue && sq == epRemoved.Value)
+                if (epRemoved64.HasValue && sq64Index == epRemoved64.Value)
                     return true;
 
-                if (sq == to)
+                if (sq64Index == to64Index)
                 {
                     // Before the move:
                     //  - Normal capture: enemy piece on 'to'  -> occupied
@@ -353,7 +354,7 @@ namespace Forklift.Core
                 }
 
                 // All other squares keep their occupancy
-                return OccupiedAfter(sq);
+                return OccupiedAfter(sq64Index);
             }
 
             bool PieceMatchesDir(Piece p, int dir)
@@ -376,58 +377,58 @@ namespace Forklift.Core
             foreach (int dir in DIRS_ALL)
             {
                 // 1. After-move: find first piece along this direction from the king.
-                var cur = (UnsafeSquare0x88)king;
-                Square0x88? sliderSq = null;
+                var cur88 = king88Index;
+                int? sliderSq64 = null;
 
                 while (true)
                 {
-                    cur += dir;
-                    if (Squares.IsOffboard(cur))
+                    cur88 += dir;
+                    if (Squares.IsOffboard(cur88))
                         break;
 
-                    var sq = (Square0x88)cur;
-                    if (!OccupiedAfter(sq))
+                    var sq64 = Squares.Convert0x88IndexTo0x64Index(cur88);
+                    if (!OccupiedAfter(sq64))
                         continue;
 
-                    sliderSq = sq;
+                    sliderSq64 = sq64;
                     break;
                 }
 
-                if (sliderSq is null)
+                if (sliderSq64 is null)
                     continue;
 
-                var sliderPc = board.At(sliderSq.Value);
+                var sliderPc = board.At64(sliderSq64.Value);
                 if (!PieceMatchesDir(sliderPc, dir))
                     continue;
 
                 // If the moved piece itself is the slider, that's a direct check, not a discovered one.
-                if (sliderSq.Value == to)
+                if (sliderSq64 == to64Index)
                     continue;
 
                 // 2. Before-move: what was the first occupied square on this ray?
-                cur = (UnsafeSquare0x88)king;
-                Square0x88? firstBefore = null;
+                cur88 = king88Index;
+                int? firstBefore64 = null;
 
                 while (true)
                 {
-                    cur += dir;
-                    if (Squares.IsOffboard(cur))
+                    cur88 += dir;
+                    if (Squares.IsOffboard(cur88))
                         break;
 
-                    var sq = (Square0x88)cur;
-                    if (!OccupiedBefore(sq, mv))
+                    var sq64 = Squares.Convert0x88IndexTo0x64Index(cur88);
+                    if (!OccupiedBefore(sq64, mv))
                         continue;
 
-                    firstBefore = sq;
+                    firstBefore64 = sq64;
                     break;
                 }
 
-                if (firstBefore is null)
+                if (firstBefore64 is null)
                     continue;
 
                 bool wasBlockedByMoverOrEp =
-                    firstBefore.Value == from ||
-                    (epRemoved.HasValue && firstBefore.Value == epRemoved.Value);
+                    firstBefore64.Value == from64Index ||
+                    (epRemoved64.HasValue && firstBefore64.Value == epRemoved64.Value);
 
                 if (!wasBlockedByMoverOrEp)
                     continue;

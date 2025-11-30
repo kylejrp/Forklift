@@ -191,7 +191,8 @@ namespace Forklift.Core
                 pvMove: preferredMove,
                 ttMove: ttMove,
                 killer1: ply < MaxPly && _killerMovesPrimary[ply] is Board.Move killer1 && killer1.IsQuiet ? killer1 : null,
-                killer2: ply < MaxPly && _killerMovesSecondary[ply] is Board.Move killer2 && killer2.IsQuiet ? killer2 : null
+                killer2: ply < MaxPly && _killerMovesSecondary[ply] is Board.Move killer2 && killer2.IsQuiet ? killer2 : null,
+                moveGenerationStrategy: MovePicker.MoveGenerationStrategy.PseudoLegal
             );
 
             int legalMoveCount = 0;
@@ -205,8 +206,6 @@ namespace Forklift.Core
 
             while (picker.Next() is Board.Move move)
             {
-                legalMoveCount++;
-
                 // Check for cancellation at the top of the loop to ensure we
                 // respond promptly even if the move generation is fast.
                 if (cancellationToken.IsCancellationRequested)
@@ -214,9 +213,15 @@ namespace Forklift.Core
                     aborted = true;
                     break;
                 }
-
+                var sideToMove = board.SideToMove;
+                board.MakeMove(move, out var undo);
+                if (board.InCheck(sideToMove))
+                {
+                    board.UnmakeMove(move, undo);
+                    continue;
+                }
                 nodesSearched++;
-                var undo = board.MakeMove(move);
+                legalMoveCount++;
                 var childResult = Negamax(
                     board: board,
                     depth: depth - 1,
@@ -337,7 +342,8 @@ namespace Forklift.Core
                 return new QuiescenceResult(alpha, false, 0);
             }
 
-            bool inCheck = board.InCheck(board.SideToMove);
+            var sideToMove = board.SideToMove;
+            bool inCheck = board.InCheck(sideToMove);
             int nodesSearched = 0;
             int bestScore = MinimumScore;
             if (inCheck)
@@ -346,7 +352,8 @@ namespace Forklift.Core
                 var picker = new MovePicker(
                     board: board,
                     moveBuffer: moves,
-                    history: _historyScores
+                    history: _historyScores,
+                    moveGenerationStrategy: MovePicker.MoveGenerationStrategy.PseudoLegal
                 );
 
                 bool exploredMove = false;
@@ -359,8 +366,13 @@ namespace Forklift.Core
                         return new QuiescenceResult(alpha, false, nodesSearched);
                     }
 
+                    board.MakeMove(move, out var undo);
+                    if (board.InCheck(sideToMove))
+                    {
+                        board.UnmakeMove(move, undo);
+                        continue;
+                    }
                     nodesSearched++;
-                    var undo = board.MakeMove(move);
                     QuiescenceResult child = Quiescence(board, -beta, -alpha, ply + 1, cancellationToken);
                     int score = -child.BestScore;
                     board.UnmakeMove(move, undo);
@@ -416,7 +428,6 @@ namespace Forklift.Core
                 history: _historyScores,
                 moveGenerationStrategy: MovePicker.MoveGenerationStrategy.PseudoLegalNonQuietOnly
             );
-            var sideToMove = board.SideToMove;
             bool exploredNonQuietMove = false;
             bool allCompleteCaptures = true;
 
@@ -427,15 +438,14 @@ namespace Forklift.Core
                     return new QuiescenceResult(alpha, false, nodesSearched);
                 }
 
-                nodesSearched++;
-                var undo = board.MakeMove(move);
-                bool leavesKingInCheck = board.InCheck(sideToMove);
-                if (leavesKingInCheck)
+                board.MakeMove(move, out var undo);
+                if (board.InCheck(sideToMove))
                 {
                     board.UnmakeMove(move, undo);
                     continue;
                 }
 
+                nodesSearched++;
                 exploredNonQuietMove = true;
                 QuiescenceResult child = Quiescence(board, -beta, -alpha, ply + 1, cancellationToken);
                 int score = -child.BestScore;

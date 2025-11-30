@@ -42,11 +42,11 @@ namespace Forklift.Testing
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
             // Move white king e1-f1
             var mv = Board.Move.Normal(
-                S88("e1"),
-                S88("f1"),
+                S64("e1").Value,
+                S64("f1").Value,
                 Piece.WhiteKing
             );
-            var u = b.MakeMove(mv);
+            b.MakeMove(mv, out var u);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteQueen).Should().Be(0);
             b.UnmakeMove(mv, u);
@@ -59,33 +59,33 @@ namespace Forklift.Testing
 
             // Move white h1 rook away -> should clear K side for white
             var mv = Board.Move.Normal(
-                S88("h1"),
-                S88("h2"),
+                S64("h1").Value,
+                S64("h2").Value,
                 Piece.WhiteRook
             );
-            var u = b.MakeMove(mv);
+            b.MakeMove(mv, out var u);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
             b.UnmakeMove(mv, u);
 
             // Move white a1 rook away -> should clear Q side for white
             var mv2 = Board.Move.Normal(
-                S88("a1"),
-                S88("a2"),
+                S64("a1").Value,
+                S64("a2").Value,
                 Piece.WhiteRook
             );
-            var u2 = b.MakeMove(mv2);
+            b.MakeMove(mv2, out var u2);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteQueen).Should().Be(0);
             b.UnmakeMove(mv2, u2);
 
             // Capture white h1 rook -> should clear K side for white
             b.Place(S88("h1"), Piece.WhiteRook);
             var mv3 = Board.Move.Capture(
-                S88("g2"),
-                S88("h1"),
+                S64("g2").Value,
+                S64("h1").Value,
                 Piece.BlackRook,
                 Piece.WhiteRook
             );
-            var u3 = b.MakeMove(mv3);
+            b.MakeMove(mv3, out var u3);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
             b.UnmakeMove(mv3, u3);
         }
@@ -96,17 +96,17 @@ namespace Forklift.Testing
             var b = BoardFactory.FromFenOrStart("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
             // Move h1 rook away and back
             var mv1 = Board.Move.Normal(
-                S88("h1"),
-                S88("h2"),
+                S64("h1").Value,
+                S64("h2").Value,
                 Piece.WhiteRook
             );
-            b.MakeMove(mv1);
+            b.MakeMove(mv1, out var _);
             var mv2 = Board.Move.Normal(
-                S88("h2"),
-                S88("h1"),
+                S64("h2").Value,
+                S64("h1").Value,
                 Piece.WhiteRook
             );
-            b.MakeMove(mv2);
+            b.MakeMove(mv2, out var _);
             (b.CastlingRights & Board.CastlingRightsFlags.WhiteKing).Should().Be(0);
         }
 
@@ -119,11 +119,11 @@ namespace Forklift.Testing
             b.Place(S88("f2"), Piece.WhitePawn);
             // Move pawn away, so bishop attacks f2
             var mv = Board.Move.Normal(
-                S88("f2"),
-                S88("f3"),
+                S64("f2").Value,
+                S64("f3").Value,
                 Piece.WhitePawn
             );
-            b.MakeMove(mv);
+            b.MakeMove(mv, out var _);
             // Now bishop attacks f2, so castling through f1 is illegal
             var legals = b.GenerateLegal().ToList();
             legals.Should().NotContain(m => m.Mover == Piece.WhiteKing && m.Kind.HasFlag(Board.MoveKind.CastleKing));

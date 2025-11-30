@@ -12,14 +12,14 @@ namespace Forklift.Testing
             var board = BoardFactory.FromFenOrStart("4r3/8/8/8/8/8/4R3/4K3 w - - 0 1");
 
             // Act: Generate all legal moves for the pinned piece (white rook on e2).
-            var fromSquare = S88("e2");
+            var fromSquare = S64("e2");
             var legalMoves = board.GenerateLegal()
-                                  .Where(move => move.From88.Value == fromSquare.Value)
+                                  .Where(move => move.From64Index == fromSquare.Value)
                                   .ToList();
 
             // Assert: Ensure no moves take the rook off the e-file.
-            bool IsOnEFile(Square0x88 square) => ToAlgebraicString(square)[0] == 'e';
-            var offFileMoves = legalMoves.Where(move => !IsOnEFile(move.To88)).ToList();
+            bool IsOnEFile(Square0x64 square) => ToAlgebraicString(square)[0] == 'e';
+            var offFileMoves = legalMoves.Where(move => !IsOnEFile((Square0x64)move.To64Index)).ToList();
 
             // Verify that all moves off the e-file are illegal.
             offFileMoves.Should().BeEmpty();

@@ -24,8 +24,8 @@ public class ParseUCIMoveBufferTests
 
     private static string ToUci(Board.Move move)
     {
-        var from = Squares.ToAlgebraicString(move.From88);
-        var to = Squares.ToAlgebraicString(move.To88);
+        var from = Squares.ToAlgebraicString((Square0x64)move.From64Index);
+        var to = Squares.ToAlgebraicString((Square0x64)move.To64Index);
 
         return move.Promotion != Piece.Empty
             ? string.Concat(from, to, move.Promotion.PromotionChar)

@@ -77,7 +77,7 @@ namespace Forklift.Testing
                                   if (!TryPickRandomLegalMove(b, rng, out var mv))
                                       break; // stalemate/mate reached; still a legal position
 
-                                  var u = b.MakeMove(mv);
+                                  b.MakeMove(mv, out var u);
                                   if (IsOwnKingInCheck(b))
                                   {
                                       b.UnmakeMove(mv, u);
@@ -109,7 +109,7 @@ namespace Forklift.Testing
 
         private static bool IsOwnKingInCheck(Board b)
         {
-            var kingSq64 = (Square0x64)(b.SideToMove.IsWhite() ? b.WhiteKing!.Value : b.BlackKing!.Value);
+            var kingSq64 = b.SideToMove.IsWhite() ? b.WhiteKingSquare64Index!.Value : b.BlackKingSquare64Index!.Value;
             return b.IsSquareAttacked(kingSq64, bySide: b.SideToMove.Flip());
         }
 
@@ -118,7 +118,7 @@ namespace Forklift.Testing
             var moves = MoveGeneration.GeneratePseudoLegal(b, b.SideToMove);
             foreach (var mv in moves)
             {
-                var u = b.MakeMove(mv);
+                b.MakeMove(mv, out var u);
                 bool ok = !IsOwnKingInCheck(b);
                 b.UnmakeMove(mv, u);
                 if (ok) return true;
@@ -135,7 +135,7 @@ namespace Forklift.Testing
             for (int i = 0; i < moves.Length; i++)
             {
                 var mv = moves[(start + i) % moves.Length];
-                var u = b.MakeMove(mv);
+                b.MakeMove(mv, out var u);
                 bool ok = !IsOwnKingInCheck(b);
                 b.UnmakeMove(mv, u);
                 if (ok) { move = mv; return true; }
