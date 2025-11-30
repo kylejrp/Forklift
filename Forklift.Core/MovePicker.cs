@@ -23,7 +23,7 @@ namespace Forklift.Core
         private int? _lastKillerIndex = null;
         private int? _lastQuietIndex = null;
 
-        private enum Stage
+        private enum Stage : byte
         {
             GenerateMoves,
             OrderPvMove,
@@ -40,14 +40,14 @@ namespace Forklift.Core
             Done
         }
 
-        public enum MoveGenerationStrategy
+        public enum MoveGenerationStrategy : byte
         {
             Legal,
             PseudoLegal,
             PseudoLegalNonQuietOnly,
         }
 
-        public enum MoveScoringStrategy
+        public enum MoveScoringStrategy : byte
         {
             None,
             Standard,

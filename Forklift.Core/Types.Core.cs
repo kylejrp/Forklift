@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace Forklift.Core
 {
@@ -13,15 +14,18 @@ namespace Forklift.Core
         public static bool IsWhite(this Color c) => c == Color.White;
     }
 
-    /// <summary>0..7 file index (a..h). Throws if out of range.</summary>
+    /// <summary>0..7 file index (a..h). Throws in debug if out of range.</summary>
     public readonly record struct FileIndex(byte Value)
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public FileIndex(int v) : this((byte)v)
         {
-            if ((uint)v > 7u) throw new ArgumentOutOfRangeException(nameof(v));
+            Debug.Assert((uint)v <= 7u, "FileIndex value out of range");
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static implicit operator int(FileIndex f) => f.Value;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static explicit operator FileIndex(int v) => new FileIndex(v);
     }
 }

@@ -65,33 +65,31 @@ public readonly struct UnsafeSquare0x64 : IEquatable<UnsafeSquare0x64>
 /// </summary>
 public readonly struct Square0x64 : IEquatable<Square0x64>
 {
-    public int Value { get; }
+    public byte Value { get; }
     public const int MIN_VALUE = 0;
     public const int MAX_VALUE = 63;
 
     public int Rank => Value >> 3;
     public int File => Value & 7;
 
-    public Square0x64(int value)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Square0x64(int value) : this((byte)value) { }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Square0x64(byte value)
     {
         Debug.Assert(value >= MIN_VALUE && value <= MAX_VALUE, "Square0x64 value out of range");
         Value = value;
     }
 
     public static explicit operator int(Square0x64 square) => square.Value;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static explicit operator Square0x64(int value) => new Square0x64(value);
 
-    public static explicit operator Square0x64(Square0x88 square)
-    {
-        int value = (square.Value & 0xF) + ((square.Value >> 4) * 8);
-        return new Square0x64(value);
-    }
+    public static explicit operator Square0x64(Square0x88 square) => new Square0x64(Squares.Convert0x88IndexTo0x64Index(square.Value));
 
-    public static explicit operator Square0x64(UnsafeSquare0x88 square)
-    {
-        int value = (square.Value & 0xF) + ((square.Value >> 4) * 8);
-        return new Square0x64(value);
-    }
+    public static explicit operator Square0x64(UnsafeSquare0x88 square) => new Square0x64(Squares.Convert0x88IndexTo0x64Index(square.Value));
 
     public static UnsafeSquare0x64 operator +(Square0x64 square, int offset)
     {
@@ -137,11 +135,7 @@ public readonly struct UnsafeSquare0x88 : IEquatable<UnsafeSquare0x88>
     public static explicit operator UnsafeSquare0x88(int value) => new UnsafeSquare0x88(value);
     public static explicit operator UnsafeSquare0x88(Square0x88 square) => new UnsafeSquare0x88(square.Value);
     public static explicit operator Square0x88(UnsafeSquare0x88 square) => new Square0x88(square.Value);
-    public static explicit operator UnsafeSquare0x88(UnsafeSquare0x64 square)
-    {
-        int value = ((square.Value >> 3) << 4) | (square.Value & 7);
-        return new UnsafeSquare0x88(value);
-    }
+    public static explicit operator UnsafeSquare0x88(UnsafeSquare0x64 square) => new UnsafeSquare0x88(Squares.Convert0x64IndexTo0x88Index(square.Value));
 
     public override string ToString()
     {
@@ -184,11 +178,16 @@ public readonly struct UnsafeSquare0x88 : IEquatable<UnsafeSquare0x88>
 /// </summary>
 public readonly struct Square0x88 : IEquatable<Square0x88>
 {
-    public int Value { get; }
+    public byte Value { get; }
     public const int MIN_VALUE = 0;
     public const int MAX_VALUE = 0x77;
 
-    public Square0x88(int value)
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Square0x88(int value) : this((byte)value) { }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Square0x88(byte value)
     {
         Debug.Assert((value & 0x88) == 0, "Square0x88 value out of range");
         Value = value;
@@ -198,12 +197,13 @@ public readonly struct Square0x88 : IEquatable<Square0x88>
     public int File => Value & 0xF;
 
     public static implicit operator int(Square0x88 square) => square.Value;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static explicit operator Square0x88(int value) => new Square0x88(value);
 
     public static explicit operator Square0x88(Square0x64 square)
     {
-        int value = ((square.Value >> 3) << 4) | (square.Value & 7);
-        return new Square0x88(value);
+        return new Square0x88(Squares.Convert0x64IndexTo0x88Index(square.Value));
     }
 
     public static UnsafeSquare0x88 operator +(Square0x88 square, int offset)
@@ -265,11 +265,8 @@ public readonly struct AlgebraicNotation
 
     public static AlgebraicNotation From(string alg) => From(alg.AsSpan());
 
-    public static AlgebraicNotation From(Square0x88 sq88)
-        => cache[((sq88.Value >> 4) * 8) + (sq88.Value & 0xF)];
-
-    public static AlgebraicNotation From(Square0x64 sq64)
-        => cache[sq64.Value];
+    public static AlgebraicNotation From(Square0x88 sq88) => cache[Squares.Convert0x88IndexTo0x64Index(sq88)];
+    public static AlgebraicNotation From(Square0x64 sq64) => cache[sq64.Value];
 
     public override string ToString() => Value;
 }
@@ -282,7 +279,21 @@ public static class Squares
     [DebuggerStepThrough, MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Square0x64 S64(string alg) => ParseAlgebraicTo0x64(alg);
 
+    [DebuggerStepThrough, MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int Convert0x64IndexTo0x88Index(int square0x64Index)
+    {
+        return (square0x64Index & 0x7) + ((square0x64Index >> 3) << 4);
+    }
+
+    [DebuggerStepThrough, MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int Convert0x88IndexTo0x64Index(int square0x88Index)
+    {
+        return (square0x88Index & 0xF) + ((square0x88Index >> 4) * 8);
+    }
+
+    public static bool IsOffboard(int square0x88Index) => (square0x88Index & 0x88) != 0;
     public static bool IsOffboard(UnsafeSquare0x88 square) => (square.Value & 0x88) != 0;
+    public static bool IsOffboard(UnsafeSquare0x64 square) => square.Value < Square0x64.MIN_VALUE || square.Value > Square0x64.MAX_VALUE;
 
 
     // Fast parse from span (no allocation)

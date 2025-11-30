@@ -19,8 +19,8 @@ namespace Forklift.Testing
             // Black to move: play d7-d5 (double push) -> this sets EnPassantFile automatically
             b.SetSideToMove(Color.Black);
             var mv = Board.Move.Normal(
-                S88("d7"),
-                S88("d5"),
+                S64("d7").Value,
+                S64("d5").Value,
                 Piece.BlackPawn
             );
             var u = b.MakeMove(mv);
@@ -42,8 +42,8 @@ namespace Forklift.Testing
                 b.Place(S88("e8"), Piece.BlackRook);
             b.SetSideToMove(Color.Black);
             var mv = Board.Move.Normal(
-                S88("d7"),
-                S88("d5"),
+                S64("d7").Value,
+                S64("d5").Value,
                 Piece.BlackPawn
             );
             b.MakeMove(mv);
@@ -65,8 +65,8 @@ namespace Forklift.Testing
 
             // White plays e2-e3 (single push): no EP
             var mv1 = Board.Move.Normal(
-                S88("e2"),
-                S88("e3"),
+                S64("e2").Value,
+                S64("e3").Value,
                 Piece.WhitePawn
             );
             b.MakeMove(mv1);
@@ -74,8 +74,8 @@ namespace Forklift.Testing
 
             // Black plays d7-d5 (double push): EP set
             var mv2 = Board.Move.Normal(
-                S88("d7"),
-                S88("d5"),
+                S64("d7").Value,
+                S64("d5").Value,
                 Piece.BlackPawn
             );
             b.MakeMove(mv2);
@@ -83,8 +83,8 @@ namespace Forklift.Testing
 
             // White plays a non-EP move: king h1-g1
             var mv3 = Board.Move.Normal(
-                S88("h1"),
-                S88("g1"),
+                S64("h1").Value,
+                S64("g1").Value,
                 Piece.WhiteKing
             );
             b.MakeMove(mv3);

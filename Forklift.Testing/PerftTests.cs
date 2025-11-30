@@ -183,11 +183,11 @@ namespace Forklift.Testing
                     var stm = board.SideToMove;
                     bool blackInCheck = board.InCheck(Color.Black);
 
-                    var k64Black = (Square0x64)board.BlackKing!.Value;
-                    var kAlg = Squares.ToAlgebraicString((Square0x88)k64Black);
+                    var k64Black = board.BlackKingSq64!.Value;
+                    var kAlg = ToAlgebraicString((Square0x88)k64Black);
 
                     // High-level breakdown from your Board.AttackerBreakdown
-                    var breakdown = board.AttackerBreakdownBool(k64Black, byWhite: true);
+                    var breakdown = board.AttackerBreakdownBool(k64Black.Value, byWhite: true);
 
                     // Raw table masks at the king square (to verify the tables themselves)
                     var T = board.Tables;
@@ -246,7 +246,7 @@ EnPassantFile              = {(board.EnPassantFile?.ToString() ?? "null")}
 
         private static string ToUci(Board.Move m)
         {
-            var s = ToAlgebraicString(m.From88) + ToAlgebraicString(m.To88);
+            var s = ToAlgebraicString((Square0x64)m.From64Index) + ToAlgebraicString((Square0x64)m.To64Index);
             if (m.Promotion != Piece.Empty)
             {
                 s += m.Promotion.PromotionChar;

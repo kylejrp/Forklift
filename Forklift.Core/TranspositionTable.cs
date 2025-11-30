@@ -8,7 +8,7 @@ namespace Forklift.Core;
 /// </summary>
 public sealed class TranspositionTable
 {
-    public enum NodeType
+    public enum NodeType : byte
     {
         Miss,
         BadScore,
@@ -30,8 +30,8 @@ public sealed class TranspositionTable
         ulong zobristKey,
         int depth,
         int score,
-        NodeType nodeType,
-        Board.Move? bestMove)
+        Board.Move? bestMove,
+        NodeType nodeType)
     {
         public ulong ZobristKey { get; set; } = zobristKey;
         public int Depth { get; set; } = depth;

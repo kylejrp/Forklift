@@ -109,7 +109,7 @@ namespace Forklift.Testing
 
         private static bool IsOwnKingInCheck(Board b)
         {
-            var kingSq64 = (Square0x64)(b.SideToMove.IsWhite() ? b.WhiteKing!.Value : b.BlackKing!.Value);
+            var kingSq64 = b.SideToMove.IsWhite() ? b.WhiteKingSq64!.Value : b.BlackKingSq64!.Value;
             return b.IsSquareAttacked(kingSq64, bySide: b.SideToMove.Flip());
         }
 

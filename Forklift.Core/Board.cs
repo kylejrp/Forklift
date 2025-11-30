@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -22,8 +23,8 @@ public sealed class Board
         var copy = new Board(this.Tables);
         Array.Copy(this.mailbox, copy.mailbox, this.mailbox.Length);
         Array.Copy(this.pieceBB, copy.pieceBB, this.pieceBB.Length);
-        copy._whiteKingSquare88 = this._whiteKingSquare88;
-        copy._blackKingSquare88 = this._blackKingSquare88;
+        copy._whiteKingSquare64Index = this._whiteKingSquare64Index;
+        copy._blackKingSquare64Index = this._blackKingSquare64Index;
         copy.OccWhite = this.OccWhite;
         copy.OccBlack = this.OccBlack;
         copy.OccAll = this.OccAll;
@@ -47,7 +48,7 @@ public sealed class Board
     }
 
     [Flags]
-    public enum CastlingRightsFlags
+    public enum CastlingRightsFlags : byte
     {
         None = 0,
         WhiteKing = 1 << 0,
@@ -120,6 +121,8 @@ public sealed class Board
         if (startPosition) SetStartPosition();
     }
 
+    public Piece At(int sq64Index) => (Piece)mailbox[((sq64Index >> 3) << 4) | (sq64Index & 7)];
+
     /// <summary>
     /// Gets the piece at the specified square.
     /// </summary>
@@ -128,17 +131,26 @@ public sealed class Board
     public Piece? At(UnsafeSquare0x88 sq88) => Squares.IsOffboard(sq88) ? null : At((Square0x88)sq88);
 
     /// <summary>
+    /// Gets the piece at the specified square. Casts the square to a 0x88 square.
+    /// </summary>
+    /// <param name="sq64">The square in 0x64 format.</param>
+    /// <returns>The piece at the square.</returns>
+    public Piece At(Square0x64 sq64) => At((Square0x88)sq64);
+
+    /// <summary>
     /// Gets the piece at the specified square.
     /// </summary>
     /// <param name="sq88">The square in 0x88 format.</param>
     /// <returns>The piece at the square.</returns>
     public Piece At(Square0x88 sq88) => (Piece)mailbox[sq88];
 
-    private Square0x88? _whiteKingSquare88 = null;
-    private Square0x88? _blackKingSquare88 = null;
+    private int? _whiteKingSquare64Index = null;
+    private int? _blackKingSquare64Index = null;
 
-    public Square0x88? WhiteKing => _whiteKingSquare88;
-    public Square0x88? BlackKing => _blackKingSquare88;
+    public Square0x88? WhiteKingSq88 => WhiteKingSq64.HasValue ? (Square0x88)WhiteKingSq64 : null;
+    public Square0x88? BlackKingSq88 => BlackKingSq64.HasValue ? (Square0x88)BlackKingSq64 : null;
+    public Square0x64? WhiteKingSq64 => _whiteKingSquare64Index.HasValue ? (Square0x64)_whiteKingSquare64Index : null;
+    public Square0x64? BlackKingSq64 => _blackKingSquare64Index.HasValue ? (Square0x64)_blackKingSquare64Index : null;
 
     /// <summary>
     /// Places a piece on the board at the specified square.
@@ -148,12 +160,13 @@ public sealed class Board
     public void Place(Square0x88 sq88, Piece pc)
     {
         var existing = RemoveIfAny(sq88);
-        if (existing == Piece.WhiteKing) _whiteKingSquare88 = null;
-        else if (existing == Piece.BlackKing) _blackKingSquare88 = null;
+        if (existing == Piece.WhiteKing) _whiteKingSquare64Index = null;
+        else if (existing == Piece.BlackKing) _blackKingSquare64Index = null;
         mailbox[sq88.Value] = pc;
+        var sq64 = (Square0x64)sq88;
         if (pc != Piece.Empty) AddToBitboards((Square0x64)sq88, pc);
-        if (pc == Piece.WhiteKing) _whiteKingSquare88 = sq88;
-        else if (pc == Piece.BlackKing) _blackKingSquare88 = sq88;
+        if (pc == Piece.WhiteKing) _whiteKingSquare64Index = sq64.Value;
+        else if (pc == Piece.BlackKing) _blackKingSquare64Index = sq64.Value;
     }
 
     private Piece RemoveIfAny(Square0x88 sq88)
@@ -165,17 +178,25 @@ public sealed class Board
         return existing;
     }
 
-    private void AddToBitboards(Square0x64 sq64, Piece pc)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void AddToBitboards(Square0x64 sq64, Piece pc) => AddToBitboards(sq64.Value, pc);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void AddToBitboards(int sq64Index, Piece pc)
     {
-        ulong b = 1UL << (int)sq64;
+        ulong b = 1UL << sq64Index;
         pieceBB[pc.PieceIndex] |= b;
         if (pc.IsWhite) OccWhite |= b; else OccBlack |= b;
         OccAll |= b;
     }
 
-    private void RemoveFromBitboards(Square0x64 sq64, Piece pc)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void RemoveFromBitboards(Square0x64 sq64, Piece pc) => RemoveFromBitboards(sq64.Value, pc);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void RemoveFromBitboards(int sq64Index, Piece pc)
     {
-        ulong b = 1UL << (int)sq64;
+        ulong b = 1UL << sq64Index;
         pieceBB[pc.PieceIndex] &= ~b;
         if (pc.IsWhite) OccWhite &= ~b; else OccBlack &= ~b;
         OccAll &= ~b;
@@ -198,76 +219,113 @@ public sealed class Board
         NonQuiet = Capture | Promotion,
     }
 
-    public readonly record struct Move(
-        Square0x88 From88,
-        Square0x88 To88,
-        Piece Mover,
-        Piece Captured,
-        Piece Promotion,
-        MoveKind Kind)
+    public readonly struct Move : IEquatable<Move>
     {
-        public static Move Normal(Square0x88 from, Square0x88 to, Piece mover)
-            => new(from, to, mover, Piece.Empty, Piece.Empty, MoveKind.Normal);
+        private readonly int _data;
 
-        public static Move EnPassant(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
-            => new(from, to, mover, captured, Piece.Empty, MoveKind.EnPassant);
+        private const int FromShift = 0;
+        private const int ToShift = 6;
+        private const int MoverShift = 12;
+        private const int CaptShift = 16;
+        private const int PromoShift = 20;
+        private const int KindShift = 24;
 
-        private static readonly Square0x88 WhiteKingFrom88 = Squares.ParseAlgebraicTo0x88("e1");
-        private static readonly Square0x88 WhiteKingToKingSide88 = Squares.ParseAlgebraicTo0x88("g1");
-        private static readonly Square0x88 WhiteKingToQueenSide88 = Squares.ParseAlgebraicTo0x88("c1");
-        private static readonly Square0x88 BlackKingFrom88 = Squares.ParseAlgebraicTo0x88("e8");
-        private static readonly Square0x88 BlackKingToKingSide88 = Squares.ParseAlgebraicTo0x88("g8");
-        private static readonly Square0x88 BlackKingToQueenSide88 = Squares.ParseAlgebraicTo0x88("c8");
+        private const int KindMask = 0xFF;
+        private const int Mask6 = (1 << 6) - 1;
+        private const int Mask4 = (1 << 4) - 1;
 
+        public Move(
+            int from0x64Index,
+            int to0x64Index,
+            Piece mover,
+            Piece captured,
+            Piece promotion,
+            MoveKind kind)
+        {
+            _data =
+                ((from0x64Index & Mask6) << FromShift) |
+                ((to0x64Index & Mask6) << ToShift) |
+                ((mover & Mask4) << MoverShift) |
+                ((captured & Mask4) << CaptShift) |
+                ((promotion & Mask4) << PromoShift) |
+                (((int)kind & KindMask) << KindShift);
+        }
+
+
+        public override bool Equals(object? obj) => obj is Move move && Equals(move);
+        public bool Equals(Move other) => _data == other._data;
+        public override int GetHashCode() => _data;
+        public static bool operator ==(Move left, Move right) => left.Equals(right);
+        public static bool operator !=(Move left, Move right) => !left.Equals(right);
+
+        public int From64Index => (_data >> FromShift) & Mask6;
+        public int To64Index => (_data >> ToShift) & Mask6;
+
+        //public Square0x64 From64 => new((_data >> FromShift) & Mask6);
+        //public Square0x64 To64 => new((_data >> ToShift) & Mask6);
+
+        //public Square0x88 From88 => (Square0x88)From64;
+        //public Square0x88 To88 => (Square0x88)To64;
+
+        public Piece Mover => (Piece)((_data >> MoverShift) & Mask4);
+        public Piece Captured => (Piece)((_data >> CaptShift) & Mask4);
+        public Piece Promotion => (Piece)((_data >> PromoShift) & Mask4);
+        public MoveKind Kind => (MoveKind)((_data >> KindShift) & KindMask);
+        public static Move Normal(int from0x64Index, int to0x64Index, Piece mover)
+                => new(from0x64Index, to0x64Index, mover, Piece.Empty, Piece.Empty, MoveKind.Normal);
+
+        public static Move EnPassant(int from0x64Index, int to0x64Index, Piece mover, Piece captured)
+            => new(from0x64Index, to0x64Index, mover, captured, Piece.Empty, MoveKind.EnPassant);
+
+        private static readonly Square0x64 WhiteKingFrom64 = Squares.ParseAlgebraicTo0x64("e1");
+        private static readonly Square0x64 WhiteKingToKingSide64 = Squares.ParseAlgebraicTo0x64("g1");
+        private static readonly Square0x64 WhiteKingToQueenSide64 = Squares.ParseAlgebraicTo0x64("c1");
+        private static readonly Square0x64 BlackKingFrom64 = Squares.ParseAlgebraicTo0x64("e8");
+        private static readonly Square0x64 BlackKingToKingSide64 = Squares.ParseAlgebraicTo0x64("g8");
+        private static readonly Square0x64 BlackKingToQueenSide64 = Squares.ParseAlgebraicTo0x64("c8");
         public static Move CastleKingSide(Color side)
         {
-            var from = side.IsWhite() ? WhiteKingFrom88 : BlackKingFrom88;
-            var to = side.IsWhite() ? WhiteKingToKingSide88 : BlackKingToKingSide88;
+            var from = side.IsWhite() ? WhiteKingFrom64.Value : BlackKingFrom64.Value;
+            var to = side.IsWhite() ? WhiteKingToKingSide64.Value : BlackKingToKingSide64.Value;
             return new(from, to, side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleKing);
         }
 
         public static Move CastleQueenSide(Color side)
         {
-            var from = side.IsWhite() ? WhiteKingFrom88 : BlackKingFrom88;
-            var to = side.IsWhite() ? WhiteKingToQueenSide88 : BlackKingToQueenSide88;
+            var from = side.IsWhite() ? WhiteKingFrom64.Value : BlackKingFrom64.Value;
+            var to = side.IsWhite() ? WhiteKingToQueenSide64.Value : BlackKingToQueenSide64.Value;
             return new(from, to, side.IsWhite() ? Piece.WhiteKing : Piece.BlackKing, Piece.Empty, Piece.Empty, MoveKind.CastleQueen);
         }
 
-        public static Move Capture(Square0x88 from, Square0x88 to, Piece mover, Piece captured)
-            => new(from, to, mover, captured, Piece.Empty, MoveKind.Capture);
+        public static Move Capture(int from0x64Index, int to0x64Index, Piece mover, Piece captured)
+            => new(from0x64Index, to0x64Index, mover, captured, Piece.Empty, MoveKind.Capture);
 
-        public static Move PromotionPush(Square0x88 from, Square0x88 to, Piece mover, Piece promotion)
+        public static Move PromotionPush(int from0x64Index, int to0x64Index, Piece mover, Piece promotion)
         {
-            // Validate promotion invariants
-            if (promotion == Piece.Empty)
-                throw new ArgumentException("Promotion piece must not be empty.", nameof(promotion));
-            int toRank = to.Value >> 4;
-            if (!(toRank == 0 || toRank == 7))
-                throw new ArgumentException("Promotion must occur on rank 1 or 8.", nameof(to));
-            return new(from, to, mover, Piece.Empty, promotion, MoveKind.Promotion);
+            Debug.Assert(promotion != Piece.Empty, "Promotion piece must not be empty.");
+            Debug.Assert((to0x64Index / 8) == 0 || (to0x64Index / 8) == 7, $"Promotion push must occur on rank 1 or 8. (toRank={to0x64Index / 8}, from={from0x64Index}, to={to0x64Index})");
+            return new(from0x64Index, to0x64Index, mover, Piece.Empty, promotion, MoveKind.Promotion);
         }
 
-        public static Move PromotionCapture(Square0x88 from, Square0x88 to, Piece mover, Piece captured, Piece promotion)
+        public static Move PromotionCapture(int from0x64Index, int to0x64Index, Piece mover, Piece captured, Piece promotion)
         {
-            if (promotion == Piece.Empty)
-                throw new ArgumentException("Promotion piece must not be empty.", nameof(promotion));
-            int toRank = to.Value >> 4;
-            if (!(toRank == 0 || toRank == 7))
-                throw new ArgumentException("Promotion must occur on rank 1 or 8.", nameof(to));
-            if (captured == Piece.Empty)
-                throw new ArgumentException("Promotion capture must specify captured piece.", nameof(captured));
-            return new(from, to, mover, captured, promotion, MoveKind.PromotionCapture);
+            Debug.Assert(promotion != Piece.Empty, "Promotion piece must not be empty.");
+            Debug.Assert((to0x64Index / 8) == 0 || (to0x64Index / 8) == 7, $"Promotion capture must occur on rank 1 or 8. (toRank={to0x64Index / 8}, from={from0x64Index}, to={to0x64Index})");
+            Debug.Assert(captured != Piece.Empty, "Promotion capture must specify captured piece.");
+            return new(from0x64Index, to0x64Index, mover, captured, promotion, MoveKind.PromotionCapture);
         }
         public bool IsQuiet => (Kind & MoveKind.NonQuiet) == 0;
         public bool IsCapture => (Kind & MoveKind.Capture) != 0;
         public bool IsPromotion => (Kind & MoveKind.Promotion) != 0;
+        public bool IsCastleKingSide => (Kind & MoveKind.CastleKing) == MoveKind.CastleKing;
+        public bool IsCastleQueenSide => (Kind & MoveKind.CastleQueen) == MoveKind.CastleQueen;
         public bool IsCastle => (Kind & (MoveKind.CastleKing | MoveKind.CastleQueen)) != 0;
         public bool IsEnPassant => (Kind & MoveKind.EnPassant) == MoveKind.EnPassant;
 
         public override string ToString()
         {
-            string fromAlg = Squares.ToAlgebraicString(From88);
-            string toAlg = Squares.ToAlgebraicString(To88);
+            string fromAlg = Squares.ToAlgebraicString((Square0x64)From64Index);
+            string toAlg = Squares.ToAlgebraicString((Square0x64)To64Index);
             string promoStr = IsPromotion ? $"={Promotion}" : string.Empty;
             string captureStr = IsCapture ? "x" : "-";
             return $"{fromAlg}{captureStr}{toAlg}{promoStr}";
@@ -275,8 +333,8 @@ public sealed class Board
 
         public string ToUCIString()
         {
-            var from = Squares.ToAlgebraicString(From88).ToLower();
-            var to = Squares.ToAlgebraicString(To88).ToLower();
+            var from = Squares.ToAlgebraicString((Square0x64)From64Index).ToLower();
+            var to = Squares.ToAlgebraicString((Square0x64)To64Index).ToLower();
 
             if (IsPromotion)
             {
@@ -298,10 +356,9 @@ public sealed class Board
         int FullmovePrev,
         Color SideToMovePrev,
         ulong ZKeyPrev,
-        // new: for EP/castling reversals
-        Square0x88? EnPassantCapturedSq88,
-        Square0x88? CastleRookFrom88,
-        Square0x88? CastleRookTo88);
+        Square0x64? EnPassantCapturedSq64,
+        Square0x64? CastleRookFrom64,
+        Square0x64? CastleRookTo64);
 
     /// <summary>
     /// Lightweight snapshot used to make/unmake null moves without affecting history tracking.
@@ -313,67 +370,85 @@ public sealed class Board
         ulong ZKeyPrev);
 
 
-    // Hoisted castling squares for performance (span-based, no AlgebraicNotation)
-    private static readonly Square0x88 E1 = Squares.ParseAlgebraicTo0x88("e1");
-    private static readonly Square0x88 G1 = Squares.ParseAlgebraicTo0x88("g1");
-    private static readonly Square0x88 C1 = Squares.ParseAlgebraicTo0x88("c1");
-    private static readonly Square0x88 H1 = Squares.ParseAlgebraicTo0x88("h1");
-    private static readonly Square0x88 F1 = Squares.ParseAlgebraicTo0x88("f1");
-    private static readonly Square0x88 A1 = Squares.ParseAlgebraicTo0x88("a1");
-    private static readonly Square0x88 D1 = Squares.ParseAlgebraicTo0x88("d1");
-    private static readonly Square0x88 E8 = Squares.ParseAlgebraicTo0x88("e8");
-    private static readonly Square0x88 G8 = Squares.ParseAlgebraicTo0x88("g8");
-    private static readonly Square0x88 C8 = Squares.ParseAlgebraicTo0x88("c8");
-    private static readonly Square0x88 H8 = Squares.ParseAlgebraicTo0x88("h8");
-    private static readonly Square0x88 F8 = Squares.ParseAlgebraicTo0x88("f8");
-    private static readonly Square0x88 A8 = Squares.ParseAlgebraicTo0x88("a8");
-    private static readonly Square0x88 D8 = Squares.ParseAlgebraicTo0x88("d8");
+
+    private static readonly Square0x64 H1_64 = Squares.ParseAlgebraicTo0x64("h1");
+    private static readonly int H1_64_Index = H1_64.Value;
+    private static readonly Square0x64 F1_64 = Squares.ParseAlgebraicTo0x64("f1");
+    private static readonly int F1_64_Index = F1_64.Value;
+    private static readonly Square0x64 B1_64 = Squares.ParseAlgebraicTo0x64("b1");
+    private static readonly int B1_64_Index = B1_64.Value;
+    private static readonly Square0x64 A1_64 = Squares.ParseAlgebraicTo0x64("a1");
+    private static readonly int A1_64_Index = A1_64.Value;
+    private static readonly Square0x64 D1_64 = Squares.ParseAlgebraicTo0x64("d1");
+    private static readonly int D1_64_Index = D1_64.Value;
+    private static readonly Square0x64 H8_64 = Squares.ParseAlgebraicTo0x64("h8");
+    private static readonly int H8_64_Index = H8_64.Value;
+    private static readonly Square0x64 F8_64 = Squares.ParseAlgebraicTo0x64("f8");
+    private static readonly int F8_64_Index = F8_64.Value;
+    private static readonly Square0x64 A8_64 = Squares.ParseAlgebraicTo0x64("a8");
+    private static readonly int A8_64_Index = A8_64.Value;
+    private static readonly Square0x64 D8_64 = Squares.ParseAlgebraicTo0x64("d8");
+    private static readonly int D8_64_Index = D8_64.Value;
+
+    private static readonly Square0x88 H1_88 = Squares.ParseAlgebraicTo0x88("h1");
+    private static readonly int H1_88_Index = H1_88.Value;
+    private static readonly Square0x88 F1_88 = Squares.ParseAlgebraicTo0x88("f1");
+    private static readonly int F1_88_Index = F1_88.Value;
+    private static readonly Square0x88 A1_88 = Squares.ParseAlgebraicTo0x88("a1");
+    private static readonly int A1_88_Index = A1_88.Value;
+    private static readonly Square0x88 D1_88 = Squares.ParseAlgebraicTo0x88("d1");
+    private static readonly int D1_88_Index = D1_88.Value;
+    private static readonly Square0x88 H8_88 = Squares.ParseAlgebraicTo0x88("h8");
+    private static readonly int H8_88_Index = H8_88.Value;
+    private static readonly Square0x88 F8_88 = Squares.ParseAlgebraicTo0x88("f8");
+    private static readonly int F8_88_Index = F8_88.Value;
+    private static readonly Square0x88 A8_88 = Squares.ParseAlgebraicTo0x88("a8");
+    private static readonly int A8_88_Index = A8_88.Value;
+    private static readonly Square0x88 D8_88 = Squares.ParseAlgebraicTo0x88("d8");
+    private static readonly int D8_88_Index = D8_88.Value;
 
     public Undo MakeMove(in Move m)
     {
+        var to64Index = m.To64Index;
+        var from64Index = m.From64Index;
+        var to88Index = ((to64Index >> 3) << 4) | (to64Index & 7);
+        var from88Index = ((from64Index >> 3) << 4) | (from64Index & 7);
+
 #if DEBUG
-        var destPieceBefore = (Piece)mailbox[m.To88];
+        var destPieceBefore = (Piece)mailbox[to88Index];
         if (m.IsEnPassant)
         {
             // EP destination must be empty by definition
             if (destPieceBefore != Piece.Empty)
-                throw new InvalidOperationException("EP destination square was not empty.");
+                throw new InvalidOperationException($"EP destination square was not empty. (Move: {m} Mover: {m.Mover} Occupant: {destPieceBefore})");
         }
         else if (m.IsCapture)
         {
             if (destPieceBefore == Piece.Empty)
-                throw new InvalidOperationException($"Capture to empty square at {Squares.ToAlgebraic(m.To88)}.");
+                throw new InvalidOperationException($"Capture to empty square at {Squares.ToAlgebraic((Square0x88)to88Index)} (Move: {m} Mover: {m.Mover})");
             if (destPieceBefore == m.Mover || destPieceBefore.IsWhite == m.Mover.IsWhite)
-                throw new InvalidOperationException("Capture of own piece generated.");
+                throw new InvalidOperationException($"Capture of own piece generated. (Move: {m} Mover: {m.Mover}, Captured: {destPieceBefore})");
         }
         else
         {
             if (destPieceBefore != Piece.Empty)
-                throw new InvalidOperationException($"Quiet move to occupied square at {Squares.ToAlgebraic(m.To88)}.");
+                throw new InvalidOperationException($"Quiet move to occupied square at {Squares.ToAlgebraic((Square0x88)to88Index)} (Move: {m} Mover: {m.Mover}, Occupant: {destPieceBefore})");
         }
 #endif
 
-        // Save undo (we'll fill the new special fields below)
         var undo = new Undo(
             Captured: m.Kind.HasFlag(MoveKind.EnPassant)
                 ? (SideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn)
-                : (Piece)mailbox[m.To88],
+                : (Piece)mailbox[to88Index],
             EnPassantFilePrev: EnPassantFile,
             CastlingPrev: CastlingRights,
             HalfmovePrev: HalfmoveClock,
             FullmovePrev: FullmoveNumber,
             SideToMovePrev: SideToMove,
             ZKeyPrev: ZKey,
-            EnPassantCapturedSq88: null,
-            CastleRookFrom88: null,
-            CastleRookTo88: null);
-
-        if (KeepTrackOfHistory)
-        {
-            // Track move history
-            _moveHistory.Add(m);
-            _undoHistory.Add(undo);
-        }
+            EnPassantCapturedSq64: null,
+            CastleRookFrom64: null,
+            CastleRookTo64: null);
 
         // --- Clear old EP key
         SetEnPassantFile(null);
@@ -388,103 +463,119 @@ public sealed class Board
         // own king moved -> clear both sides
         if (m.Mover == Piece.WhiteKing)
         {
+            Debug.Assert(m.IsCastleQueenSide && CastlingRights.HasFlag(CastlingRightsFlags.WhiteQueen) ||
+                         m.IsCastleKingSide && CastlingRights.HasFlag(CastlingRightsFlags.WhiteKing) ||
+                         !m.IsCastle);
             newCR &= ~(CastlingRightsFlags.WhiteKing | CastlingRightsFlags.WhiteQueen);
-            _whiteKingSquare88 = m.To88;
+            _whiteKingSquare64Index = to64Index;
         }
         if (m.Mover == Piece.BlackKing)
         {
+            Debug.Assert(m.IsCastleQueenSide && CastlingRights.HasFlag(CastlingRightsFlags.BlackQueen) ||
+                         m.IsCastleKingSide && CastlingRights.HasFlag(CastlingRightsFlags.BlackKing) ||
+                         !m.IsCastle);
             newCR &= ~(CastlingRightsFlags.BlackKing | CastlingRightsFlags.BlackQueen);
-            _blackKingSquare88 = m.To88;
+            _blackKingSquare64Index = to64Index;
         }
         // own rook moved from corner
         if (m.Mover == Piece.WhiteRook)
         {
-            if (m.From88 == A1) newCR &= ~CastlingRightsFlags.WhiteQueen;
-            if (m.From88 == H1) newCR &= ~CastlingRightsFlags.WhiteKing;
+            if (from64Index == A1_64_Index) newCR &= ~CastlingRightsFlags.WhiteQueen;
+            if (from64Index == H1_64_Index) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
         if (m.Mover == Piece.BlackRook)
         {
-            if (m.From88 == A8) newCR &= ~CastlingRightsFlags.BlackQueen;
-            if (m.From88 == H8) newCR &= ~CastlingRightsFlags.BlackKing;
+            if (from64Index == A8_64_Index) newCR &= ~CastlingRightsFlags.BlackQueen;
+            if (from64Index == H8_64_Index) newCR &= ~CastlingRightsFlags.BlackKing;
         }
         // captured rook on its corner
         if (undo.Captured == Piece.WhiteRook)
         {
-            if (m.To88 == A1) newCR &= ~CastlingRightsFlags.WhiteQueen;
-            if (m.To88 == H1) newCR &= ~CastlingRightsFlags.WhiteKing;
+            if (to64Index == A1_64_Index) newCR &= ~CastlingRightsFlags.WhiteQueen;
+            if (to64Index == H1_64_Index) newCR &= ~CastlingRightsFlags.WhiteKing;
         }
         if (undo.Captured == Piece.BlackRook)
         {
-            if (m.To88 == A8) newCR &= ~CastlingRightsFlags.BlackQueen;
-            if (m.To88 == H8) newCR &= ~CastlingRightsFlags.BlackKing;
+            if (to64Index == A8_64_Index) newCR &= ~CastlingRightsFlags.BlackQueen;
+            if (to64Index == H8_64_Index) newCR &= ~CastlingRightsFlags.BlackKing;
         }
         if (newCR != CastlingRights) SetCastlingRights(newCR); // toggles ZKey appropriately
 
         // --- Handle captures (normal capture only; EP handled later)
         if (m.IsCapture && !m.IsEnPassant)
         {
-            RemoveFromBitboards((Square0x64)m.To88, undo.Captured);
-            mailbox[m.To88] = Piece.Empty;
-            XorZPiece(undo.Captured, m.To88);
+            RemoveFromBitboards(to64Index, undo.Captured);
+            mailbox[to88Index] = Piece.Empty;
+            XorZPiece(undo.Captured, to64Index);
         }
 
         // --- Move the mover piece off the from-square
-        RemoveFromBitboards((Square0x64)m.From88, m.Mover);
-        mailbox[m.From88] = Piece.Empty;
-        XorZPiece(m.Mover, m.From88);
+        RemoveFromBitboards(from64Index, m.Mover);
+        mailbox[from88Index] = Piece.Empty;
+        XorZPiece(m.Mover, from64Index);
 
         // --- Special: castling rook movement
         if (m.IsCastle)
         {
             bool white = m.Mover.IsWhite;
             // Define king/rook target squares
-            var kFrom = m.From88;
-            var kTo = m.To88;
-            Square0x88 rFrom, rTo;
+            var kFrom88 = from88Index;
+            var kTo88 = to88Index;
+            var kTo64 = to64Index;
+            int rFrom88, rTo88;
+            int rFrom64, rTo64;
 
             if (white)
             {
                 if (m.Kind.HasFlag(MoveKind.CastleKing))
                 {
-                    rFrom = H1;
-                    rTo = F1;
+                    rFrom88 = H1_88_Index;
+                    rFrom64 = H1_64_Index;
+                    rTo88 = F1_88_Index;
+                    rTo64 = F1_64_Index;
                 }
                 else
                 {
-                    rFrom = A1;
-                    rTo = D1;
+                    rFrom88 = A1_88_Index;
+                    rFrom64 = A1_64_Index;
+                    rTo88 = D1_88_Index;
+                    rTo64 = D1_64_Index;
                 }
             }
             else
             {
                 if (m.Kind.HasFlag(MoveKind.CastleKing))
                 {
-                    rFrom = H8;
-                    rTo = F8;
+                    rFrom88 = H8_88_Index;
+                    rFrom64 = H8_64_Index;
+                    rTo88 = F8_88_Index;
+                    rTo64 = F8_64_Index;
                 }
                 else
                 {
-                    rFrom = A8;
-                    rTo = D8;
+                    rFrom88 = A8_88_Index;
+                    rFrom64 = A8_64_Index;
+                    rTo88 = D8_88_Index;
+                    rTo64 = D8_64_Index;
                 }
             }
 
             // Move king to kTo
-            mailbox[kTo] = m.Mover;
-            AddToBitboards((Square0x64)kTo, m.Mover);
-            XorZPiece(m.Mover, kTo);
+            mailbox[kTo88] = m.Mover;
+            AddToBitboards(kTo64, m.Mover);
+            XorZPiece(m.Mover, kTo64);
 
             // Move rook rFrom -> rTo
             var rook = white ? Piece.WhiteRook : Piece.BlackRook;
-            RemoveFromBitboards((Square0x64)rFrom, rook);
-            mailbox[rFrom] = Piece.Empty;
-            XorZPiece(rook, rFrom);
+            RemoveFromBitboards(rFrom64, rook);
+            mailbox[rFrom88] = Piece.Empty;
+            XorZPiece(rook, rFrom64);
 
-            mailbox[rTo] = rook;
-            AddToBitboards((Square0x64)rTo, rook);
-            XorZPiece(rook, rTo);
+            mailbox[rTo88] = rook;
+            AddToBitboards(rTo64, rook);
+            XorZPiece(rook, rTo64);
 
-            undo = undo with { CastleRookFrom88 = rFrom, CastleRookTo88 = rTo };
+            undo = undo with { CastleRookFrom64 = (Square0x64)rFrom64, CastleRookTo64 = (Square0x64)rTo64 };
         }
         else
         {
@@ -492,44 +583,47 @@ public sealed class Board
             if (m.IsEnPassant)
             {
                 bool white = m.Mover.IsWhite;
-                var capSq = white ? (m.To88 - 16) : (m.To88 + 16);
+                var capSq88 = white ? (to88Index - 16) : (to88Index + 16);
+                var capSq64 = Squares.Convert0x88IndexTo0x64Index(capSq88);
                 var capPiece = white ? Piece.BlackPawn : Piece.WhitePawn;
 
-                if (Squares.IsOffboard(capSq))
+                if (Squares.IsOffboard(capSq88))
                     throw new InvalidOperationException("En Passant capture square is offboard.");
 
-                var safeCapSq = (Square0x88)capSq;
 
-                RemoveFromBitboards((Square0x64)safeCapSq, capPiece);
-                mailbox[(int)safeCapSq] = Piece.Empty;
-                XorZPiece(capPiece, safeCapSq);
-
-                undo = undo with { EnPassantCapturedSq88 = safeCapSq };
+                RemoveFromBitboards(capSq64, capPiece);
+                mailbox[capSq88] = Piece.Empty;
+                XorZPiece(capPiece, capSq64);
+                undo = undo with { EnPassantCapturedSq64 = (Square0x64)capSq64 };
             }
 
             // --- Place the moved piece (promotion if any)
             var placed = m.IsPromotion ? m.Promotion : m.Mover;
-            mailbox[m.To88] = placed;
-            AddToBitboards((Square0x64)m.To88, placed);
-            XorZPiece(placed, m.To88);
+            mailbox[to88Index] = placed;
+            AddToBitboards(to64Index, placed);
+            XorZPiece(placed, to64Index);
         }
 
         // --- New EP target if a pawn moved two squares
-        if (isPawnMove && ((int)(m.To88 - m.From88) == +32 || (int)(m.To88 - m.From88) == -32))
+        if (isPawnMove && ((to88Index - from88Index) == +32 || (to88Index - from88Index) == -32))
         {
-            var file = (FileIndex)(m.From88.Value & 0x0F);
+            var file = (FileIndex)(from88Index & 0x0F);
             SetEnPassantFile(file);
         }
 
         // --- Side to move
         SideToMove = SideToMove.Flip();
 
-        // Repetition bookkeeping
         if (KeepTrackOfHistory)
         {
+            // Repetition bookkeeping
             _hashStack.Push(ZKey);
             if (_repCounts.TryGetValue(ZKey, out var c)) _repCounts[ZKey] = c + 1;
             else _repCounts[ZKey] = 1;
+
+            // Track move history
+            _moveHistory.Add(m);
+            _undoHistory.Add(undo);
         }
 
         return undo;
@@ -537,20 +631,32 @@ public sealed class Board
 
     public void UnmakeMove(in Move m, in Undo u)
     {
-        // Pop repetition entry
-        if (_hashStack.Count > 0)
+        var to64Index = m.To64Index;
+        var from64Index = m.From64Index;
+        var to88Index = ((to64Index >> 3) << 4) | (to64Index & 7);
+        var from88Index = ((from64Index >> 3) << 4) | (from64Index & 7);
+
+        if (KeepTrackOfHistory)
         {
-            var keyAfterMove = _hashStack.Pop();
-            if (KeepTrackOfHistory && _repCounts.TryGetValue(keyAfterMove, out var c))
+            // Pop repetition entry
+            if (_hashStack.Count > 0)
             {
-                if (c <= 1) _repCounts.Remove(keyAfterMove);
-                else _repCounts[keyAfterMove] = c - 1;
+                var keyAfterMove = _hashStack.Pop();
+                if (_repCounts.TryGetValue(keyAfterMove, out var c))
+                {
+                    if (c <= 1) _repCounts.Remove(keyAfterMove);
+                    else _repCounts[keyAfterMove] = c - 1;
+                }
+            }
+
+            // Track undo history
+            if (_moveHistory.Count > 0 && _undoHistory.Count > 0)
+            {
+                _moveHistory.RemoveAt(_moveHistory.Count - 1);
+                _undoHistory.RemoveAt(_undoHistory.Count - 1);
             }
         }
 
-        // Track undo history
-        if (_moveHistory.Count > 0) _moveHistory.RemoveAt(_moveHistory.Count - 1);
-        if (_undoHistory.Count > 0) _undoHistory.RemoveAt(_undoHistory.Count - 1);
 
         // Restore side and ZKey (this also covers EP and castling zobrist, so do it early)
         _sideToMove = u.SideToMovePrev;
@@ -560,55 +666,55 @@ public sealed class Board
         if (m.IsCastle)
         {
             // Undo rook move
-            if (u.CastleRookFrom88 is Square0x88 rFrom && u.CastleRookTo88 is Square0x88 rTo)
+            if (u.CastleRookFrom64 is Square0x64 rFrom && u.CastleRookTo64 is Square0x64 rTo)
             {
                 var rook = m.Mover.IsWhite ? Piece.WhiteRook : Piece.BlackRook;
 
-                RemoveFromBitboards((Square0x64)rTo, rook);
-                mailbox[rTo] = Piece.Empty;
+                RemoveFromBitboards(rTo, rook);
+                mailbox[(Square0x88)rTo] = Piece.Empty;
 
-                mailbox[rFrom] = rook;
-                AddToBitboards((Square0x64)rFrom, rook);
+                mailbox[(Square0x88)rFrom] = rook;
+                AddToBitboards(rFrom, rook);
             }
 
             // Move king back
-            RemoveFromBitboards((Square0x64)m.To88, m.Mover);
-            mailbox[m.To88] = Piece.Empty;
+            RemoveFromBitboards(to64Index, m.Mover);
+            mailbox[to88Index] = Piece.Empty;
 
-            mailbox[m.From88] = m.Mover;
-            AddToBitboards((Square0x64)m.From88, m.Mover);
+            mailbox[from88Index] = m.Mover;
+            AddToBitboards(from64Index, m.Mover);
         }
         else
         {
             // Remove piece from To (promotion piece may be there)
             var placed = m.IsPromotion ? m.Promotion : m.Mover;
 
-            RemoveFromBitboards((Square0x64)m.To88, placed);  // placed is Piece (non-null)
-            mailbox[m.To88] = Piece.Empty;
+            RemoveFromBitboards(to64Index, placed);  // placed is Piece (non-null)
+            mailbox[to88Index] = Piece.Empty;
 
             // Put mover back
-            mailbox[m.From88] = m.Mover;
-            AddToBitboards((Square0x64)m.From88, m.Mover);
+            mailbox[from88Index] = m.Mover;
+            AddToBitboards(from64Index, m.Mover);
 
             // Restore captured piece ...
             if (m.IsEnPassant)
             {
-                if (u.EnPassantCapturedSq88 is Square0x88 capSq)
+                if (u.EnPassantCapturedSq64 is Square0x64 capSq)
                 {
                     var capPiece = m.Mover.IsWhite ? Piece.BlackPawn : Piece.WhitePawn;
-                    mailbox[capSq] = capPiece;
-                    AddToBitboards((Square0x64)capSq, capPiece);
+                    mailbox[(Square0x88)capSq] = capPiece;
+                    AddToBitboards(capSq, capPiece);
                 }
             }
             else if (m.IsCapture && u.Captured != Piece.Empty)
             {
-                mailbox[m.To88] = u.Captured;
-                AddToBitboards((Square0x64)m.To88, u.Captured);
+                mailbox[to88Index] = u.Captured;
+                AddToBitboards(to64Index, u.Captured);
             }
         }
 
-        if (m.Mover == Piece.WhiteKing) _whiteKingSquare88 = m.From88;
-        else if (m.Mover == Piece.BlackKing) _blackKingSquare88 = m.From88;
+        if (m.Mover == Piece.WhiteKing) _whiteKingSquare64Index = m.From64Index;
+        else if (m.Mover == Piece.BlackKing) _blackKingSquare64Index = m.From64Index;
 
         EnPassantFile = u.EnPassantFilePrev;
         CastlingRights = u.CastlingPrev;
@@ -705,7 +811,7 @@ public sealed class Board
         if (move is not Move m) return false;
 
         Span<Move> moveBuffer = stackalloc Move[MoveBufferMaxForASinglePiece];
-        MoveGeneration.GeneratePseudoLegal(this, ref moveBuffer, SideToMove, new MoveGeneration.Square0x88Filter(m.From88));
+        MoveGeneration.GeneratePseudoLegal(this, ref moveBuffer, SideToMove, new MoveGeneration.Square0x64Filter(m.From64Index));
 
         var index = moveBuffer.IndexOf(m);
         if (index < 0) return false;
@@ -723,136 +829,139 @@ public sealed class Board
     public Move[] GeneratePseudoLegal() =>
         MoveGeneration.GeneratePseudoLegal(this, SideToMove);
 
-    private void XorZPiece(Piece p, Square0x88 sq88)
+    private void XorZPiece(Piece p, int sq64)
     {
         if (p == Piece.Empty) return;
-        var s64 = (Square0x64)sq88;
-        ZKey ^= Tables.Zobrist.PieceSquare[p.PieceIndex, (int)s64];
+        ZKey ^= Tables.Zobrist.PieceSquare[p.PieceIndex, sq64];
     }
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ulong RayAttacksFromRook(Square0x64 sq64, ulong occ)
+    private static ulong RayAttacksFromRook(int sq88Index, ulong occ)
     {
         ulong attacks = 0;
-        Square0x88 sq88 = (Square0x88)sq64;
         // +1 (right)
         {
-            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            var t88Index = sq88Index;
             while (true)
             {
-                t += 1;
-                if (Squares.IsOffboard(t)) break;
-                Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << (int)t64;
-                if (((occ >> (int)t64) & 1UL) != 0) break;
+                t88Index += 1;
+                if (Squares.IsOffboard(t88Index)) break;
+                var t64Index = Squares.Convert0x88IndexTo0x64Index(t88Index);
+                attacks |= 1UL << t64Index;
+                if (((occ >> t64Index) & 1UL) != 0) break;
             }
         }
         // -1 (left)
         {
-            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            var t88Index = sq88Index;
             while (true)
             {
-                t -= 1;
-                if (Squares.IsOffboard(t)) break;
-                Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << (int)t64;
-                if (((occ >> (int)t64) & 1UL) != 0) break;
+                t88Index -= 1;
+                if (Squares.IsOffboard(t88Index)) break;
+                var t64Index = Squares.Convert0x88IndexTo0x64Index(t88Index);
+                attacks |= 1UL << t64Index;
+                if (((occ >> t64Index) & 1UL) != 0) break;
             }
         }
         // +16 (up)
         {
-            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            var t88Index = sq88Index;
             while (true)
             {
-                t += 16;
-                if (Squares.IsOffboard(t)) break;
-                Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << (int)t64;
-                if (((occ >> (int)t64) & 1UL) != 0) break;
+                t88Index += 16;
+                if (Squares.IsOffboard(t88Index)) break;
+                var t64Index = Squares.Convert0x88IndexTo0x64Index(t88Index);
+                attacks |= 1UL << t64Index;
+                if (((occ >> t64Index) & 1UL) != 0) break;
             }
         }
         // -16 (down)
         {
-            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            var t88Index = sq88Index;
             while (true)
             {
-                t -= 16;
-                if (Squares.IsOffboard(t)) break;
-                Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << (int)t64;
-                if (((occ >> (int)t64) & 1UL) != 0) break;
+                t88Index -= 16;
+                if (Squares.IsOffboard(t88Index)) break;
+                var t64Index = Squares.Convert0x88IndexTo0x64Index(t88Index);
+                attacks |= 1UL << t64Index;
+                if (((occ >> t64Index) & 1UL) != 0) break;
             }
         }
         return attacks;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ulong RayAttacksFromBishop(Square0x64 sq64, ulong occ)
+    private static ulong RayAttacksFromBishop(int sq88Index, ulong occ)
     {
         ulong attacks = 0;
-        Square0x88 sq88 = (Square0x88)sq64;
+
         // +15 (up-left)
         {
-            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            var t88 = sq88Index;
             while (true)
             {
-                t += 15;
-                if (Squares.IsOffboard(t)) break;
-                Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << (int)t64;
-                if (((occ >> (int)t64) & 1UL) != 0) break;
+                t88 += 15;
+                if (Squares.IsOffboard(t88)) break;
+                var t64 = Squares.Convert0x88IndexTo0x64Index(t88);
+                attacks |= 1UL << t64;
+                if (((occ >> t64) & 1UL) != 0) break;
             }
         }
         // +17 (up-right)
         {
-            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            var t88 = sq88Index;
             while (true)
             {
-                t += 17;
-                if (Squares.IsOffboard(t)) break;
-                Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << (int)t64;
-                if (((occ >> (int)t64) & 1UL) != 0) break;
+                t88 += 17;
+                if (Squares.IsOffboard(t88)) break;
+                var t64 = Squares.Convert0x88IndexTo0x64Index(t88);
+                attacks |= 1UL << t64;
+                if (((occ >> t64) & 1UL) != 0) break;
             }
         }
         // -15 (down-right)
         {
-            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            var t88 = sq88Index;
             while (true)
             {
-                t -= 15;
-                if (Squares.IsOffboard(t)) break;
-                Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << (int)t64;
-                if (((occ >> (int)t64) & 1UL) != 0) break;
+                t88 -= 15;
+                if (Squares.IsOffboard(t88)) break;
+                var t64 = Squares.Convert0x88IndexTo0x64Index(t88);
+                attacks |= 1UL << t64;
+                if (((occ >> t64) & 1UL) != 0) break;
             }
         }
         // -17 (down-left)
         {
-            UnsafeSquare0x88 t = (UnsafeSquare0x88)sq88;
+            var t88 = sq88Index;
             while (true)
             {
-                t -= 17;
-                if (Squares.IsOffboard(t)) break;
-                Square0x64 t64 = (Square0x64)t;
-                attacks |= 1UL << (int)t64;
-                if (((occ >> (int)t64) & 1UL) != 0) break;
+                t88 -= 17;
+                if (Squares.IsOffboard(t88)) break;
+                var t64 = Squares.Convert0x88IndexTo0x64Index(t88);
+                attacks |= 1UL << t64;
+                if (((occ >> t64) & 1UL) != 0) break;
             }
         }
         return attacks;
     }
 
-    internal ulong RookAttacks(Square0x64 sq64) => RayAttacksFromRook(sq64, OccAll);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal ulong RookAttacks(int sq88Index) => RayAttacksFromRook(sq88Index, OccAll);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal ulong BishopAttacks(Square0x64 sq64) => RayAttacksFromBishop(sq64, OccAll);
+    internal ulong BishopAttacks(int sq88Index) => RayAttacksFromBishop(sq88Index, OccAll);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsSquareAttacked(Square0x64 t64, Color bySide)
+        => IsSquareAttacked(t64.Value, bySide);
 
     // Board.cs
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool IsSquareAttacked(Square0x64 t64, Color bySide)
+    public bool IsSquareAttacked(int t64Index, Color bySide)
     {
-        int ti = t64.Value;
+        int ti = t64Index;
         bool byWhite = bySide.IsWhite();
         ulong occAll = OccAll; // single load; JIT can keep this in a register
 
@@ -866,11 +975,11 @@ public sealed class Board
         // Pawns (reverse attack-from masks keyed by target)
         if (byWhite)
         {
-            if ((Tables.WhitePawnAttackFrom[ti] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
+            if ((Tables.WhitePawnAttackTable[ti] & GetPieceBitboard(Piece.WhitePawn)) != 0) return true;
         }
         else
         {
-            if ((Tables.BlackPawnAttackFrom[ti] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
+            if ((Tables.BlackPawnAttackTable[ti] & GetPieceBitboard(Piece.BlackPawn)) != 0) return true;
         }
 
         // Bishop-like
@@ -892,7 +1001,7 @@ public sealed class Board
         return false;
     }
 
-    public (bool knights, bool kings, bool pawns, bool bishopsQueens, bool rooksQueens) AttackerBreakdownBool(Square0x64 t64, bool byWhite)
+    public (bool knights, bool kings, bool pawns, bool bishopsQueens, bool rooksQueens) AttackerBreakdownBool(int t64Index, bool byWhite)
     {
         var T = Tables;
         ulong wp = GetPieceBitboard(Piece.WhitePawn);
@@ -908,20 +1017,20 @@ public sealed class Board
         ulong wq = GetPieceBitboard(Piece.WhiteQueen);
         ulong bq = GetPieceBitboard(Piece.BlackQueen);
 
-        bool knt = (T.KnightAttackTable[(int)t64] & (byWhite ? wn : bn)) != 0;
-        bool kng = (T.KingAttackTable[(int)t64] & (byWhite ? wk : bk)) != 0;
+        bool knt = (T.KnightAttackTable[t64Index] & (byWhite ? wn : bn)) != 0;
+        bool kng = (T.KingAttackTable[t64Index] & (byWhite ? wk : bk)) != 0;
         bool pwn = byWhite
-            ? ((T.WhitePawnAttackFrom[(int)t64] & wp) != 0)
-            : ((T.BlackPawnAttackFrom[(int)t64] & bp) != 0);
-        bool bishopQ = (BishopAttacks(t64) & (byWhite ? (wb | wq) : (bb | bq))) != 0;
-        bool rookQ = (RookAttacks(t64) & (byWhite ? (wr | wq) : (br | bq))) != 0;
+            ? ((T.WhitePawnAttackFrom[t64Index] & wp) != 0)
+            : ((T.BlackPawnAttackFrom[t64Index] & bp) != 0);
+        int t88Index = Squares.Convert0x64IndexTo0x88Index(t64Index);
+        bool bishopQ = (BishopAttacks(t88Index) & (byWhite ? (wb | wq) : (bb | bq))) != 0;
+        bool rookQ = (RookAttacks(t88Index) & (byWhite ? (wr | wq) : (br | bq))) != 0;
 
         return (knt, kng, pwn, bishopQ, rookQ);
     }
 
-    public ulong AttackersToSquare(Square0x64 t64, Color bySide, Piece.PieceType? pieceFilters = null)
+    public ulong AttackersToSquare(int t64Index, Color bySide, Piece.PieceType? pieceFilters = null)
     {
-        var T = Tables;
         bool byWhite = bySide.IsWhite();
 
         ulong attackers = 0UL;
@@ -931,24 +1040,26 @@ public sealed class Board
         {
             // Knights
             ulong knights = byWhite ? GetPieceBitboard(Piece.WhiteKnight) : GetPieceBitboard(Piece.BlackKnight);
-            attackers |= (T.KnightAttackTable[(int)t64] & knights);
+            attackers |= Tables.KnightAttackTable[t64Index] & knights;
         }
 
         if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.King))
         {
             // Kings
             ulong kings = byWhite ? GetPieceBitboard(Piece.WhiteKing) : GetPieceBitboard(Piece.BlackKing);
-            attackers |= (T.KingAttackTable[(int)t64] & kings);
+            attackers |= Tables.KingAttackTable[t64Index] & kings;
         }
 
         if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.Pawn))
         {
             // Pawns (reverse attack-from masks)
             if (byWhite)
-                attackers |= (T.WhitePawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.WhitePawn));
+                attackers |= Tables.WhitePawnAttackTable[t64Index] & GetPieceBitboard(Piece.WhitePawn);
             else
-                attackers |= (T.BlackPawnAttackFrom[(int)t64] & GetPieceBitboard(Piece.BlackPawn));
+                attackers |= Tables.BlackPawnAttackTable[t64Index] & GetPieceBitboard(Piece.BlackPawn);
         }
+
+        var t88Index = Squares.Convert0x64IndexTo0x88Index(t64Index);
 
         if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.Bishop) || pieceFilters.Value.HasFlag(Piece.PieceType.Queen))
         {
@@ -956,7 +1067,7 @@ public sealed class Board
             ulong bishopsQueens = byWhite
                 ? (GetPieceBitboard(Piece.WhiteBishop) | GetPieceBitboard(Piece.WhiteQueen))
                 : (GetPieceBitboard(Piece.BlackBishop) | GetPieceBitboard(Piece.BlackQueen));
-            attackers |= (BishopAttacks(t64) & bishopsQueens);
+            attackers |= BishopAttacks(t88Index) & bishopsQueens;
         }
 
         if (!pieceFilters.HasValue || pieceFilters.Value.HasFlag(Piece.PieceType.Rook) || pieceFilters.Value.HasFlag(Piece.PieceType.Queen))
@@ -965,7 +1076,7 @@ public sealed class Board
             ulong rooksQueens = byWhite
                 ? (GetPieceBitboard(Piece.WhiteRook) | GetPieceBitboard(Piece.WhiteQueen))
                 : (GetPieceBitboard(Piece.BlackRook) | GetPieceBitboard(Piece.BlackQueen));
-            attackers |= (RookAttacks(t64) & rooksQueens);
+            attackers |= RookAttacks(t88Index) & rooksQueens;
         }
 
         return attackers;
@@ -1185,32 +1296,35 @@ public sealed class Board
 
     public bool InCheck(Color side)
     {
-        var kingSq64 = (Square0x64)(side.IsWhite() ? _whiteKingSquare88!.Value : _blackKingSquare88!.Value);
+        var kingSq64 = side.IsWhite() ? _whiteKingSquare64Index!.Value : _blackKingSquare64Index!.Value;
         var attacker = side.IsWhite() ? Color.Black : Color.White;
         return IsSquareAttacked(kingSq64, attacker);
     }
 
-    public bool EnPassantAvailableFor(Color sideToMove)
+    public bool EnPassantAvailableFor(Color sideToMove, [NotNullWhen(true)] out FileIndex? file)
     {
+        file = null;
         // EP only valid on the immediate reply by the current side to move
-        if (EnPassantFile is not FileIndex file) return false;
+        if (EnPassantFile is not FileIndex f) return false;
         if (sideToMove != SideToMove) return false;
 
+        var isWhite = sideToMove.IsWhite();
         // EP target: square passed over. For White-to-move, it lies on 6th rank (index 5).
         // For Black-to-move, it lies on 3rd rank (index 2).
-        int epRank = sideToMove.IsWhite() ? 5 : 2;
-        int ep88 = (epRank << 4) | file.Value;
+        int epRank = isWhite ? 5 : 2;
+        int ep88 = (epRank << 4) | f.Value;
 
         // Target must be empty by definition.
         if (mailbox[ep88] != Piece.Empty) return false;
 
         // The pawn that moved two squares must be behind the target.
-        int capSq88 = sideToMove.IsWhite() ? (ep88 - 16) : (ep88 + 16);
+        int capSq88 = isWhite ? (ep88 - 16) : (ep88 + 16);
         if ((capSq88 & 0x88) != 0) return false;
 
-        var expectedCaptured = sideToMove.IsWhite() ? Piece.BlackPawn : Piece.WhitePawn;
+        var expectedCaptured = isWhite ? Piece.BlackPawn : Piece.WhitePawn;
         if ((Piece)mailbox[capSq88] != expectedCaptured) return false;
 
+        file = f;
         return true;
     }
 
@@ -1309,8 +1423,8 @@ public sealed class Board
         if (s.Length != 4 && s.Length != 5) return null;
 
         // Parse squares directly from spans
-        var fromSq = Squares.ParseAlgebraicTo0x88(s.Slice(0, 2));
-        var toSq = Squares.ParseAlgebraicTo0x88(s.Slice(2, 2));
+        var fromSq64Index = Squares.ParseAlgebraicTo0x64(s.Slice(0, 2)).Value;
+        var toSq64Index = Squares.ParseAlgebraicTo0x64(s.Slice(2, 2)).Value;
 
         // Promotion (if any)
         Piece promotion = Piece.Empty;
@@ -1324,7 +1438,7 @@ public sealed class Board
         for (int i = 0; i < buffer.Length; i++)
         {
             ref readonly var m = ref buffer[i];
-            if (m.From88 == fromSq && m.To88 == toSq)
+            if (m.From64Index == fromSq64Index && m.To64Index == toSq64Index)
             {
                 // If UCI included a promo, it must match; otherwise require no-promo move
                 bool promoOk = promotion == Piece.Empty ? m.Promotion == Piece.Empty

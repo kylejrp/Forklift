@@ -9,7 +9,7 @@ namespace Forklift.Core
 
         private static readonly int ColorLength = Enum.GetValues(typeof(Color)).Length;
         private static readonly int PieceLength = Enum.GetValues(typeof(Piece.PieceType)).Length;
-        private static readonly int SquareLength = Square0x88.MAX_VALUE + 1;
+        private static readonly int SquareLength = Square0x64.MAX_VALUE + 1;
 
         private static readonly int ColorStride = PieceLength * SquareLength;
         private static readonly int PieceStride = SquareLength;
@@ -17,8 +17,8 @@ namespace Forklift.Core
         private readonly int[] _table = new int[ColorLength * PieceLength * SquareLength];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static int Index(Color color, Piece.PieceType piece, Square0x88 to)
-            => ((int)color * ColorStride) + ((int)piece * PieceStride) + to.Value;
+        private static int Index(Color color, Piece.PieceType piece, int to64Index)
+            => ((int)color * ColorStride) + ((int)piece * PieceStride) + to64Index;
 
         public void Clear()
         {
@@ -28,13 +28,7 @@ namespace Forklift.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Get(Board.Move move)
         {
-            return _table[Index(move.Mover.Color, move.Mover.Type, move.To88)];
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int Get(Color color, Piece.PieceType piece, Square0x88 to)
-        {
-            return _table[Index(color, piece, to)];
+            return _table[Index(move.Mover.Color, move.Mover.Type, move.To64Index)];
         }
 
         /// <summary>
@@ -43,13 +37,13 @@ namespace Forklift.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Update(Board.Move move, int bonus)
         {
-            Update(move.Mover.Color, move.Mover.Type, move.To88, bonus);
+            Update(move.Mover.Color, move.Mover.Type, move.To64Index, bonus);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void Update(Color color, Piece.PieceType piece, Square0x88 to, int bonus)
+        private void Update(Color color, Piece.PieceType piece, int to64Index, int bonus)
         {
-            int idx = Index(color, piece, to);
+            int idx = Index(color, piece, to64Index);
 
             int clampedBonus = Math.Clamp(bonus, -MaxHistory, MaxHistory);
 
