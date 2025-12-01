@@ -5,7 +5,34 @@ namespace Forklift.Core
 {
     public static class Search
     {
-        public readonly record struct SearchSummary(Board.Move?[] PrincipalVariation, int BestScore, int CompletedDepth, int NodesSearched);
+        public readonly record struct SearchSummary(Board.Move?[] PrincipalVariation, int BestScore, int CompletedDepth, int NodesSearched)
+        {
+            public bool TryGetMateInFromRootScore(out int mateInMoves)
+            {
+                mateInMoves = 0;
+
+                // Not a mate score
+                if (Math.Abs(BestScore) < Evaluator.MateScoreThreshold)
+                {
+                    return false;
+                }
+
+                if (BestScore > 0)
+                {
+                    // Winning: score = MateValue - d  =>  d = MateValue - score
+                    int pliesToMate = Evaluator.MateValue - BestScore;
+                    mateInMoves = (pliesToMate + 1) / 2; // round up to full moves
+                }
+                else
+                {
+                    // Losing: score = -MateValue + d  =>  d = MateValue + score  (score is negative)
+                    int pliesToMate = Evaluator.MateValue + BestScore;
+                    mateInMoves = -((pliesToMate + 1) / 2); // negative = we are mated
+                }
+
+                return true;
+            }
+        };
 
         private readonly record struct SearchNodeResult(Board.Move? BestMove, int BestScore, bool IsComplete, int NodesSearched);
 
@@ -14,7 +41,6 @@ namespace Forklift.Core
         private const int MinimumScore = int.MinValue + 1; // Avoid overflow when negating
         private const int MaximumScore = int.MaxValue; // No overflow risk when negating
 
-        private const int MateScore = TranspositionTable.MateValue;
         private const int NullMoveReduction = 2;
         private const int NullMoveMinDepth = 3;
 
@@ -548,7 +574,7 @@ namespace Forklift.Core
             {
                 // Mate scores are offset by ply so they can be normalized to
                 // “mate in N” later, consistent with the TT helpers.
-                return -MateScore + ply;
+                return -Evaluator.MateValue + ply;
             }
 
             // Stalemate (or other terminal draw) – 0 from side-to-move POV.

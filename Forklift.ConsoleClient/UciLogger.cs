@@ -42,8 +42,12 @@ static class UciLogger
         public override string ToString()
         {
             var nps = Summary.NodesSearched / Math.Max(Elapsed.TotalMilliseconds / 1000.0, 1);
-            var pvString = Summary.PrincipalVariation.Any() ? $" pv {string.Join(' ', Summary.PrincipalVariation.Select(m => m?.ToUCIString() ?? "0000"))}" : string.Empty;
-            return $"info depth {Summary.CompletedDepth} score cp {Summary.BestScore} nodes {Summary.NodesSearched} nps {nps:F0} time {Elapsed.TotalMilliseconds:F0}{pvString}";
+            var score = Summary.TryGetMateInFromRootScore(out int mateIn)
+                ? $"mate {mateIn}"
+                : $"cp {Summary.BestScore}";
+            var nonNullPv = string.Join(" ", Summary.PrincipalVariation.TakeWhile(m => m.HasValue).Select(m => m!.Value.ToUCIString()));
+            var pvString = Summary.PrincipalVariation.Any() ? $" pv {nonNullPv}" : string.Empty;
+            return $"info depth {Summary.CompletedDepth} score {score} nodes {Summary.NodesSearched} nps {nps:F0} time {Elapsed.TotalMilliseconds:F0}{pvString}";
         }
     };
 

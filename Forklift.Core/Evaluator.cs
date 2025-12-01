@@ -13,6 +13,8 @@ namespace Forklift.Core
 
         public const int MaxEvaluationScore = 1 << 18; // ±262144
         public const int MinEvaluationScore = -MaxEvaluationScore;
+        public const int MateValue = MaxEvaluationScore * 2;
+        public const int MateScoreThreshold = MateValue - 512;
         private const int PhaseMax = 24;
 
         // Piece-square tables from PeSTO (Rofchade)
@@ -285,5 +287,39 @@ namespace Forklift.Core
                 Piece.PieceType.Queen => 4,
                 _ => 0 // Pawns and Kings do not affect game phase in PeSTO
             };
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int NormalizeScoreForStorage(int score, int ply)
+        {
+            if (score >= MateScoreThreshold)
+            {
+                return score + ply;
+            }
+
+            if (score <= -MateScoreThreshold)
+            {
+                return score - ply;
+            }
+
+            return score;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int RestoreScoreFromStorage(int score, int ply)
+        {
+            if (score >= MateScoreThreshold)
+            {
+                return score - ply;
+            }
+
+            if (score <= -MateScoreThreshold)
+            {
+                return score + ply;
+            }
+
+            return score;
+        }
     }
 }
