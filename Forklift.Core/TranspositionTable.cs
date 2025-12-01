@@ -16,12 +16,6 @@ public sealed class TranspositionTable
         Beta
     }
 
-    // MateValue must always be larger than any evaluation score returned by
-    // Evaluator.EvaluateForSideToMove so mate scores cannot be confused with
-    // regular evaluation values.
-    internal const int MateValue = Evaluator.MaxEvaluationScore * 2;
-    internal const int MateScoreThreshold = MateValue - 512;
-
     private readonly Entry[] _entries;
     private readonly int _mask;
 
@@ -77,7 +71,7 @@ public sealed class TranspositionTable
         if (entry.ZobristKey != zobristKey)
             return ProbeResult.Miss;
 
-        int score = RestoreScoreFromStorage(entry.Score, ply);
+        int score = Evaluator.RestoreScoreFromStorage(entry.Score, ply);
         return new ProbeResult(entry.NodeType, score, entry.BestMove, entry.Depth);
     }
 
@@ -118,40 +112,8 @@ public sealed class TranspositionTable
 
         entry.ZobristKey = zobristKey;
         entry.Depth = depth;
-        entry.Score = NormalizeScoreForStorage(score, ply);
+        entry.Score = Evaluator.NormalizeScoreForStorage(score, ply);
         entry.NodeType = nodeType;
         entry.BestMove = bestMove;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int NormalizeScoreForStorage(int score, int ply)
-    {
-        if (score >= MateScoreThreshold)
-        {
-            return score + ply;
-        }
-
-        if (score <= -MateScoreThreshold)
-        {
-            return score - ply;
-        }
-
-        return score;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int RestoreScoreFromStorage(int score, int ply)
-    {
-        if (score >= MateScoreThreshold)
-        {
-            return score - ply;
-        }
-
-        if (score <= -MateScoreThreshold)
-        {
-            return score + ply;
-        }
-
-        return score;
     }
 }
