@@ -225,7 +225,7 @@ jobs:
 
       - name: Upload BDN results (environment-keyed)
         if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.art.outputs.bdn_name }}
           path: |
@@ -290,7 +290,7 @@ jobs:
 
       - id: pr_texts
         if: ${{ always() && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.prart.outputs.name }}
           if-no-files-found: warn
@@ -627,7 +627,7 @@ jobs:
           Add-Run ".res/full"
 
       - name: Upload combined BDNA aggregates (env-keyed)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.art.outputs.agg_name }}
           path: .eval/bdna/aggregates/**
